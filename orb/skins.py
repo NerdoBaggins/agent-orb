@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from orb import PLUGIN_ROOT
-from orb.pages import PageError, folders_in, plain_name, subfolders
+from orb.pages import PageError, folders_in, listing, plain_name, reachable_folder
 
 DEFAULT = "pulse"
 BUILTIN_DIR = PLUGIN_ROOT / "skins"
@@ -118,11 +118,11 @@ def find(name: str, home: Path, named: list[Path] = ()) -> Skin:
     for root in skin_dirs(home, named):
         folder = root / name
         try:
-            here = folder in subfolders(root)
+            listing(root)
         except PageError as e:
             looked.append(str(e))
             continue
-        if here:
+        if reachable_folder(folder):
             return validate(folder)
         looked.append(str(folder))
     raise SkinError(f"no skin named {name!r}; looked in {', '.join(looked)}")

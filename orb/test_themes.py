@@ -141,3 +141,18 @@ def test_a_theme_in_a_folder_that_cannot_be_listed_falls_back_to_default_saying_
     unlistable(locked)
     theme = select("jarvis", tmp_path)
     assert theme.name == "default" and f"{locked} could not be listed" in theme.fallback_reason
+
+
+def test_a_themes_folder_holding_a_link_that_cannot_be_followed_still_loads_and_offers_its_themes(tmp_path, lock):
+    themed(tmp_path, "jarvis", {})
+    root = tmp_path / ".config" / "orb" / "themes"
+    (tmp_path / "locked" / "x").mkdir(parents=True)
+    (root / "shared").symlink_to(tmp_path / "locked" / "x")
+    lock(tmp_path / "locked", 0)
+    assert select("jarvis", tmp_path).fallback_reason is None and "jarvis" in available(tmp_path)
+
+
+def test_a_theme_asked_for_in_lower_case_loads_from_a_capitalised_folder_on_a_filesystem_that_ignores_case(tmp_path, case_blind):
+    folder = themed(tmp_path, "Jarvis", {})
+    (folder / "theme.json").write_text(json.dumps({"name": "jarvis", "version": "1"}), encoding="utf-8")
+    assert select("jarvis", tmp_path).fallback_reason is None
