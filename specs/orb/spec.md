@@ -316,6 +316,7 @@ The orb injects one function into every panel:
 - It works only during a real click or key press (the browser's user-activation flag) while focus is in that panel.
   A panel's own script can take focus, so in the seconds after a click elsewhere it can still send; the mark is what
   tells the agent the words are the page's.
+- Blank text, empty or only whitespace, is never sent: the send is rejected with the reason.
 - While the orb or the agent is busy it is held, so one request is in flight at a time: requests go in the order
   they were made, once the turn ends; a Stop that ends the turn drops what is waiting and rejects those sends.
 - `orb.state` and `orb.on("state", fn)` let a panel follow idle, listening, thinking and speaking. A panel never
@@ -383,7 +384,7 @@ The plugin ships `config.example.json`. Unknown keys are reported at startup.
 - config layering, validation, credential-key rejection, unknown-key reporting;
 - engine selection and its failure messages, with a fake engine for each interface;
 - saved-panel listing order and `panel.json` validation; `orb panel` command parsing;
-- `orb.send`: rejected without user activation, held while busy; `speak: false` returns the reply unspoken;
+- `orb.send`: rejected without user activation or with blank text, held while busy; `speak: false` returns the reply unspoken;
 - skin manifest validation and fallback;
 - agent selection (one, both, neither answering);
 - token check on HTTP and WebSocket, and rejection of a foreign `Origin`;
