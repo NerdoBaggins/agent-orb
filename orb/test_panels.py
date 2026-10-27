@@ -449,10 +449,11 @@ def test_a_saved_panel_that_is_a_broken_link_is_reported_and_the_others_still_li
     assert [p.name for p in panels] == ["alpha"] and problems == [f"{root / 'linked'} could not be read: it is a link to nothing that can be followed"]
 
 
-def test_a_stray_file_beside_the_saved_panels_is_not_a_problem(tmp_path):
+def test_a_stray_file_or_a_link_to_one_beside_the_saved_panels_is_not_a_problem(tmp_path):
     repo, home = tmp_path / "repo", tmp_path / "home"
     root = home / ".config" / "orb" / "panels"
     saved(root, "alpha")
     (root / ".DS_Store").write_bytes(b"\0")
+    (root / "notes.txt").symlink_to(root / ".DS_Store")
     panels, problems = list_saved(repo, home)
     assert ([p.name for p in panels], problems) == (["alpha"], [])
