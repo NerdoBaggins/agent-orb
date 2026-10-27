@@ -47,17 +47,32 @@ claude --dangerously-load-development-channels plugin:agent-orb@nerdobaggins
 The flag lets the orb send your speech into the session. Channels are a research preview, so Claude Code asks you to
 confirm the flag at every start.
 
-**Copilot CLI**: install from the same marketplace, then start Copilot as a UI server so the orb can attach:
+**Copilot CLI**: install from the same marketplace:
 
 ```
 copilot plugin marketplace add NerdoBaggins/agent-orb
 copilot plugin install agent-orb@nerdobaggins
+```
+
+Then start Copilot as a UI server, which listens on a port; the orb attaches to Copilot through that port, so the
+two must agree on the number. The orb dials `ORB_COPILOT_PORT` when it is set in the shell that started Copilot,
+and otherwise `copilot_port` from your config, which is 4321 unless you change it.
+
+**One Copilot at a time** (the usual case): start it on the default port. No setup needed.
+
+```
 copilot --ui-server --port 4321
 ```
 
-The port must match `copilot_port` in your config (4321 unless you change it), so only one Copilot at a time can use
-it. To run several at once, each on its own port, start Copilot with this shell function instead (macOS or Linux; put
-it in your `~/.zshrc` or `~/.bashrc`):
+**Several at once, in different repos**: each needs a port of its own, since only one program can listen on a
+port. Pick any free port and give the same number to both Copilot and the orb:
+
+```
+ORB_COPILOT_PORT=4400 copilot --ui-server --port 4400
+```
+
+**Or let a shell function pick the port** (macOS or Linux; put it in your `~/.zshrc` or `~/.bashrc`). It takes the
+first free port from 4321 up and sets both for you:
 
 ```sh
 copilot-orb() {
@@ -67,9 +82,10 @@ copilot-orb() {
 }
 ```
 
-It takes the first free port from 4321 up and tells the orb through `ORB_COPILOT_PORT`, which Copilot passes on to
-`orb open`. Anything after `copilot-orb` goes to Copilot, so add your usual options there, such as
-`copilot-orb --continue`. On Windows, set `ORB_COPILOT_PORT` and `--port` to the same free port yourself.
+Anything after `copilot-orb` goes to Copilot, so add your usual options there, such as `copilot-orb --continue`.
+On Windows, run `$env:ORB_COPILOT_PORT = 4400` in PowerShell, then `copilot --ui-server --port 4400`.
+
+If the orb says Copilot is not attached, the two numbers disagree, or Copilot is not running as a UI server.
 
 Working on the orb itself? Load it from a checkout instead: see [Developing](#developing).
 
@@ -470,7 +486,7 @@ Load the plugin from a checkout for one session instead of installing it:
 
 ```
 claude --plugin-dir <path to agent-orb> --dangerously-load-development-channels plugin:agent-orb@inline
-copilot --plugin-dir <path to agent-orb> --yolo --ui-server --port 4321 --continue
+copilot --plugin-dir <path to agent-orb> --ui-server --port 4321
 ```
 
 If you also installed it from the marketplace, disable that copy while you work from the checkout
