@@ -1340,19 +1340,19 @@
     current: null,
     key: null,
     render(names, current, key) {
-      this.names = names;
+      this.names = withActive(names, current);
       this.current = current;
       this.key = key;
       const select = $("skin-select");
       select.textContent = "";
-      for (const name of withActive(names, current)) {
+      for (const name of this.names) {
         const o = document.createElement("option");
         o.value = o.textContent = name;
         o.selected = name === current;
         select.append(o);
       }
       $("skin-pick").title = key ? `Skin (${key.replace(/^Key/, "")} cycles)` : "Skin";
-      $("skin-pick").hidden = names.length < 2;
+      $("skin-pick").hidden = this.names.length < 2;
     },
     cycle() {
       if (this.names.length < 2 || !skin.info) return;
@@ -1369,13 +1369,14 @@
       this.current = theme.name;
       const select = $("theme-select");
       select.textContent = "";
-      for (const name of withActive(names, theme.name)) {
+      const shown = withActive(names, theme.name);
+      for (const name of shown) {
         const o = document.createElement("option");
         o.value = o.textContent = name;
         o.selected = name === theme.name;
         select.append(o);
       }
-      $("theme-pick").hidden = names.length < 2;
+      $("theme-pick").hidden = shown.length < 2;
       if (theme.fallback_reason) notice(`theme: ${theme.fallback_reason}; using default`, "error");
       if (theme.note) notice(theme.note, "error");
     },
