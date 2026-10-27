@@ -769,7 +769,10 @@ class OrbServer:
     async def speak_text(self, text: str, said: str | None = None) -> None:
         """A panel's orb.speak or a transcript speaker: read the text aloud in the orb's voice, no agent turn. Only while
         idle, like a request."""
-        if not text.strip() or self.state != "idle" or not self.tts:
+        if not text.strip() or self.state != "idle":
+            return
+        if not self.tts:
+            await self.notify("info", "nothing was read aloud: no speech engine is loaded")
             return
         if not self.voice:
             await self.notify("info", "the orb is muted")

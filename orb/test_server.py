@@ -1692,3 +1692,16 @@ def test_a_size_outside_the_range_is_clamped_and_garbage_is_ignored(tmp_path):
             await server.set_state("idle")
             assert (await ws.receive_json()) == {"type": "state", "state": "idle"}
     run(go())
+
+
+def test_a_panel_speak_with_no_speech_engine_says_why_nothing_was_read(tmp_path):
+    async def go():
+        server = make(tmp_path)
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            await ws.send_json({"type": "speak_text", "text": "hello", "active": True})
+            notice = await asyncio.wait_for(ws.receive_json(), timeout=2)
+            assert notice["type"] == "notice" and "no speech engine" in notice["text"]
+            assert server.state == "idle"
+    run(go())
