@@ -171,10 +171,11 @@ def test_a_widget_that_is_a_broken_link_is_a_problem_and_the_others_still_list(t
     assert [w.name for w in widgets] == ["team"] and problems == [f"{root / 'linked'} could not be read: it is a link to nothing that can be followed"]
 
 
-def test_a_stray_file_beside_the_widgets_is_not_a_problem(tmp_path):
+def test_a_stray_file_or_a_link_to_one_beside_the_widgets_is_not_a_problem(tmp_path):
     repo, home = tmp_path / "repo", tmp_path / "home"
     root = home / ".config" / "orb" / "widgets"
     installed(root, "team")
     (root / ".DS_Store").write_bytes(b"\0")
+    (root / "notes.txt").symlink_to(root / ".DS_Store")
     widgets, problems = list_installed(repo, home)
     assert ([w.name for w in widgets], problems) == (["team"], [])
