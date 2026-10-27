@@ -768,11 +768,10 @@ class StallInterrupt(FakeLink):
         return self.outcome
 
 
-@pytest.mark.parametrize("outcome", list(agents.Stopped))
-def test_a_stop_pressed_while_speech_is_queued_leaves_the_window_on_the_orbs_state(tmp_path, outcome):
+def test_a_stop_answered_still_waiting_while_speech_is_queued_leaves_the_window_thinking_and_sends_nothing(tmp_path):
     async def go():
         server = make(tmp_path, voice=True, stt_text="said first")
-        server.link = StallInterrupt(outcome)
+        server.link = StallInterrupt(agents.Stopped.STILL_WAITING)
         shown = []
         async with await client_for(server) as c:
             await connect(c)
@@ -799,5 +798,33 @@ def test_a_stop_pressed_while_speech_is_queued_leaves_the_window_on_the_orbs_sta
             server.link.go.set()
             await stop
             await asyncio.sleep(0.1)
-            assert shown[-1] == server.state
+            assert (shown[-1], server.state, server.link.sent) == ("thinking", "thinking", [])
+    run(go())
+
+
+def test_queued_speech_leaves_a_reply_that_started_speaking_meanwhile_marked_as_the_one_being_said(tmp_path):
+    async def go():
+        server = make(tmp_path, voice=True, stt_text="said first")
+        states = []
+        async with await client_for(server) as c:
+            await connect(c)
+            real = server.broadcast
+            gate, held, speech = asyncio.Event(), [], []
+
+            async def stalled(message):
+                if message.get("type") == "state":
+                    states.append(message)
+                if speech and asyncio.current_task() is speech[0] and not held and message != {"type": "state", "state": "transcribing"}:
+                    held.append(message)
+                    await gate.wait()
+                await real(message)
+            server.session = server.session | {"busy": True}
+            server.broadcast = stalled
+            speech.append(asyncio.create_task(server.heard_clip(CLIP)))
+            await wait_for(lambda: held)
+            await server.speak_session_reply([{"kind": "reply", "final": True, "id": "f1", "text": "typed answer"}])
+            gate.set()
+            await speech[0]
+            server.speaking.cancel()
+            assert states[-1] == {"type": "state", "state": "speaking", "said": "f1"}
     run(go())
