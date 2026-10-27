@@ -259,7 +259,7 @@
         widgetsUi.lists(m);
         break;
       case "pickers":
-        skinPicker.render(m.skins, skin.info && skin.info.name, skinPicker.key);
+        skinPicker.render(m.skins, skinPicker.current, skinPicker.key);
         themePicker.render(m.themes, { name: themePicker.current });
         break;
       case "session":
@@ -1331,15 +1331,21 @@
   }
   $("voice-select").addEventListener("change", (ev) => send({ type: "tts_voice", id: ev.target.value }));
 
+  function withActive(names, active) {
+    return names.includes(active) ? names : [...names, active];
+  }
+
   const skinPicker = {
     names: [],
+    current: null,
     key: null,
     render(names, current, key) {
       this.names = names;
+      this.current = current;
       this.key = key;
       const select = $("skin-select");
       select.textContent = "";
-      for (const name of names) {
+      for (const name of withActive(names, current)) {
         const o = document.createElement("option");
         o.value = o.textContent = name;
         o.selected = name === current;
@@ -1363,7 +1369,7 @@
       this.current = theme.name;
       const select = $("theme-select");
       select.textContent = "";
-      for (const name of names) {
+      for (const name of withActive(names, theme.name)) {
         const o = document.createElement("option");
         o.value = o.textContent = name;
         o.selected = name === theme.name;

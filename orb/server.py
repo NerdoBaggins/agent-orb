@@ -352,7 +352,6 @@ class OrbServer:
         return {"skins": skins.available(self.home, self.skin_dirs), "themes": themes.available(self.home, self.theme_dirs)}
 
     async def refresh_pickers(self) -> None:
-        """A skin or theme folder added or removed while the orb is open reaches the bar's pickers on the next poll."""
         lists = await asyncio.to_thread(self.installed_pickers)
         if lists != self.picker_lists:
             self.picker_lists = lists
