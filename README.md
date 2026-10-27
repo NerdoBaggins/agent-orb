@@ -25,6 +25,9 @@ yourself may be a cloud service (see [Speech engines](#speech-engines)).
 
 You need `uv`, `node` 24 or later, and Chrome or Edge.
 
+- **Windows** (Edge is already there): `winget install astral-sh.uv OpenJS.NodeJS.LTS`
+- **macOS** (with [Homebrew](https://brew.sh)): `brew install uv node` and `brew install --cask google-chrome`
+
 **Claude Code** (2.1.275 or later installs in one step):
 
 ```
@@ -73,7 +76,7 @@ ORB_COPILOT_PORT=4400 copilot --ui-server --port 4400
 
 **Or let a function pick the port.** `copilot-orb` takes the first free port from 4321 up and sets both for you.
 
-macOS or Linux, in your `~/.zshrc` or `~/.bashrc`:
+macOS, in your `~/.zshrc` (or `~/.bashrc`):
 
 ```sh
 copilot-orb() {
