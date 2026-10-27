@@ -478,6 +478,32 @@ def test_the_pickers_are_sent_once_per_change_and_not_again_until_the_next(tmp_p
     run(go())
 
 
+def test_a_picker_scan_that_fails_once_does_not_stop_the_next_scan_reaching_the_pickers(tmp_path, monkeypatch):
+    skinned(tmp_path, {})
+    fast(monkeypatch)
+
+    async def go():
+        server = make(tmp_path)
+        scan, failed = server.installed_pickers, []
+
+        def fails_once():
+            if not failed:
+                failed.append(True)
+                raise OSError("unreadable skins folder")
+            return scan()
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            monkeypatch.setattr(server, "installed_pickers", fails_once)
+            skin_in(tmp_path / "home" / ".config" / "orb" / "skins", "aurora")
+            watcher = watching(server)
+            try:
+                assert "aurora" in (await asyncio.wait_for(next_pickers(ws), timeout=2))["skins"]
+            finally:
+                watcher.cancel()
+    run(go())
+
+
 def test_the_page_poll_sends_a_skin_folder_added_while_the_orb_is_open_to_the_pickers(tmp_path, monkeypatch):
     skinned(tmp_path, {})
     fast(monkeypatch)
