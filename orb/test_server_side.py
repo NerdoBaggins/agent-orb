@@ -4,6 +4,7 @@ import time
 import json
 
 import numpy as np
+import pytest
 from aiohttp import WSMsgType
 
 from orb import agents
@@ -711,4 +712,46 @@ def test_speech_heard_before_stop_is_dropped_with_what_was_waiting(tmp_path):
             await spoken
             await asyncio.sleep(0.2)
             assert server.link.sent == [] and server.queue == []
+    run(go())
+
+
+async def press_the_button_while_speech_waits(server, pending):
+    gate, held, real_broadcast, speech = asyncio.Event(), [], server.broadcast, []
+
+    async def stalled(message):
+        if asyncio.current_task() is speech[0] and not held and message != {"type": "state", "state": "transcribing"}:
+            held.append(message)
+            await gate.wait()
+        await real_broadcast(message)
+
+    server.broadcast = stalled
+    server.session = server.session | {"busy": True}
+    server.pending.update(pending)
+    speech.append(asyncio.create_task(server.heard_clip(CLIP)))
+    await wait_for(lambda: held)
+    await server.ptt_start()
+    gate.set()
+    await speech[0]
+
+
+@pytest.mark.parametrize("pending", [{}, {"r0": {"text": "earlier"}}], ids=["orb idle", "orb thinking"])
+def test_a_button_pressed_while_speech_is_queued_keeps_the_orb_listening(tmp_path, pending):
+    async def go():
+        server = make(tmp_path, voice=True, stt_text="said first")
+        async with await client_for(server) as c:
+            await connect(c)
+            await press_the_button_while_speech_waits(server, pending)
+            assert server.state == "listening" and server.recording is not None
+    run(go())
+
+
+def test_queued_speech_is_not_sent_while_the_button_is_held(tmp_path):
+    async def go():
+        server = make(tmp_path, voice=True, stt_text="said first")
+        async with await client_for(server) as c:
+            await connect(c)
+            await press_the_button_while_speech_waits(server, {})
+            server.session = server.session | {"busy": False}
+            await server.send_queued()
+            assert server.link.sent == []
     run(go())
