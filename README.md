@@ -52,10 +52,24 @@ confirm the flag at every start.
 ```
 copilot plugin marketplace add NerdoBaggins/agent-orb
 copilot plugin install agent-orb@nerdobaggins
-copilot --yolo --ui-server --port 4321 --continue
+copilot --ui-server --port 4321
 ```
 
-The port must match `copilot_port` in your config (4321 unless you change it).
+The port must match `copilot_port` in your config (4321 unless you change it), so only one Copilot at a time can use
+it. To run several at once, each on its own port, start Copilot with this shell function instead (macOS or Linux; put
+it in your `~/.zshrc` or `~/.bashrc`):
+
+```sh
+copilot-orb() {
+  local port=4321
+  while lsof -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; do port=$((port + 1)); done
+  ORB_COPILOT_PORT=$port copilot --ui-server --port "$port" "$@"
+}
+```
+
+It takes the first free port from 4321 up and tells the orb through `ORB_COPILOT_PORT`, which Copilot passes on to
+`orb open`. Anything after `copilot-orb` goes to Copilot, so add your usual options there, such as
+`copilot-orb --continue`. On Windows, set `ORB_COPILOT_PORT` and `--port` to the same free port yourself.
 
 Working on the orb itself? Load it from a checkout instead: see [Developing](#developing).
 
@@ -239,7 +253,7 @@ a choice made in one repo stays there.
 | `stt` | `{"engine": "moonshine", "moonshine": {}}` |
 | `tts` | `{"engine": "kokoro", "speed": 1.18, "kokoro": {"voice": {"af_heart": 0.55, "bf_emma": 0.45}, "lang": "en-gb"}}` — `speed` is one number or per agent, `{"claude": 1.1, "copilot": 1.3}` |
 | `wake` | absent (push-to-talk only); see [Wake word](#wake-word) |
-| `copilot_port` | `4321` |
+| `copilot_port` | `4321` — `ORB_COPILOT_PORT` in the environment Copilot was started from takes precedence |
 | `panel_dirs` | `[]` — extra folders for saved panels, absolute or `~/…`; only your own two files may set it |
 | `theme_dirs` | `[]` — extra folders for themes, absolute or `~/…`, searched first; only your own two files may set it |
 | `skin_dirs` | `[]` — extra folders for skins, absolute or `~/…`, searched first; only your own two files may set it |
@@ -420,7 +434,7 @@ what to do. `--no-engines` skips loading the speech engines, which is faster.
 | What you see | What it means |
 |---|---|
 | **Not attached: start Claude Code in this repo with …** | Claude Code was started without the channel flag, or in another folder. Quit and restart it with the command shown. |
-| **Not attached: start Copilot in this repo with …** | No Copilot UI server answers on `copilot_port`. Start Copilot with the command shown, on the same port as your config. |
+| **Not attached: start Copilot in this repo with …** | No Copilot UI server answers on the port the orb dials: `ORB_COPILOT_PORT` when Copilot was started with it, else `copilot_port`. Start Copilot with the command shown, on that port. |
 | **orb already open for … in …** | That repo already has an orb for that agent with its window open. Use that window, or stop it with `orb stop` to start another. |
 | **no Chrome or Edge found** | Install one; the orb window needs it. |
 | The mic permission prompt comes back | The orb's usual port was taken, so it started on a new one, and the browser asks again. |
