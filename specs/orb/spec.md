@@ -476,8 +476,7 @@ tell the user when the attached agent lacks the plugin, and the Copilot prompt p
 
 Not verified: Terminal.app without the focus cost; a fresh Mac's TCC prompts on the first Stop. Also seen:
 `copilot --continue` in a folder with no session of its own resumed the user's most recent conversation from
-another folder (with a "may already be in use" warning), so the README's Copilot command is wrong for a first
-run in a new repo.
+another folder (with a "may already be in use" warning).
 
 ## Decisions (2026-10-05)
 
