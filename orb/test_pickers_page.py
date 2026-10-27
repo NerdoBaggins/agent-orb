@@ -31,3 +31,25 @@ def test_a_pickers_message_refills_the_selects_and_keeps_the_skin_and_theme_in_u
 
     asyncio.run(run_page(tmp_path, [], installed_change, server))
     assert seen == {"skin": [["pulse", "aurora", "neb"], "neb"], "theme": [["default", "glass", "hud"], "hud"]}
+
+
+async def shown(page, select):
+    return await page.evaluate("(select) => !document.getElementById(select).closest('[hidden]')", select)
+
+
+@pytest.mark.timeout(60)
+def test_the_pickers_stay_shown_when_only_one_other_skin_and_theme_remain_beside_the_ones_in_use(tmp_path):
+    skinned(tmp_path, {})
+    hud(tmp_path)
+    (tmp_path / "home" / ".config" / "orb" / "config.json").write_text(json.dumps({"skin": "neb", "theme": "hud"}), encoding="utf-8")
+    server = make(tmp_path, voice=True)
+    seen = {}
+
+    async def removed(page):
+        await server.broadcast({"type": "pickers", "skins": ["pulse"], "themes": ["default"]})
+        await page.wait_for_timeout(500)
+        seen["skin"] = await shown(page, "skin-select")
+        seen["theme"] = await shown(page, "theme-select")
+
+    asyncio.run(run_page(tmp_path, [], removed, server))
+    assert seen == {"skin": True, "theme": True}
