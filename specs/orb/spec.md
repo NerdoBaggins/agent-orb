@@ -275,7 +275,8 @@ show.
 ### Showing a panel
 
 - `orb panel show <file.html> [--title <title>] [--name <name>]` shows a page; `orb panel close <name>` closes it.
-  Showing a name already open replaces it. A title is up to 200 characters.
+  Showing a name already open replaces it. A `--title` over 200 characters is refused; a title taken from the folder
+  name or `panel.json` is shortened to 200, as a name taken from the folder is shortened to 64.
 - **One-off:** the agent writes the page as `index.html` in a folder of its own and shows it; the files beside it
   are served with it. A page under another name is served alone, and one sharing its folder with other files, or an
   `index.html` with other files beside it directly in the temp folder, `/tmp`, home or the root, is refused with

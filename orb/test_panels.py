@@ -1,10 +1,12 @@
 import os
 import json
+from pathlib import Path
 
 import pytest
 
 from dataclasses import astuple
 
+from orb import pages
 from orb.state import private_root
 from orb.pages import PageError
 from orb.panels import Show, collect_files, find_saved, list_saved, name_for, resolve_show, settled, valid_name
@@ -294,6 +296,10 @@ def test_names_are_validated_and_derived():
         valid_name("Bad Name")
     from pathlib import Path
     assert name_for(Path("My Chart (v2).html")) == "my-chart-v2"
+
+
+def test_a_one_off_name_longer_than_the_name_cap_is_shortened_to_it():
+    assert name_for(Path("a" * (pages.MAX_NAME_CHARS + 10) + ".html")) == "a" * pages.MAX_NAME_CHARS
 
 
 
