@@ -68,12 +68,14 @@ def list_saved(repo_root: Path, home: Path) -> tuple[list[SavedPanel], list[str]
     panels, problems = [], []
     for scope, root in panel_dirs(repo_root, home):
         try:
-            folders = pages.subfolders(root)
+            folders = pages.listing(root)
         except PageError as e:
             problems.append(str(e))
             continue
         for folder in folders:
             try:
+                if not pages.readable_folder(folder):
+                    continue
                 title, description = read_manifest(folder)
                 panels.append(SavedPanel(valid_name(folder.name), title, description, folder, scope))
             except PageError as e:
