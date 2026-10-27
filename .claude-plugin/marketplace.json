@@ -1,0 +1,5 @@
+{
+  "name": "nerdobaggins",
+  "owner": {"name": "Alberto Gonda"},
+  "plugins": [{"name": "agent-orb", "source": "./"}]
+}

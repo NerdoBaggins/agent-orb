@@ -1,0 +1,1 @@
+{ "name": "resemblyzer", "version": "1.0.0", "kind": "voiceprint", "run": ["uv", "run", "--script", "engine.py"] }

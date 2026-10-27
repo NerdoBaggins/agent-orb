@@ -1,0 +1,10 @@
+{
+  "name": "orb-channel",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Channel MCP server that delivers orb requests into a Claude Code session.",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  }
+}

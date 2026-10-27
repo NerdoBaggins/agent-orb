@@ -1,0 +1,14 @@
+{
+  "ptt_key": "Space",
+  "skin": "pulse",
+  "skin_options": {},
+  "speak": true,
+  "mute_key": "KeyM",
+  "stt": { "engine": "moonshine", "moonshine": {} },
+  "tts": {
+    "engine": "kokoro",
+    "speed": 1.18,
+    "kokoro": { "voice": { "af_heart": 0.55, "bf_emma": 0.45 }, "lang": "en-gb" }
+  },
+  "copilot_port": 4321
+}
