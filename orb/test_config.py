@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from orb.config import (DEFAULTS, REPO_KEYS, SIZE_MAX, SIZE_MIN, SIZE_NORMAL, ConfigError, credential_keys, engine_settings,
+from orb.config import (DEFAULTS, REPO_KEYS, SIZE_MAX, SIZE_MIN, SIZE_NORMAL, ConfigError, copilot_port_for, credential_keys, engine_settings,
                         load, load_for, private_config_path, repo_config_path, save_skin_size, save_speed, save_widget,
                         size_for, speed_for, tts_settings_for, user_config_path)
 
@@ -377,3 +377,17 @@ def test_the_size_sliders_range_is_the_range_sizes_are_kept_in():
     slider = re.search(r'<input id="size"[^>]*>', html).group(0)
     attribute = lambda name: float(re.search(rf'{name}="([\d.]+)"', slider).group(1))
     assert (attribute("min"), attribute("max"), attribute("value")) == (SIZE_MIN, SIZE_MAX, SIZE_NORMAL)
+
+
+def test_copilot_port_comes_from_orb_copilot_port_when_set_and_from_config_otherwise():
+    config = load_for(Path("/nonexistent-repo"), Path("/nonexistent-home"))
+    assert copilot_port_for(config, {"ORB_COPILOT_PORT": "4399"}) == 4399
+    assert copilot_port_for(config, {"ORB_COPILOT_PORT": ""}) == config["copilot_port"]
+    assert copilot_port_for(config, {}) == config["copilot_port"]
+
+
+@pytest.mark.parametrize("raw", ["abc", "0", "65536", "-1", "43 21"])
+def test_copilot_port_from_the_environment_must_be_a_port_number(raw):
+    config = load_for(Path("/nonexistent-repo"), Path("/nonexistent-home"))
+    with pytest.raises(ConfigError, match="ORB_COPILOT_PORT"):
+        copilot_port_for(config, {"ORB_COPILOT_PORT": raw})

@@ -14,7 +14,7 @@ import urllib.request
 from pathlib import Path
 
 from orb import PLUGIN_ROOT, agents, browser, logs, pages, panels, widgets
-from orb.config import ConfigError, load_for, panel_dirs_for, private_config_path, save_for_repo, save_widget, widget_dirs_for, widgets_on
+from orb.config import ConfigError, copilot_port_for, load_for, panel_dirs_for, private_config_path, save_for_repo, save_widget, widget_dirs_for, widgets_on
 from orb.state import port_file, private_root, read_json, running_server, server_file, session_project, state_dir, user_only
 
 HEALTH_WAIT_S = 300  # the first run downloads the speech models (about 400 MB) before the server answers
@@ -118,6 +118,7 @@ def cmd_open(args) -> int:
     repo, home = repo_and_home(args, os.environ)
     try:
         config = load_for(repo, home)
+        copilot_port = copilot_port_for(config, os.environ)
     except ConfigError as e:
         print(f"orb: {e}", file=sys.stderr)
         return 2
@@ -127,7 +128,7 @@ def cmd_open(args) -> int:
 
     channel = agents.read_channel(state)
     try:
-        agent = agents.select_agent(args.agent, agents.channel_bound(channel), copilot_port_open(config["copilot_port"]))
+        agent = agents.select_agent(args.agent, agents.channel_bound(channel), copilot_port_open(copilot_port))
     except agents.LinkError as e:
         print(f"orb: {e}", file=sys.stderr)
         return 1
