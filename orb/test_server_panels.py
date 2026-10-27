@@ -1,9 +1,12 @@
+import asyncio
 import base64
+import itertools
 import os
 
 import pytest
 
-from orb import pages
+from orb import cli, pages, panels
+from orb import server as server_module
 from orb.test_server import TOKEN, client_for, make, run
 
 
@@ -504,12 +507,48 @@ def test_every_page_loads_the_shared_assets_from_the_shared_base(tmp_path):
     run(go())
 
 
-def test_a_panel_just_under_the_size_cap_is_accepted_by_the_server(tmp_path):
+def test_base64_length_is_the_length_the_encoder_gives():
+    assert [server_module.base64_length(n) for n in range(7)] == [len(base64.b64encode(bytes(n))) for n in range(7)]
+
+
+def test_the_longest_base64_of_files_is_never_shorter_than_any_split_of_them_encodes_to():
+    for total in range(10):
+        for count in range(1, 5):
+            for split in itertools.product(range(total + 1), repeat=count):
+                if sum(split) == total:
+                    encoded = sum(len(base64.b64encode(bytes(n))) for n in split)
+                    assert encoded <= server_module.files_base64_max(total, count), split
+
+
+def largest_panel_post(home, title_chars):
+    longest_name = "n" * pages.MAX_NAME_CHARS
+    saved = home / ".config" / "orb" / "panels" / longest_name
+    saved.mkdir(parents=True)
+    (saved / "index.html").write_text("<p>saved</p>", encoding="utf-8")
+    (saved / "panel.json").write_text(json.dumps({"title": "Saved", "description": "d"}), encoding="utf-8")
+    others = pages.MAX_FILES - 1
+    size = pages.MAX_TOTAL_BYTES // pages.MAX_FILES
+    size -= (size - 1) % 3
+    files = {chr(0x10000 + i) * pages.MAX_PATH_CHARS: base64.b64encode(bytes(size)).decode() for i in range(others)}
+    files["index.html"] = base64.b64encode(bytes(pages.MAX_TOTAL_BYTES - others * size)).decode()
+    return {"name": longest_name, "title": "\U0010ffff" * title_chars, "files": files, "saved": longest_name}
+
+
+def test_a_panel_at_every_cap_at_once_is_accepted_by_the_server(tmp_path):
     async def go():
         server = make(tmp_path)
-        files = {"index.html": base64.b64encode(b"<html><body>big</body></html>").decode(),
-                 "img/photo.bin": base64.b64encode(os.urandom(pages.MAX_TOTAL_BYTES - 4096)).decode()}
+        body = largest_panel_post(tmp_path / "home", panels.MAX_TITLE_CHARS)
         async with await client_for(server) as c:
-            response = await c.post("/panel", params={"token": TOKEN}, json={"name": "big", "title": "Big", "files": files})
-            assert response.status == 200, await response.text()
+            answer = await asyncio.to_thread(cli.post, {"port": c.server.port, "token": TOKEN}, "/panel", body)
+            assert answer["ok"]
+    run(go())
+
+
+def test_a_panel_post_one_character_past_every_cap_is_refused_as_too_large(tmp_path):
+    async def go():
+        server = make(tmp_path)
+        body = largest_panel_post(tmp_path / "home", panels.MAX_TITLE_CHARS + 1)
+        async with await client_for(server) as c:
+            response = await c.post("/panel", params={"token": TOKEN}, json=body)
+            assert response.status == 413
     run(go())

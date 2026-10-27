@@ -5,8 +5,11 @@ from pathlib import Path
 
 from orb.state import private_root
 
-NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+MAX_NAME_CHARS = 64
+NAME = re.compile(rf"^[a-z0-9][a-z0-9_-]{{0,{MAX_NAME_CHARS - 1}}}$")
 MAX_TOTAL_BYTES = 8 * 1024 * 1024
+MAX_FILES = 1000
+MAX_PATH_CHARS = 255
 
 
 class PageError(ValueError):
@@ -19,7 +22,7 @@ def plain_name(name: str) -> bool:
 
 def valid_name(name: str) -> str:
     if not plain_name(name):
-        raise PageError(f"name {name!r} must be lowercase letters, digits, - or _ (up to 64)")
+        raise PageError(f"name {name!r} must be lowercase letters, digits, - or _ (up to {MAX_NAME_CHARS})")
     return name
 
 
@@ -95,13 +98,18 @@ def settled(previous: tuple | None, now: tuple, shown: tuple) -> bool:
 
 
 def collect_files(html_path: Path) -> dict[str, bytes]:
-    """The page plus every regular file beside it (no dotfiles, no subfolders beyond one level), capped in size."""
+    """The page plus every regular file beside it (no dotfiles, no subfolders beyond one level), capped in size, in
+    number and in path length."""
     if not html_path.is_file():
         raise PageError(f"{html_path} is missing")
     folder = html_path.parent
     collected: dict[str, bytes] = {}
     total = 0
     for rel, path in files(folder):
+        if len(collected) == MAX_FILES:
+            raise PageError(f"more than {MAX_FILES} files beside {html_path.name}")
+        if len(rel.as_posix()) > MAX_PATH_CHARS:
+            raise PageError(f"{rel.as_posix()} beside {html_path.name} is longer than {MAX_PATH_CHARS} characters")
         data = path.read_bytes()
         total += len(data)
         if total > MAX_TOTAL_BYTES:

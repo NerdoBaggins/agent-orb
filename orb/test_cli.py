@@ -3,7 +3,7 @@ import sys
 
 import pytest
 
-from orb import cli
+from orb import cli, pages, panels
 
 
 def test_showing_a_saved_panel_sends_its_name_and_its_files(tmp_path, monkeypatch):
@@ -16,6 +16,19 @@ def test_showing_a_saved_panel_sends_its_name_and_its_files(tmp_path, monkeypatc
     monkeypatch.setattr(cli, "post", lambda server, path, body: sent.append(body))
     assert cli.main(["panel", "show", str(folder / "index.html"), "--repo", str(tmp_path / "repo"), "--home", str(tmp_path / "home")]) == 0
     assert sent[0]["saved"] == "prs" and sent[0]["name"] == "prs" and "index.html" in sent[0]["files"]
+
+
+@pytest.mark.parametrize("flag, value, refusal", [("--title", "t" * (panels.MAX_TITLE_CHARS + 1), "title must be"),
+                                                  ("--name", "n" * (pages.MAX_NAME_CHARS + 1), "must be lowercase")])
+def test_a_panel_title_or_name_over_its_cap_is_refused_before_anything_is_sent(tmp_path, monkeypatch, capsys, flag, value, refusal):
+    folder = tmp_path / "site"
+    folder.mkdir()
+    (folder / "index.html").write_text("<p>hi</p>", encoding="utf-8")
+    sent = []
+    monkeypatch.setattr(cli, "pick_server", lambda state, agent: {})
+    monkeypatch.setattr(cli, "post", lambda server, path, body: sent.append(body))
+    assert cli.main(["panel", "show", str(folder / "index.html"), flag, value, "--repo", str(tmp_path / "repo"), "--home", str(tmp_path / "home")]) == 2
+    assert sent == [] and refusal in capsys.readouterr().err
 
 
 def test_the_server_command_line_carries_no_token_and_the_server_takes_it_from_standard_input(tmp_path):

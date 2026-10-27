@@ -246,6 +246,39 @@ def test_oversized_panel_folder_is_refused(tmp_path, monkeypatch):
         collect_files(tmp_path / "big.html")
 
 
+def test_a_folder_of_as_many_files_as_the_cap_is_collected(tmp_path, monkeypatch):
+    monkeypatch.setattr("orb.pages.MAX_FILES", 2)
+    (tmp_path / "index.html").write_text("<p>hi</p>", encoding="utf-8")
+    (tmp_path / "a.css").write_text("", encoding="utf-8")
+    assert set(collect_files(tmp_path / "index.html")) == {"index.html", "a.css"}
+
+
+def test_a_folder_of_more_files_than_the_cap_is_refused(tmp_path, monkeypatch):
+    monkeypatch.setattr("orb.pages.MAX_FILES", 2)
+    (tmp_path / "index.html").write_text("<p>hi</p>", encoding="utf-8")
+    (tmp_path / "a.css").write_text("", encoding="utf-8")
+    (tmp_path / "b.css").write_text("", encoding="utf-8")
+    with pytest.raises(PageError, match="more than 2 files"):
+        collect_files(tmp_path / "index.html")
+
+
+def test_a_file_whose_path_is_as_long_as_the_cap_is_collected(tmp_path, monkeypatch):
+    monkeypatch.setattr("orb.pages.MAX_PATH_CHARS", len("img/abcd.png"))
+    (tmp_path / "index.html").write_text("<p>hi</p>", encoding="utf-8")
+    (tmp_path / "img").mkdir()
+    (tmp_path / "img" / "abcd.png").write_bytes(b"")
+    assert "img/abcd.png" in collect_files(tmp_path / "index.html")
+
+
+def test_a_file_whose_path_is_longer_than_the_cap_is_refused(tmp_path, monkeypatch):
+    monkeypatch.setattr("orb.pages.MAX_PATH_CHARS", len("img/abcd.png"))
+    (tmp_path / "index.html").write_text("<p>hi</p>", encoding="utf-8")
+    (tmp_path / "img").mkdir()
+    (tmp_path / "img" / "abcde.png").write_bytes(b"")
+    with pytest.raises(PageError, match="img/abcde.png .* longer than 12 characters"):
+        collect_files(tmp_path / "index.html")
+
+
 def test_unknown_target_names_both_possibilities(tmp_path):
     with pytest.raises(PageError, match="neither an HTML file nor a saved panel"):
         resolve_show("nope", tmp_path, tmp_path)

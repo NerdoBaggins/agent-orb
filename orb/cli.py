@@ -211,10 +211,10 @@ def cmd_panel(args) -> int:
         return 0
     try:
         show = panels.resolve_show(args.target, repo, home)
+        name, title = panels.valid_name(args.name or show.name), panels.valid_title(args.title or show.title)
     except pages.PageError as e:
         print(f"orb: {e}", file=sys.stderr)
         return 2
-    name, title = args.name or show.name, args.title or show.title
     encoded = {path: base64.b64encode(data).decode("ascii") for path, data in show.files.items()}
     post(server, "/panel", {"name": name, "title": title, "files": encoded, "saved": show.saved_name})
     print(f"showing panel {name} ({title})")
