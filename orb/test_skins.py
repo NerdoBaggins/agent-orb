@@ -192,3 +192,18 @@ def test_a_skin_in_a_folder_that_cannot_be_listed_falls_back_to_pulse_saying_why
     unlistable(locked)
     skin = select("neb", tmp_path)
     assert skin.name == "pulse" and f"{locked} could not be listed" in skin.fallback_reason
+
+
+def test_a_skins_folder_holding_a_link_that_cannot_be_followed_still_loads_and_offers_its_skins(tmp_path, lock):
+    root = tmp_path / ".config" / "orb" / "skins"
+    skin_in(root, "neb")
+    (tmp_path / "locked" / "x").mkdir(parents=True)
+    (root / "shared").symlink_to(tmp_path / "locked" / "x")
+    lock(tmp_path / "locked", 0)
+    assert select("neb", tmp_path).fallback_reason is None and "neb" in available(tmp_path)
+
+
+def test_a_skin_asked_for_in_lower_case_loads_from_a_capitalised_folder_on_a_filesystem_that_ignores_case(tmp_path, case_blind):
+    folder = skin_in(tmp_path / ".config" / "orb" / "skins", "Neb")
+    (folder / "skin.json").write_text(json.dumps({"name": "neb", "version": "1"}), encoding="utf-8")
+    assert select("neb", tmp_path).fallback_reason is None

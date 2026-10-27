@@ -22,3 +22,11 @@ def lock():
 @pytest.fixture(params=[0o000, 0o444, 0o111], ids=["unreadable-and-unsearchable", "unsearchable", "unreadable"])
 def unlistable(request, lock):
     return lambda folder: lock(folder, request.param)
+
+
+@pytest.fixture
+def case_blind(tmp_path):
+    (tmp_path / "Probe").mkdir()
+    if not (tmp_path / "probe").is_dir():
+        pytest.skip("the temporary folder's filesystem tells names apart by case")
+    (tmp_path / "Probe").rmdir()

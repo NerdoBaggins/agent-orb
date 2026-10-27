@@ -26,12 +26,26 @@ def valid_name(name: str) -> str:
     return name
 
 
-def subfolders(root: Path) -> list[Path]:
-    """The folders in `root`, by name; none when `root` is absent, a PageError when it cannot be listed."""
+def listing(root: Path) -> list[Path]:
+    """What `root` holds, by name; none when `root` is absent, a PageError when it cannot be listed or entered."""
     try:
-        return sorted(p for p in root.iterdir() if p.is_dir()) if root.is_dir() else []
+        found = sorted(root.iterdir()) if root.is_dir() else []
+        for entry in found:
+            entry.lstat()
     except OSError as e:
         raise PageError(f"{root} could not be listed: {e.strerror or e}")
+    return found
+
+
+def reachable_folder(path: Path) -> bool:
+    try:
+        return path.is_dir()
+    except OSError:
+        return False
+
+
+def subfolders(root: Path) -> list[Path]:
+    return [entry for entry in listing(root) if reachable_folder(entry)]
 
 
 def folders_in(roots: list[Path]) -> tuple[list[Path], list[str]]:
