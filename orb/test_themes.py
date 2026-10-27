@@ -143,6 +143,15 @@ def test_a_theme_in_a_folder_that_cannot_be_listed_falls_back_to_default_saying_
     assert theme.name == "default" and f"{locked} could not be listed" in theme.fallback_reason
 
 
+def test_a_theme_whose_folder_is_a_link_that_cannot_be_followed_falls_back_to_default(tmp_path, lock):
+    themed(tmp_path, "jarvis", {}, root=tmp_path / "locked")
+    root = tmp_path / ".config" / "orb" / "themes"
+    root.mkdir(parents=True)
+    (root / "jarvis").symlink_to(tmp_path / "locked" / "jarvis")
+    lock(tmp_path / "locked", 0)
+    assert select("jarvis", tmp_path).name == "default"
+
+
 def test_a_themes_folder_holding_a_link_that_cannot_be_followed_still_loads_and_offers_its_themes(tmp_path, lock):
     themed(tmp_path, "jarvis", {})
     root = tmp_path / ".config" / "orb" / "themes"

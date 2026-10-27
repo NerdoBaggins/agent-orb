@@ -1,4 +1,6 @@
 import json
+import shutil
+from pathlib import Path
 
 import pytest
 
@@ -192,6 +194,31 @@ def test_a_skin_in_a_folder_that_cannot_be_listed_falls_back_to_pulse_saying_why
     unlistable(locked)
     skin = select("neb", tmp_path)
     assert skin.name == "pulse" and f"{locked} could not be listed" in skin.fallback_reason
+
+
+def test_a_skin_whose_folder_is_a_link_that_cannot_be_followed_falls_back_to_pulse(tmp_path, lock):
+    skin_in(tmp_path / "locked", "neb")
+    root = tmp_path / ".config" / "orb" / "skins"
+    root.mkdir(parents=True)
+    (root / "neb").symlink_to(tmp_path / "locked" / "neb")
+    lock(tmp_path / "locked", 0)
+    assert select("neb", tmp_path).name == "pulse"
+
+
+def test_a_skin_removed_while_its_folder_is_listed_leaves_the_others_loading(tmp_path, monkeypatch):
+    root = tmp_path / ".config" / "orb" / "skins"
+    skin_in(root, "neb")
+    gone = skin_in(root, "old")
+    real_iterdir = Path.iterdir
+
+    def iterdir_then_remove(self):
+        found = list(real_iterdir(self))
+        if self == root and gone.exists():
+            shutil.rmtree(gone)
+        return iter(found)
+
+    monkeypatch.setattr(Path, "iterdir", iterdir_then_remove)
+    assert select("neb", tmp_path).fallback_reason is None
 
 
 def test_a_skins_folder_holding_a_link_that_cannot_be_followed_still_loads_and_offers_its_skins(tmp_path, lock):
