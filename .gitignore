@@ -1,0 +1,8 @@
+node_modules/
+.orb-channel-port
+spikes/
+.venv/
+__pycache__/
+.pytest_cache/
+*.egg-info/
+dist/

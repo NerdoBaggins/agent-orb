@@ -1,0 +1,38 @@
+/* House style injected into every panel. Override anything; it is only a default. */
+:root {
+  --orb-stage: #07090f;
+  --orb-bg: #0a0d15;
+  --orb-surface: #0f1522;
+  --orb-fg: #d7e3f4;
+  --orb-dim: #6f7f99;
+  --orb-accent: #5ad1ff;
+  --orb-line: #1a2030;
+  --orb-edge: #2a3650;
+  --orb-ok: #7ee787;
+  --orb-warn: #ffb454;
+  --orb-err: #ff6b6b;
+  --orb-font: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --orb-display: var(--orb-font);
+  --orb-mono: ui-monospace, Consolas, monospace;
+  color-scheme: dark;
+}
+html, body { margin: 0; background: var(--orb-bg); color: var(--orb-fg); }
+body { font: 14px/1.5 var(--orb-font); padding: 16px; }
+h1, h2, h3 { font-family: var(--orb-display); font-weight: 600; letter-spacing: 0.02em; margin: 0 0 0.6em; }
+h1 { font-size: 18px; } h2 { font-size: 15px; color: var(--orb-accent); } h3 { font-size: 14px; }
+a { color: var(--orb-accent); }
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--orb-line); }
+th { color: var(--orb-dim); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; }
+code, pre { font-family: var(--orb-mono); font-size: 13px; }
+pre { background: var(--orb-surface); padding: 10px; border-radius: 6px; overflow: auto; }
+button, .orb-speaker {
+  font: inherit; color: var(--orb-fg); background: var(--orb-surface); border: 1px solid var(--orb-edge);
+  border-radius: 6px; padding: 5px 10px; cursor: pointer;
+}
+button:hover, .orb-speaker:hover { border-color: var(--orb-accent); }
+button:disabled { opacity: 0.4; cursor: default; }
+.orb-speaker { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; }
+.orb-speaker::before { content: "🔊"; font-size: 13px; }
+.orb-card { background: var(--orb-surface); border: 1px solid var(--orb-line); border-radius: 8px; padding: 12px; margin: 0 0 12px; }
+.orb-dim { color: var(--orb-dim); }

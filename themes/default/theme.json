@@ -1,0 +1,7 @@
+{
+  "name": "default",
+  "version": "1.1.0",
+  "description": "The original agent-orb look: its own controls and panel stylesheet, unchanged, spoken by the built-in Kokoro.",
+  "skin": "pulse",
+  "tts": { "engine": "kokoro" }
+}

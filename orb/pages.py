@@ -1,0 +1,112 @@
+"""The folder shape a panel and a widget share: a page under a name, with a manifest and the files beside it."""
+import json
+import re
+from pathlib import Path
+
+from orb.state import private_root
+
+NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+MAX_TOTAL_BYTES = 8 * 1024 * 1024
+
+
+class PageError(ValueError):
+    pass
+
+
+def plain_name(name: str) -> bool:
+    return NAME.fullmatch(name) is not None
+
+
+def valid_name(name: str) -> str:
+    if not plain_name(name):
+        raise PageError(f"name {name!r} must be lowercase letters, digits, - or _ (up to 64)")
+    return name
+
+
+def scoped_dirs(kind: str, repo_root: Path, home: Path, named: list[Path]) -> list[tuple[str, Path]]:
+    return [("mine", private_root(home, repo_root) / kind), *[("custom", folder) for folder in named],
+            ("user", Path(home) / ".config" / "orb" / kind)]
+
+
+def ignored_repo_pages(kind: str, repo_root: Path) -> list[str]:
+    folder = Path(repo_root) / ".orb" / kind
+    try:
+        shipped = folder.is_dir() and any(p.is_dir() for p in folder.iterdir())
+    except OSError:
+        shipped = False
+    return [f"{folder}: a repo's own {kind} are not loaded; the orb shows {kind} only from your own folders"] if shipped else []
+
+
+def manifest(folder: Path, filename: str) -> dict:
+    where = folder / filename
+    try:
+        data = json.loads(where.read_text(encoding="utf-8"))
+    except OSError:
+        raise PageError(f"{folder} has no {filename}")
+    except ValueError as e:
+        raise PageError(f"{where} is not valid JSON: {e}")
+    if not isinstance(data, dict):
+        raise PageError(f"{where} must hold a JSON object")
+    return data
+
+
+def require_index(folder: Path) -> None:
+    try:
+        present = (folder / "index.html").exists()
+    except OSError as e:
+        raise PageError(f"{folder / 'index.html'} could not be read: {e.strerror or e}")
+    if not present:
+        raise PageError(f"{folder} has no index.html")
+
+
+def files(folder: Path):
+    found = []
+    for entry in _entries(folder):
+        if entry.is_file():
+            found.append(entry)
+        elif entry.is_dir() and not entry.is_symlink():
+            found += [inner for inner in _entries(entry) if inner.is_file()]
+    for path in sorted(found):
+        yield path.relative_to(folder), path
+
+
+def _entries(folder: Path) -> list[Path]:
+    try:
+        return [entry for entry in folder.iterdir() if not entry.name.startswith(".")]
+    except OSError:
+        return []
+
+
+def signature(folder: Path) -> tuple:
+    out = []
+    for rel, path in files(folder):
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        out.append((rel.as_posix(), stat.st_mtime_ns, stat.st_size))
+    return tuple(out)
+
+
+def settled(previous: tuple | None, now: tuple, shown: tuple) -> bool:
+    """A change to a page's files is taken once it has held for two checks, so a page caught half written is not
+    shown: `now` differs from what is shown and equals the previous check."""
+    return now != shown and now == previous
+
+
+def collect_files(html_path: Path) -> dict[str, bytes]:
+    """The page plus every regular file beside it (no dotfiles, no subfolders beyond one level), capped in size."""
+    if not html_path.is_file():
+        raise PageError(f"{html_path} is missing")
+    folder = html_path.parent
+    collected: dict[str, bytes] = {}
+    total = 0
+    for rel, path in files(folder):
+        data = path.read_bytes()
+        total += len(data)
+        if total > MAX_TOTAL_BYTES:
+            raise PageError(f"files beside {html_path.name} exceed {MAX_TOTAL_BYTES // (1024 * 1024)} MB")
+        collected[rel.as_posix()] = data
+    if html_path.name != "index.html":
+        collected["index.html"] = collected.pop(html_path.name)
+    return collected

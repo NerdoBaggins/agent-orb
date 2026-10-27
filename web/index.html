@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orb · {{REPO}}</title>
+<link rel="stylesheet" href="/static/orb.css?token={{TOKEN}}">
+{{THEME}}
+</head>
+<body data-token="{{TOKEN}}" data-state="idle">
+<header class="bar">
+  <span class="bar-title">ORB</span>
+  <span class="bar-repo" id="repo">{{REPO}}</span>
+  <span class="bar-link" id="attach">connecting…</span>
+  <span id="bar-state" title="The orb's state while it is hidden"></span>
+  <span id="bar-wake" class="bar-wake" hidden></span>
+  <button id="bar-unread" type="button" title="Replies that finished while you were away; click to mark them seen" hidden></button>
+  <span class="bar-tasks-wrap">
+    <button id="bar-tasks" type="button" title="What the agent is running in the background" hidden></button>
+    <div id="tasks-list" hidden></div>
+  </span>
+  <span class="bar-widgets-wrap">
+    <button class="bar-btn" id="bar-widgets" type="button" title="Your widgets over the orb; tick one to show it" hidden>widgets</button>
+    <div id="widgets-list" hidden></div>
+  </span>
+  <button class="bar-btn" id="transcript-toggle" type="button" title="Show or hide the transcript (T)">transcript</button>
+  <button class="bar-btn" id="voice-toggle" type="button" title="Mute or unmute the orb's speech (M)">voice</button>
+  <label class="bar-speed" title="Voice speed">
+    <input id="speed" type="range" min="0.7" max="1.6" step="0.05" value="1" aria-label="Voice speed">
+    <span id="speed-value">1.00×</span>
+  </label>
+  <label class="bar-size" title="Orb size; the mark is normal">
+    size <input id="size" type="range" min="0.5" max="2" step="0.05" value="1" list="size-normal" aria-label="Orb size">
+    <datalist id="size-normal"><option value="1"></option></datalist>
+    <span id="size-value">normal</span>
+  </label>
+  <label class="bar-options" id="stt-pick" title="The engine that turns your speech into text" hidden>hearing <select id="stt-select" aria-label="Transcription engine"></select></label>
+  <label class="bar-options" id="tts-pick" title="The voice the orb speaks in" hidden>speech <select id="tts-select" aria-label="Speech engine"></select></label>
+  <label class="bar-options" id="voice-pick" title="The current engine's voice" hidden>voice <select id="voice-select" aria-label="Voice"></select></label>
+  <label class="bar-options" id="theme-pick" title="Styles the controls and every panel" hidden>theme <select id="theme-select" aria-label="Theme"></select></label>
+  <label class="bar-options" id="skin-pick" hidden>skin <select id="skin-select" aria-label="Skin"></select></label>
+  <span class="bar-options" id="skin-options"></span>
+  <span class="bar-engines" id="engines"></span>
+</header>
+<main id="stage">
+  <section id="orb-pane">
+    <canvas id="orb"></canvas>
+    <div id="widgets"></div>
+    <div id="controls">
+      <div id="caption"></div>
+      <div class="row">
+        <button id="mic" type="button" disabled aria-label="Hold to talk" title="Hold to talk"></button>
+        <button id="stop" type="button" aria-label="Stop" title="Stop" hidden><svg viewBox="0 0 12 12"><rect width="12" height="12" rx="2" fill="currentColor"/></svg></button>
+      </div>
+      <div id="hint"></div>
+    </div>
+    <div id="notice" role="status"></div>
+  </section>
+  <div id="divider" title="Drag to resize; drag to an edge to give one side the window" hidden></div>
+  <section id="panels" hidden>
+    <nav id="tabs"></nav>
+    <div id="panel-bodies"></div>
+  </section>
+</main>
+<script src="/static/paint.js?token={{TOKEN}}"></script>
+<script src="/static/size.js?token={{TOKEN}}"></script>
+<script src="/static/widgets.js?token={{TOKEN}}"></script>
+<script src="/static/transcript.js?token={{TOKEN}}"></script>
+<script src="/static/orb.js?token={{TOKEN}}"></script>
+</body>
+</html>

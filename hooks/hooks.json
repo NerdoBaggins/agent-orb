@@ -1,0 +1,62 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --no-project --python \">=3.11\" python \"${CLAUDE_PLUGIN_ROOT}/orb/session_hook.py\""
+          },
+          {
+            "type": "command",
+            "command": "uv run --no-project --python \">=3.11\" python \"${CLAUDE_PLUGIN_ROOT}/orb/turn_hook.py\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --no-project --python \">=3.11\" python \"${CLAUDE_PLUGIN_ROOT}/orb/stop_hook.py\""
+          },
+          {
+            "type": "command",
+            "command": "uv run --no-project --python \">=3.11\" python \"${CLAUDE_PLUGIN_ROOT}/orb/turn_hook.py\""
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --no-project --python \">=3.11\" python \"${CLAUDE_PLUGIN_ROOT}/orb/turn_hook.py\""
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --no-project --python \">=3.11\" python \"${CLAUDE_PLUGIN_ROOT}/orb/turn_hook.py\""
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --no-project --python \">=3.11\" python \"${CLAUDE_PLUGIN_ROOT}/orb/turn_hook.py\""
+          }
+        ]
+      }
+    ]
+  }
+}
