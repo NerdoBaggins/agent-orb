@@ -233,6 +233,7 @@ class OrbServer:
         self.theme_dirs = expand_dirs(self.config["theme_dirs"], home)
         self.theme = themes.select(self.config["theme"], home, self.theme_dirs)
         self.theme_note: str | None = None
+        self.picker_lists = self.installed_pickers()
         self.app = web.Application(middlewares=[self.guard], client_max_size=PANEL_POST_MAX_BYTES)
         self.app.router.add_get("/", self.index)
         self.app.router.add_get("/health", self.health)
@@ -347,6 +348,16 @@ class OrbServer:
         if run:
             run.cancel()
 
+    def installed_pickers(self) -> dict:
+        return {"skins": skins.available(self.home, self.skin_dirs), "themes": themes.available(self.home, self.theme_dirs)}
+
+    async def refresh_pickers(self) -> None:
+        """A skin or theme folder added or removed while the orb is open reaches the bar's pickers on the next poll."""
+        lists = await asyncio.to_thread(self.installed_pickers)
+        if lists != self.picker_lists:
+            self.picker_lists = lists
+            await self.broadcast({"type": "pickers", **lists})
+
     async def watch_pages(self) -> None:
         previous: dict[tuple[str, str], tuple] = {}
         while True:
@@ -354,6 +365,10 @@ class OrbServer:
                 await self.retry_missing_widgets()
             except Exception:
                 log.exception("missing widgets")
+            try:
+                await self.refresh_pickers()
+            except Exception:
+                log.exception("pickers")
             for kind, open_pages in self.open_pages().items():
                 for name, page in list(open_pages.items()):
                     try:
@@ -906,8 +921,8 @@ class OrbServer:
                 "voices": self.voice_menu,
                 "voice": bool(self.stt and self.tts), "speak": self.voice, "said": self.said, "mute_key": self.config["mute_key"], "panels_key": self.config["panels_key"], "wake": self.wake_snapshot(), "enrolling": self.enroll_snapshot(), "ptt_key": self.config["ptt_key"], "speed": self.speed, "background": self.background, "waiting": self.waiting, "session": self.session,
                 "skin": self.skin.describe() | {"values": self.skin_values, "size": size_for(self.config["skin_sizes"], self.skin.name)}, "skin_key": self.config["skin_key"],
-                "skins": skins.available(self.home, self.skin_dirs),
-                "theme": self.theme.describe() | {"note": self.theme_note}, "themes": themes.available(self.home, self.theme_dirs),
+                **self.installed_pickers(),
+                "theme": self.theme.describe() | {"note": self.theme_note},
                 "panels": [self.panel_message(name) for name in self.panels],
                 "widgets": self.widgets_snapshot(),
                 "transcript": self.transcript[-50:]}
