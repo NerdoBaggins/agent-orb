@@ -368,5 +368,5 @@ def test_a_copilot_session_the_hooks_never_reached_is_judged_from_its_log(tmp_pa
     assert copilot_link(tmp_path).busy(TURN_RUNNING)
 
 
-def test_the_start_hint_names_only_what_the_orb_needs_from_copilot():
+def test_the_start_hint_is_exactly_copilot_ui_server_on_the_port():
     assert start_command(4400) == "copilot --ui-server --port 4400"

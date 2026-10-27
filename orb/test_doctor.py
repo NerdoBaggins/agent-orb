@@ -1,6 +1,7 @@
 import json
 
 from orb import doctor
+from orb.copilot import CopilotLink
 from orb.doctor import Check, report, run
 
 
@@ -155,6 +156,7 @@ def test_a_repo_that_ships_widgets_passes_with_a_note_and_still_reports_a_widget
     assert not check.ok and "ghost" in check.detail and "a repo's own widgets are not loaded" in check.detail
 
 
-def test_the_copilot_check_with_nothing_listening_gives_the_same_start_hint_as_the_orb(monkeypatch):
+def test_the_copilot_check_with_nothing_listening_gives_the_same_start_hint_as_the_orb(tmp_path, monkeypatch):
     monkeypatch.setattr(doctor, "port_open", lambda port: False)
-    assert doctor.check_copilot(4400).detail.endswith(doctor.start_command(4400))
+    orb_hint = CopilotLink(4400, home=tmp_path).describe(False).split(" with ", 1)[1]
+    assert doctor.check_copilot(4400).detail.endswith(" " + orb_hint)
