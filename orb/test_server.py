@@ -1692,3 +1692,16 @@ def test_a_size_outside_the_range_is_clamped_and_garbage_is_ignored(tmp_path):
             await server.set_state("idle")
             assert (await ws.receive_json()) == {"type": "state", "state": "idle"}
     run(go())
+
+
+def test_a_panel_send_with_blank_text_is_refused_to_its_page_and_never_reaches_the_agent(tmp_path):
+    async def go():
+        server = make(tmp_path)
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            await ws.send_json({"type": "ask", "text": "  \n ", "ref": "panel:7", "active": True})
+            notice = await asyncio.wait_for(ws.receive_json(), timeout=2)
+            assert notice["type"] == "notice" and notice["ref"] == "panel:7"
+            assert server.link.sent == [] and server.transcript == []
+    run(go())
