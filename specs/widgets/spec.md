@@ -22,7 +22,7 @@ folder: a widget's data comes from the user's own feed, as a panel's does.
 ```
 <name>/
   widget.json   {"name", "version", "description", "size": {"width": 160, "height": 48}, "corner": "top-left"}
-  index.html    the page; files beside it are served, as a panel's are (no dotfiles, one level of subfolders, 8 MB)
+  index.html    the page; files beside it are served, as a panel's are (no dotfiles, one level of subfolders, 1000 files, 255-character paths, 8 MB)
 ```
 
 - `name`: the folder name, under the page name rule panels use (`orb/pages.py` `NAME`). `version`: a string.

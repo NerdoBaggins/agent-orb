@@ -11,6 +11,7 @@ from orb.config import ConfigError, panel_dirs_for
 from orb.pages import PageError, collect_files, scoped_dirs, settled, signature
 
 BUILTIN = ("transcript",)
+MAX_TITLE_CHARS = 200
 
 
 @dataclass
@@ -24,6 +25,12 @@ class SavedPanel:
 
 def valid_name(name: str) -> str:
     return name if name in BUILTIN else pages.valid_name(name)
+
+
+def valid_title(title: str) -> str:
+    if len(title) > MAX_TITLE_CHARS:
+        raise PageError(f"a panel title must be {MAX_TITLE_CHARS} characters or fewer")
+    return title
 
 
 def one_off_base(path: Path) -> str:
