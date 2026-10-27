@@ -1293,8 +1293,8 @@ class OrbServer:
             return
         waits = self.must_wait()
         await self.submit(Request(text, woken=strip is not None, spoken=True))
-        if waits and self.state == self.resume_state():
-            await self.set_state(self.resume_state())
+        if waits and self.state in ("idle", "thinking"):
+            await self.set_state(self.state)
         elif not waits and self.state == "idle":
             await self.set_state("idle")
 
