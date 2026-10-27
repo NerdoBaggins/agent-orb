@@ -240,7 +240,7 @@ Mic and ask buttons stay disabled until the link is verified.
 
 ### Copilot CLI
 
-- The user starts `copilot --yolo --ui-server --port 4321 --continue` (port from config `copilot_port`).
+- The user starts `copilot --ui-server --port 4321` (port from config `copilot_port`).
 - A Node helper attaches through the JavaScript SDK inside Copilot's own install (`RuntimeConnection.forUri`,
   `getForegroundSessionId`, `resumeSession`, `send`, `abort`). It takes SDK path, port, mode, timeout and
   expected session id on argv, reads the prompt on stdin, and prints one JSON object. It has no npm dependencies of
