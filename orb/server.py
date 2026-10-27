@@ -1025,9 +1025,9 @@ class OrbServer:
         return self.state != "idle"
 
     async def ask(self, text: str, speak: bool = True, ref=None, woken: bool = False, sender: str | None = None) -> None:
-        """Queues one request for the agent. `ref` is the page's own id for a panel's `orb.send`, echoed on the reply
-        so the page can resolve it; `sender` names that page, and the agent receives the text marked as the page's
-        rather than as the user's words."""
+        """Queues one request for the agent; blank text is never queued. `ref` is the page's own id for a panel's
+        `orb.send`, echoed on the reply, or on the refusal of blank text, so the page can settle it; `sender` names
+        that page, and the agent receives the text marked as the page's rather than as the user's words."""
         text = text.strip()
         if text:
             await self.submit(Request(text, speak, ref, woken, sender))
