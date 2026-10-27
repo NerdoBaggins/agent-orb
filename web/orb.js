@@ -258,6 +258,10 @@
       case "widgets_installed":
         widgetsUi.lists(m);
         break;
+      case "pickers":
+        skinPicker.render(m.skins, skin.info && skin.info.name, skinPicker.key);
+        themePicker.render(m.themes, { name: themePicker.current });
+        break;
       case "session":
         sessionUi.apply({ busy: m.busy, doing: m.doing, since: m.since, feed: mergeFeed(orb.session.feed, m.feed, m.order), unread: m.unread });
         break;
