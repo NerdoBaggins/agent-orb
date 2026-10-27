@@ -1,5 +1,4 @@
 import json
-from pathlib import Path
 
 import pytest
 
@@ -128,10 +127,17 @@ def test_a_users_copy_of_the_default_theme_that_renamed_itself_still_loads(tmp_p
     assert select("default", tmp_path).path == folder
 
 
-def test_a_themes_folder_that_cannot_be_listed_leaves_the_built_in_themes_offered(tmp_path, monkeypatch):
+def test_a_themes_folder_that_cannot_be_listed_offers_the_built_ins_and_nothing_from_it(tmp_path, unlistable):
+    themed(tmp_path, "jarvis", {})
     locked = tmp_path / ".config" / "orb" / "themes"
-    locked.mkdir(parents=True)
-    real_iterdir = Path.iterdir
-    monkeypatch.setattr(Path, "iterdir", lambda self: (_ for _ in ()).throw(PermissionError(13, "Permission denied"))
-                        if self == locked else real_iterdir(self))
-    assert "default" in available(tmp_path)
+    unlistable(locked)
+    offered = available(tmp_path)
+    assert "default" in offered and "jarvis" not in offered
+
+
+def test_a_theme_in_a_folder_that_cannot_be_listed_falls_back_to_default_saying_why(tmp_path, unlistable):
+    themed(tmp_path, "jarvis", {})
+    locked = tmp_path / ".config" / "orb" / "themes"
+    unlistable(locked)
+    theme = select("jarvis", tmp_path)
+    assert theme.name == "default" and f"{locked} could not be listed" in theme.fallback_reason

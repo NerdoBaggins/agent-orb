@@ -1,5 +1,4 @@
 import json
-from pathlib import Path
 
 import pytest
 
@@ -179,10 +178,17 @@ def test_a_users_copy_of_the_default_skin_that_renamed_itself_still_loads(tmp_pa
     assert select("pulse", tmp_path).path == folder
 
 
-def test_a_skins_folder_that_cannot_be_listed_leaves_the_built_in_skins_offered(tmp_path, monkeypatch):
+def test_a_skins_folder_that_cannot_be_listed_offers_the_built_ins_and_nothing_from_it(tmp_path, unlistable):
     locked = tmp_path / ".config" / "orb" / "skins"
-    locked.mkdir(parents=True)
-    real_iterdir = Path.iterdir
-    monkeypatch.setattr(Path, "iterdir", lambda self: (_ for _ in ()).throw(PermissionError(13, "Permission denied"))
-                        if self == locked else real_iterdir(self))
-    assert "pulse" in available(tmp_path)
+    skin_in(locked, "neb")
+    unlistable(locked)
+    offered = available(tmp_path)
+    assert "pulse" in offered and "neb" not in offered
+
+
+def test_a_skin_in_a_folder_that_cannot_be_listed_falls_back_to_pulse_saying_why(tmp_path, unlistable):
+    locked = tmp_path / ".config" / "orb" / "skins"
+    skin_in(locked, "neb")
+    unlistable(locked)
+    skin = select("neb", tmp_path)
+    assert skin.name == "pulse" and f"{locked} could not be listed" in skin.fallback_reason
