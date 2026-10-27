@@ -85,14 +85,14 @@ colour, the wake word when one is on, and anything that needs attention. Hover i
 | Transcript | shows or hides the transcript (`T`) |
 | Voice | mutes or unmutes speech (`M`) |
 | Speed | the voice speed, from 0.7 to 1.6 |
-| Size | the orb's size, marked at normal; not saved |
+| Size | the orb's size, marked at normal; each skin keeps its own |
 | Speech | every installed voice engine; switching loads it at once |
 | Voice menu | the current engine's voices, when it offers them; each engine keeps its own choice |
 | Skin | every installed skin (`B` cycles them) |
 | Theme | every installed theme |
 | Widgets | ticks your installed widgets on or off |
 
-Everything you change here is saved for this repo only, except the size.
+Everything you change here is saved for this repo only.
 
 ### Keyboard shortcuts
 
