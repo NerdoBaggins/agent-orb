@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from orb import PLUGIN_ROOT
-from orb.pages import plain_name
+from orb.pages import listable, plain_name
 from orb.config import ConfigError, credential_keys, validate_types
 
 DEFAULT = "default"
@@ -93,8 +93,7 @@ def validate_tts(tts, manifest: Path) -> None:
 def available(home: Path, named: list[Path] = ()) -> list[str]:
     """Every theme that loads under its own name, the default first, then by name; a name in the user's folder
     shadows a built-in."""
-    names = {folder.name for root in theme_dirs(home, named) if root.is_dir() for folder in root.iterdir()
-             if folder.is_dir()}
+    names = {folder.name for root in theme_dirs(home, named) for folder in listable(root) if folder.is_dir()}
     loads = []
     for name in names:
         try:
