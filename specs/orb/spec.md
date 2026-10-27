@@ -275,11 +275,12 @@ show.
 ### Showing a panel
 
 - `orb panel show <file.html> [--title <title>] [--name <name>]` shows a page; `orb panel close <name>` closes it.
-  Showing a name already open replaces it.
+  Showing a name already open replaces it. A title is up to 200 characters.
 - **One-off:** the agent writes the page as `index.html` in a folder of its own and shows it; the files beside it
   are served with it. A page under another name is served alone, and one sharing its folder with other files, or an
   `index.html` with other files beside it directly in the temp folder, `/tmp`, home or the root, is refused with
-  how to fix it. A linked subfolder is not followed.
+  how to fix it. A linked subfolder is not followed. The files are capped at 1000, each path at 255 characters,
+  and 8 MB in all; a page over any cap is refused with which one.
 - **Saved:** the agent saves the page to reuse it, in `~/.config/orb/repos/<repo id>/panels/<name>/` (the user's, for this repo only; `<repo id>` is the repo's name and a
   hash of its path, as for the state folder) any folder in the config key `panel_dirs` (the user's, kept wherever they choose) or
   `~/.config/orb/panels/<name>/` (the user's, for every repo). Where a name

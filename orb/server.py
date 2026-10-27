@@ -11,6 +11,7 @@ import hmac
 import html as html_text
 import json
 import logging
+import math
 import mimetypes
 import os
 import re
@@ -50,7 +51,24 @@ WAIT_STEADY_POLLS = 3  # a step must outlast this many polls before the orb says
 PLAYBACK_GRACE_S = 5
 WAKE_RETRY_S = 60.0
 INTERRUPT_SETTLE_S = 3.0
-PANEL_POST_MAX_BYTES = pages.MAX_TOTAL_BYTES * 4 // 3 + 1024 * 1024  # base64 grows the files by a third; the rest is names and JSON
+BASE64_BLOCK = 3
+JSON_CHAR_MAX_BYTES = len(json.dumps("\U0010ffff")) - len(json.dumps(""))
+JSON_ENTRY_BYTES = len(json.dumps({"": "", "x": ""})) - len(json.dumps({"x": ""}))
+
+
+def base64_length(size: int) -> int:
+    return 4 * math.ceil(size / BASE64_BLOCK)
+
+
+def files_base64_max(total: int, count: int) -> int:
+    return base64_length(total + (BASE64_BLOCK - 1) * count)
+
+
+PANEL_POST_MAX_BYTES = (len(json.dumps({"name": "n" * pages.MAX_NAME_CHARS, "title": "", "files": {}, "saved": "n" * pages.MAX_NAME_CHARS}))
+                        + panels.MAX_TITLE_CHARS * JSON_CHAR_MAX_BYTES
+                        + JSON_ENTRY_BYTES + len("index.html")
+                        + (pages.MAX_FILES - 1) * (JSON_ENTRY_BYTES + pages.MAX_PATH_CHARS * JSON_CHAR_MAX_BYTES)
+                        + files_base64_max(pages.MAX_TOTAL_BYTES, pages.MAX_FILES))
 ACTIONS_AT_ONCE = 4  # per panel; a panel that fires more waits for an answer first
 WINDOW_GRACE_S = float(os.environ.get("ORB_WINDOW_GRACE_S", 20))  # a server with no window this long exits: closing the window ends the orb; covers a reload
 log = logging.getLogger("orb")
