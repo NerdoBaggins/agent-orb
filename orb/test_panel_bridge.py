@@ -102,6 +102,26 @@ def test_a_click_in_a_panel_while_the_orb_is_busy_reaches_the_server_and_waits_i
     assert [r.text for r in server.queue] == ["from the clicked panel"] and server.queue[0].ref.startswith("panel:")
 
 
+BLANK_SENDER = """<!doctype html><body><button id="go" style="width:200px;height:80px"
+  onclick="orb.send('   ', {speak: false}).then(() => { out.textContent = 'resolved'; }, (e) => { out.textContent = 'rejected: ' + e.message; })">send</button>
+  <div id="out"></div></body>"""
+
+
+@pytest.mark.timeout(60)
+def test_a_panel_send_with_blank_text_rejects_in_the_page_with_the_servers_reason(tmp_path):
+    outcome = []
+
+    async def click_and_read(page):
+        frame = next(f for f in page.frames if "/blank/" in f.url)
+        await frame.click("#go")
+        await page.wait_for_timeout(1000)
+        outcome.append(await frame.text_content("#out"))
+
+    server = asyncio.run(run_page(tmp_path, [("blank", BLANK_SENDER)], click_and_read))
+    assert outcome == ["rejected: nothing to send: the text was empty"]
+    assert server.link.sent == []
+
+
 ESCAPABLE = """<!doctype html><body><button id="go" style="width:200px;height:80px">x</button></body>"""
 
 
