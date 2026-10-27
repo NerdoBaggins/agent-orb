@@ -1735,5 +1735,5 @@ def test_a_request_is_not_overtaken_while_its_wait_notice_is_still_going_out(tmp
     run(go())
 
 
-def test_every_state_the_server_sets_is_one_a_skin_can_draw():
+def test_the_servers_state_tuple_is_within_the_states_a_skin_may_declare():
     assert set(SERVER_STATES) <= set(SKIN_STATES)
