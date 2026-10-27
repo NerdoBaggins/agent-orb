@@ -131,6 +131,11 @@ def resolve_program(command: tuple[str, ...], env: dict) -> list[str]:
     return [program, *command[1:]]
 
 
+def failure_reason(stderr: bytes, returncode: int) -> str:
+    lines = [line for line in stderr.decode("utf-8", "replace").splitlines() if line.strip()]
+    return (lines[-1] if lines else f"exited {returncode}")[-STDERR_TAIL:]
+
+
 def kill_tree(proc: asyncio.subprocess.Process) -> None:
     if sys.platform == "win32":
         subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True)
@@ -169,5 +174,4 @@ async def run(feed: Feed, orb: dict[str, str], own_output: Path) -> str | None:
         raise
     if proc.returncode == 0:
         return None
-    lines = [line for line in err.decode("utf-8", "replace").splitlines() if line.strip()]
-    return (lines[-1] if lines else f"exited {proc.returncode}")[-STDERR_TAIL:]
+    return failure_reason(err, proc.returncode)
