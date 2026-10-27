@@ -104,6 +104,11 @@ def check_theme_tts(theme: themes.Theme, home: Path) -> Check:
     return Check("theme speech", True, f"the {theme.name} theme names {engine}")
 
 
+def check_chosen(kind: str, chosen: skins.Skin | themes.Theme, roots: list[Path]) -> Check:
+    problems = [p for p in [chosen.fallback_reason, *pages.folders_in(roots)[1]] if p]
+    return Check(kind, not problems, "; ".join(problems) or f"{chosen.name} {chosen.version}")
+
+
 def run(repo: Path, home: Path, engines: bool = True) -> list[Check]:
     checks = [check_tool("uv", ["--version"]), check_tool("node", ["--version"]), check_browser()]
     try:
@@ -112,10 +117,10 @@ def run(repo: Path, home: Path, engines: bool = True) -> list[Check]:
     except ConfigError as e:
         return checks + [Check("config", False, str(e))]
     checks.append(Check("config", True, "; ".join(config.warnings) or "config loads"))
-    skin = skins.select(config["skin"], home, expand_dirs(config["skin_dirs"], home))
-    checks.append(Check("skin", skin.fallback_reason is None, skin.fallback_reason or f"{skin.name} {skin.version}"))
-    theme = themes.select(config["theme"], home, expand_dirs(config["theme_dirs"], home))
-    checks.append(Check("theme", theme.fallback_reason is None, theme.fallback_reason or f"{theme.name} {theme.version}"))
+    skin_dirs, theme_dirs = expand_dirs(config["skin_dirs"], home), expand_dirs(config["theme_dirs"], home)
+    checks.append(check_chosen("skin", skins.select(config["skin"], home, skin_dirs), skins.skin_dirs(home, skin_dirs)))
+    theme = themes.select(config["theme"], home, theme_dirs)
+    checks.append(check_chosen("theme", theme, themes.theme_dirs(home, theme_dirs)))
     if theme.tts:
         checks.append(check_theme_tts(theme, home))
     checks.append(check_actions(repo, home))

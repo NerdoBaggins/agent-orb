@@ -26,13 +26,23 @@ def valid_name(name: str) -> str:
     return name
 
 
-def listable(root: Path) -> list[Path]:
-    """What `root` holds, or nothing when it is absent or cannot be listed (a permission error on a synced folder):
-    one unreadable folder must not take every picker and list down with it."""
+def subfolders(root: Path) -> list[Path]:
+    """The folders in `root`, by name; none when `root` is absent, a PageError when it cannot be listed."""
     try:
-        return list(root.iterdir()) if root.is_dir() else []
-    except OSError:
-        return []
+        return sorted(p for p in root.iterdir() if p.is_dir()) if root.is_dir() else []
+    except OSError as e:
+        raise PageError(f"{root} could not be listed: {e.strerror or e}")
+
+
+def folders_in(roots: list[Path]) -> tuple[list[Path], list[str]]:
+    """The folders in every root, plus one line per root that could not be listed."""
+    folders, problems = [], []
+    for root in roots:
+        try:
+            folders += subfolders(root)
+        except PageError as e:
+            problems.append(str(e))
+    return folders, problems
 
 
 def scoped_dirs(kind: str, repo_root: Path, home: Path, named: list[Path]) -> list[tuple[str, Path]]:

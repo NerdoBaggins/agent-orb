@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from orb import PLUGIN_ROOT
-from orb.pages import listable, plain_name
+from orb.pages import PageError, folders_in, plain_name, subfolders
 
 DEFAULT = "pulse"
 BUILTIN_DIR = PLUGIN_ROOT / "skins"
@@ -100,7 +100,7 @@ def validate(folder: Path) -> Skin:
 def available(home: Path, named: list[Path] = ()) -> list[str]:
     """Every skin that loads under its own name, the default first, then by name; a name in the user's folder shadows
     a built-in."""
-    names = {folder.name for root in skin_dirs(home, named) for folder in listable(root) if folder.is_dir()}
+    names = {folder.name for folder in folders_in(skin_dirs(home, named))[0]}
     loads = []
     for name in names:
         try:
@@ -117,7 +117,12 @@ def find(name: str, home: Path, named: list[Path] = ()) -> Skin:
     looked = []
     for root in skin_dirs(home, named):
         folder = root / name
-        if folder.is_dir():
+        try:
+            here = folder in subfolders(root)
+        except PageError as e:
+            looked.append(str(e))
+            continue
+        if here:
             return validate(folder)
         looked.append(str(folder))
     raise SkinError(f"no skin named {name!r}; looked in {', '.join(looked)}")
