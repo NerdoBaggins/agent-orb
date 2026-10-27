@@ -1,11 +1,12 @@
 import asyncio
 import json
+import shutil
 
 import pytest
 
 from orb.config import private_config_path
 from orb.test_server import TOKEN, client_for, make, run, skinned, until_state, user_tts_engine, wait_for
-from orb.test_server_panels import show
+from orb.test_server_panels import fast, show, watching
 from orb.test_skins import skin_in
 from orb.test_themes import themed
 
@@ -438,7 +439,29 @@ def test_a_skin_or_theme_folder_added_while_the_orb_is_open_reaches_the_pickers(
     run(go())
 
 
-def test_the_pickers_are_not_resent_when_nothing_was_added(tmp_path):
+async def next_pickers(ws):
+    while (message := await ws.receive_json())["type"] != "pickers":
+        pass
+    return message
+
+
+def test_a_skin_folder_removed_while_the_orb_is_open_leaves_the_pickers(tmp_path):
+    skinned(tmp_path, {})
+    aurora = skin_in(tmp_path / "home" / ".config" / "orb" / "skins", "aurora")
+
+    async def go():
+        server = make(tmp_path)
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            shutil.rmtree(aurora)
+            await server.refresh_pickers()
+            message = await asyncio.wait_for(ws.receive_json(), timeout=2)
+            assert message["type"] == "pickers" and "aurora" not in message["skins"] and "neb" in message["skins"]
+    run(go())
+
+
+def test_the_pickers_are_sent_once_per_change_and_not_again_until_the_next(tmp_path):
     skinned(tmp_path, {})
 
     async def go():
@@ -446,7 +469,28 @@ def test_the_pickers_are_not_resent_when_nothing_was_added(tmp_path):
         async with await client_for(server) as c:
             ws = await c.ws_connect("/ws", params={"token": TOKEN})
             await ws.receive_json()
+            skin_in(tmp_path / "home" / ".config" / "orb" / "skins", "aurora")
+            await server.refresh_pickers()
+            assert (await asyncio.wait_for(ws.receive_json(), timeout=2))["type"] == "pickers"
             await server.refresh_pickers()
             with pytest.raises(asyncio.TimeoutError):
                 await asyncio.wait_for(ws.receive_json(), timeout=0.3)
+    run(go())
+
+
+def test_the_page_poll_sends_a_skin_folder_added_while_the_orb_is_open_to_the_pickers(tmp_path, monkeypatch):
+    skinned(tmp_path, {})
+    fast(monkeypatch)
+
+    async def go():
+        server = make(tmp_path)
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            watcher = watching(server)
+            try:
+                skin_in(tmp_path / "home" / ".config" / "orb" / "skins", "aurora")
+                assert "aurora" in (await asyncio.wait_for(next_pickers(ws), timeout=2))["skins"]
+            finally:
+                watcher.cancel()
     run(go())
