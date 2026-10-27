@@ -35,6 +35,14 @@ def test_a_failure_with_no_stderr_text_is_named_by_its_exit_code(stderr):
     assert failure_reason(stderr, 3) == "exited 3"
 
 
+def test_a_failure_reason_from_stderr_that_is_not_utf8_replaces_the_bad_bytes():
+    assert failure_reason(b"caf\xe9 failed\n", 1) == "caf\ufffd failed"
+
+
+def test_a_failure_reason_after_a_progress_meter_is_the_line_after_its_last_carriage_return():
+    assert failure_reason(b"50%\r100%\rerror: x\n", 1) == "error: x"
+
+
 def test_a_failure_reason_keeps_only_the_end_of_an_over_long_line():
     line = "x" * STDERR_TAIL + "the end"
     assert failure_reason(line.encode(), 1) == line[-STDERR_TAIL:]
