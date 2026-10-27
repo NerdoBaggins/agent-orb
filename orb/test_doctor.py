@@ -186,3 +186,13 @@ def test_a_folder_of_skins_or_themes_that_cannot_be_listed_fails_its_check_namin
     unlistable(mine)
     check = {c.name: c for c in run(repo, home, engines=False)}[kind]
     assert not check.ok and check.detail == f"{mine} could not be listed: Permission denied"
+
+
+def test_a_widget_that_is_a_link_that_cannot_be_followed_is_named_by_the_failing_check(tmp_path, lock):
+    root = tmp_path / "home" / ".config" / "orb" / "widgets"
+    widget(root, "clock")
+    widget(tmp_path / "locked", "linked")
+    (root / "linked").symlink_to(tmp_path / "locked" / "linked")
+    lock(tmp_path / "locked", 0)
+    check = widgets_check(tmp_path)
+    assert not check.ok and check.detail == f"{root / 'linked'} could not be read: Permission denied"

@@ -427,3 +427,14 @@ def test_a_panels_folder_inside_one_that_cannot_be_searched_is_reported_and_the_
     lock(outer, 0)
     panels, problems = list_saved(repo, home)
     assert [p.name for p in panels] == ["alpha"] and problems == [f"{outer / 'notes'} could not be listed: Permission denied"]
+
+
+def test_a_saved_panel_that_is_a_link_that_cannot_be_followed_is_reported_and_the_others_still_list(tmp_path, lock):
+    repo, home = tmp_path / "repo", tmp_path / "home"
+    root = home / ".config" / "orb" / "panels"
+    saved(root, "alpha")
+    saved(tmp_path / "locked", "linked")
+    (root / "linked").symlink_to(tmp_path / "locked" / "linked")
+    lock(tmp_path / "locked", 0)
+    panels, problems = list_saved(repo, home)
+    assert [p.name for p in panels] == ["alpha"] and problems == [f"{root / 'linked'} could not be read: Permission denied"]
