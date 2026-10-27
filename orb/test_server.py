@@ -12,7 +12,8 @@ from orb import PLUGIN_ROOT, agents, engines
 from orb.audio import SAMPLE_RATE
 from orb.config import private_config_path
 from orb.engines import EngineError
-from orb.server import OrbServer, audio_frame, page_sender
+from orb.server import SERVER_STATES, OrbServer, audio_frame, page_sender
+from orb.skins import STATES as SKIN_STATES
 
 TOKEN = "t0k3n-abc"
 
@@ -1732,3 +1733,7 @@ def test_a_request_is_not_overtaken_while_its_wait_notice_is_still_going_out(tmp
             await wait_for(lambda: server.link.sent)
             assert server.link.sent[0][0] == "first"
     run(go())
+
+
+def test_every_state_the_server_sets_is_one_a_skin_can_draw():
+    assert set(SERVER_STATES) <= set(SKIN_STATES)
