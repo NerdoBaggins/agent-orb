@@ -123,10 +123,10 @@ orb.state                        // "idle" | "listening" | "transcribing" | "thi
 orb.on("state", fn)              // follow it, e.g. to show what the orb is doing
 ```
 
-`orb.send` and `orb.speak` work only inside a real click or key press. While the agent is busy, `orb.send` waits:
-the orb holds it and sends it when the turn ends, and the promise resolves with that reply. `orb.speak` rejects with
-`busy` unless the orb is idle; a play button stays enabled, and a `busy` rejection needs nothing more than the orb
-already shows. A "play" button over text the page already holds is `orb.speak`, not `orb.send`.
+`orb.send` and `orb.speak` work only inside a real click or key press, and `orb.send` rejects blank text. While the
+agent is busy, `orb.send` waits: the orb holds it and sends it when the turn ends, and the promise resolves with that
+reply. `orb.speak` rejects with `busy` unless the orb is idle; a play button stays enabled, and a `busy` rejection
+needs nothing more than the orb already shows. A "play" button over text the page already holds is `orb.speak`, not `orb.send`.
 
 Never disable a panel's controls because the orb is busy. Tabs, a detail view and its way back, filters, scrolling,
 and every button that only changes the page work whatever the orb is doing; the user reads and moves around while
