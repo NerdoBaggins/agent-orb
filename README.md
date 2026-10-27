@@ -4,6 +4,22 @@ A voice assistant with drop-in panels for Claude Code and Copilot CLI, on Window
 the agent answer in a local voice, ask it to show something and a panel slides in. Speech never leaves the machine:
 Moonshine for speech-to-text, Kokoro for the voice, both on the CPU.
 
+## What you get
+
+- **Push to talk**: hold the button, or Space with the window focused, and speak; the reply is read aloud.
+- **Local speech**: transcription and voice run on your machine; nothing is sent to a speech service.
+- **Voice and speed**: pick the speech engine and its voice from the bar, and set the speed with a slider; each is saved per repo.
+- **Mute**: the bar's voice toggle, `M`, or `orb voice off` silences replies without closing the orb.
+- **Stop**: a stop button ends the speech, or the agent's turn, at once.
+- **Talk while it works**: status, repeat and "what did I miss?" are answered at once; anything else waits for the turn to end.
+- **Transcript**: every exchange, typed or spoken, with the agent's steps folded in (`T`).
+- **Panels**: ask the agent to show something and a page slides in beside the orb, with tabs, explain buttons and live data from your own feeds. See [Panels](#panels).
+- **Widgets**: small pages of your own floating over the orb, such as a clock or a usage meter. See [Widgets](#widgets).
+- **Skins and themes**: change how the orb looks (`B` cycles skins) and how everything around it is styled. See [Skins](#skins) and [Themes](#themes).
+- **Wake word**: optional hands-free start, which can answer your enrolled voice only. See [Wake word](#wake-word).
+- **Your own engines**: plug in any speech-to-text or voice engine as a folder. See [Speech engines](#speech-engines).
+- **Both agents**: Claude Code and GitHub Copilot CLI, on Windows and macOS.
+
 Spec: `specs/orb/spec.md`. Plan: `specs/orb/plan.md`. Both approved 2026-10-05; the build notes at the end of
 the spec list where the build departed from it.
 
