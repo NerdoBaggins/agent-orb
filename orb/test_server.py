@@ -1705,3 +1705,30 @@ def test_a_panel_send_with_blank_text_is_refused_to_its_page_and_never_reaches_t
             assert notice["type"] == "notice" and notice["ref"] == "panel:7"
             assert server.link.sent == [] and server.transcript == []
     run(go())
+
+
+def test_a_request_is_not_overtaken_while_its_wait_notice_is_still_going_out(tmp_path):
+    async def go():
+        server = make(tmp_path)
+        async with await client_for(server) as c:
+            await c.ws_connect("/ws", params={"token": TOKEN})
+            await wait_for(lambda: server.sockets)
+            gate, first, real_notify = asyncio.Event(), [True], server.notify
+
+            async def held_notify(level, text, ref=None):
+                if first[0]:
+                    first[0] = False
+                    await gate.wait()
+                await real_notify(level, text, ref)
+
+            server.notify = held_notify
+            server.state = "speaking"
+            asked_first = asyncio.create_task(server.ask("first"))
+            await asyncio.sleep(0.05)
+            server.state = "idle"
+            await server.ask("second")
+            gate.set()
+            await asked_first
+            await wait_for(lambda: server.link.sent)
+            assert server.link.sent[0][0] == "first"
+    run(go())
