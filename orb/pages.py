@@ -29,12 +29,17 @@ def valid_name(name: str) -> str:
 def listing(root: Path) -> list[Path]:
     """What `root` holds, by name; none when `root` is absent, a PageError when it cannot be listed or entered."""
     try:
-        found = sorted(root.iterdir()) if root.is_dir() else []
-        for entry in found:
-            entry.lstat()
+        return sorted(entry for entry in root.iterdir() if still_there(entry)) if root.is_dir() else []
     except OSError as e:
         raise PageError(f"{root} could not be listed: {e.strerror or e}")
-    return found
+
+
+def still_there(entry: Path) -> bool:
+    try:
+        entry.lstat()
+    except FileNotFoundError:
+        return False
+    return True
 
 
 def reachable_folder(path: Path) -> bool:
