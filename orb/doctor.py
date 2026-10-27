@@ -1,6 +1,7 @@
 """`orb doctor`: read-only checks that the pieces the orb needs are actually there and answering. Nothing is
 started, sent or written."""
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -8,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from orb import actions, agents, browser, pages, skins, themes, widgets
-from orb.config import ConfigError, engine_settings, expand_dirs, load_for, tts_settings_for, widgets_on
+from orb.config import ConfigError, copilot_port_for, engine_settings, expand_dirs, load_for, tts_settings_for, widgets_on
 from orb.copilot import port_open, resolve_sdk
 from orb import engines, wake, waking
 from orb.engines import EngineError
@@ -107,6 +108,7 @@ def run(repo: Path, home: Path, engines: bool = True) -> list[Check]:
     checks = [check_tool("uv", ["--version"]), check_tool("node", ["--version"]), check_browser()]
     try:
         config = load_for(repo, home)
+        copilot_port = copilot_port_for(config, os.environ)
     except ConfigError as e:
         return checks + [Check("config", False, str(e))]
     checks.append(Check("config", True, "; ".join(config.warnings) or "config loads"))
@@ -119,7 +121,7 @@ def run(repo: Path, home: Path, engines: bool = True) -> list[Check]:
     checks.append(check_actions(repo, home))
     checks.append(check_widgets(repo, home, config))
     checks.append(check_channel(repo, home))
-    checks.append(check_copilot(config["copilot_port"]))
+    checks.append(check_copilot(copilot_port))
     if engines:
         checks.append(check_engine("stt", engine_settings(config["stt"]), home))
         checks.append(check_engine("tts", tts_settings_for(config["tts"], "claude"), home))

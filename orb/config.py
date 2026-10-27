@@ -281,6 +281,20 @@ def save_skin_size(home: Path, repo_root: Path, skin: str, size: float) -> None:
     save_for_repo(home, repo_root, update)
 
 
+COPILOT_PORT_ENV = "ORB_COPILOT_PORT"
+
+
+def copilot_port_for(config: Config, env) -> int:
+    """`ORB_COPILOT_PORT` when the shell that started Copilot set it, so each Copilot can run on a port of its own;
+    otherwise `copilot_port`."""
+    raw = env.get(COPILOT_PORT_ENV, "")
+    if not raw:
+        return config["copilot_port"]
+    if not raw.isdigit() or not 1 <= int(raw) <= 65535:
+        raise ConfigError(f"{COPILOT_PORT_ENV} is {raw!r}; it must be a port number from 1 to 65535")
+    return int(raw)
+
+
 def speed_for(tts: dict, agent: str) -> float:
     """`tts.speed` is one number for every agent, or `{"claude": 1.1, "copilot": 1.3}`; an agent not listed
     gets the default."""
