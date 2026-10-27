@@ -6,9 +6,9 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from orb.audio import SAMPLE_RATE
 from orb.pages import plain_name
 
-SAMPLE_RATE = 16_000
 DEFAULTS = {"engine": "openwakeword", "threshold": 0.5, "vad": "silero", "voiceprint": "resemblyzer",
             "silence_s": 1.5, "prespeech_s": 4.0, "follow_up_s": 8.0, "voice_auth": False, "voice_auth_threshold": 0.72}
 COOLDOWN_S = 1.0
