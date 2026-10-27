@@ -402,3 +402,21 @@ def test_a_theme_that_names_speech_switches_an_orb_without_speech_and_saves_none
             saved = json.loads(private_config_path(tmp_path / "home", server.repo_root).read_text(encoding="utf-8"))
             assert server.tts is None and saved["theme"] == "hud" and "tts" not in saved
     run(go())
+
+
+def test_a_clean_theme_switch_clears_the_note_an_earlier_switch_left(tmp_path):
+    skinned(tmp_path, {})
+    hud(tmp_path, skin="jarvis-hud")
+
+    async def go():
+        server = make(tmp_path)
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            await ws.send_json({"type": "theme", "name": "hud"})
+            assert (await ws.receive_json())["type"] == "theme"
+            assert server.snapshot()["theme"]["note"]
+            await ws.send_json({"type": "theme", "name": "default"})
+            assert (await ws.receive_json())["type"] == "theme"
+            assert server.snapshot()["theme"]["note"] is None
+    run(go())
