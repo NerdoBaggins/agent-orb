@@ -1,13 +1,14 @@
 # agent-orb
 
 A voice assistant with drop-in panels for Claude Code and Copilot CLI, on Windows and macOS. Hold to talk, hear
-the agent answer in a local voice, ask it to show something and a panel slides in. Speech never leaves the machine:
-Moonshine for speech-to-text, Kokoro for the voice, both on the CPU.
+the agent answer in a local voice, ask it to show something and a panel slides in. With the built-in engines, speech
+never leaves the machine: Moonshine for speech-to-text, Kokoro for the voice, both on the CPU. An engine you add
+yourself may be a cloud service (see [Speech engines](#speech-engines)).
 
 ## What you get
 
 - **Push to talk**: hold the button, or Space with the window focused, and speak; the reply is read aloud.
-- **Local speech**: transcription and voice run on your machine; nothing is sent to a speech service.
+- **Local speech**: the built-in transcription and voice run on your machine; nothing is sent to a speech service. An engine you add yourself can change that.
 - **Voice and speed**: pick the speech engine and its voice from the bar, and set the speed with a slider; each is saved per repo.
 - **Mute**: the bar's voice toggle, `M`, or `orb voice off` silences replies without closing the orb.
 - **Stop**: a stop button ends the speech, or the agent's turn, at once.
@@ -235,6 +236,11 @@ An engine is a folder, run as its own process:
   engine.json   { "name", "version", "kind", "run": ["uv", "run", "--script", "engine.py"], "env": ["SOME_API_KEY"], "max_seconds": 20 }
   engine.py     brings its own dependencies (inline script metadata); agent-orb installs nothing for it
 ```
+
+agent-orb ships only the local engines above. An engine you add runs with your permissions and does whatever it is
+written to do: one that wraps a cloud service sends your recorded audio (speech-to-text) or every reply's text (voice)
+to that service, under its terms. Check what an engine calls before you install it; an `env` entry naming an API key
+is the usual sign that it talks to one.
 
 An engine's, skin's or theme's folder name is lowercase letters, digits, `-` and `_` (up to 64); a folder named any
 other way is neither listed nor loaded.
