@@ -165,6 +165,18 @@ def test_the_copilot_check_with_nothing_listening_gives_the_same_start_hint_as_t
 
 
 @pytest.mark.parametrize("kind", ["skin", "theme"])
+def test_a_chosen_skin_or_theme_in_a_folder_that_cannot_be_listed_names_that_folder_once(tmp_path, unlistable, kind):
+    repo, home, mine = tmp_path / "repo", tmp_path / "home", tmp_path / "synced"
+    repo.mkdir()
+    (mine / "kept").mkdir(parents=True)
+    (home / ".config" / "orb").mkdir(parents=True)
+    (home / ".config" / "orb" / "config.json").write_text(json.dumps({kind: "kept", f"{kind}_dirs": [str(mine)]}), encoding="utf-8")
+    unlistable(mine)
+    check = {c.name: c for c in run(repo, home, engines=False)}[kind]
+    assert not check.ok and check.detail.count(f"{mine} could not be listed") == 1
+
+
+@pytest.mark.parametrize("kind", ["skin", "theme"])
 def test_a_folder_of_skins_or_themes_that_cannot_be_listed_fails_its_check_naming_the_folder(tmp_path, unlistable, kind):
     repo, home, mine = tmp_path / "repo", tmp_path / "home", tmp_path / "synced"
     repo.mkdir()

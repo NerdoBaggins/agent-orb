@@ -105,7 +105,8 @@ def check_theme_tts(theme: themes.Theme, home: Path) -> Check:
 
 
 def check_chosen(kind: str, chosen: skins.Skin | themes.Theme, roots: list[Path]) -> Check:
-    problems = [p for p in [chosen.fallback_reason, *pages.folders_in(roots)[1]] if p]
+    reason = chosen.fallback_reason or ""
+    problems = [p for p in [reason, *pages.folders_in(roots)[1]] if p and (p == reason or p not in reason)]
     return Check(kind, not problems, "; ".join(problems) or f"{chosen.name} {chosen.version}")
 
 
