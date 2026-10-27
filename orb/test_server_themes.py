@@ -420,3 +420,33 @@ def test_a_clean_theme_switch_clears_the_note_an_earlier_switch_left(tmp_path):
             assert (await ws.receive_json())["type"] == "theme"
             assert server.snapshot()["theme"]["note"] is None
     run(go())
+
+
+def test_a_skin_or_theme_folder_added_while_the_orb_is_open_reaches_the_pickers(tmp_path):
+    skinned(tmp_path, {})
+
+    async def go():
+        server = make(tmp_path)
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            skin_in(tmp_path / "home" / ".config" / "orb" / "skins", "aurora")
+            hud(tmp_path)
+            await server.refresh_pickers()
+            message = await asyncio.wait_for(ws.receive_json(), timeout=2)
+            assert message["type"] == "pickers" and "aurora" in message["skins"] and "hud" in message["themes"]
+    run(go())
+
+
+def test_the_pickers_are_not_resent_when_nothing_was_added(tmp_path):
+    skinned(tmp_path, {})
+
+    async def go():
+        server = make(tmp_path)
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            await server.refresh_pickers()
+            with pytest.raises(asyncio.TimeoutError):
+                await asyncio.wait_for(ws.receive_json(), timeout=0.3)
+    run(go())
