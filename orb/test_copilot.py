@@ -8,7 +8,7 @@ import pytest
 from orb import agents
 from orb.agents import Stopped
 from orb.feed import ORB_TAG
-from orb.copilot import (CopilotLink, cancelled, installed_version, open_work, read_events, reply_to,
+from orb.copilot import (CopilotLink, cancelled, start_command, installed_version, open_work, read_events, reply_to,
                          request_running, sdk_candidates, session_name, waiting_on)
 
 
@@ -366,3 +366,7 @@ def test_a_copilot_turn_the_hooks_opened_is_idle_once_the_log_records_an_abort_a
 
 def test_a_copilot_session_the_hooks_never_reached_is_judged_from_its_log(tmp_path):
     assert copilot_link(tmp_path).busy(TURN_RUNNING)
+
+
+def test_the_start_hint_names_only_what_the_orb_needs_from_copilot():
+    assert start_command(4400) == "copilot --ui-server --port 4400"

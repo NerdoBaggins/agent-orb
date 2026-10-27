@@ -28,7 +28,7 @@ ACTIVITY_BYTES = 600_000  # the tail of the event log the feed and the busy chec
 
 
 def start_command(port: int) -> str:
-    return f"copilot --yolo --ui-server --port {port} --continue"
+    return f"copilot --ui-server --port {port}"
 
 
 # ---- locating the SDK Copilot ships inside its own package ----

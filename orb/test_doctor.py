@@ -153,3 +153,8 @@ def test_a_repo_that_ships_widgets_passes_with_a_note_and_still_reports_a_widget
     save_widget(home, repo, "ghost", {"on": True})
     check = doctor.check_widgets(repo, home, load_for(repo, home))
     assert not check.ok and "ghost" in check.detail and "a repo's own widgets are not loaded" in check.detail
+
+
+def test_the_copilot_check_with_nothing_listening_gives_the_same_start_hint_as_the_orb(monkeypatch):
+    monkeypatch.setattr(doctor, "port_open", lambda port: False)
+    assert doctor.check_copilot(4400).detail.endswith(doctor.start_command(4400))
