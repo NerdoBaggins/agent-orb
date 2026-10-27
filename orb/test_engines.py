@@ -335,3 +335,7 @@ def test_an_engine_folder_whose_name_is_not_plain_is_not_offered_in_the_menu(tmp
 def test_a_name_with_a_trailing_newline_is_not_a_plain_folder_name(tmp_path, name):
     from orb.pages import plain_name
     assert not plain_name(name)
+
+
+def test_the_orbs_sample_rate_is_the_16_khz_every_speech_engine_expects():
+    assert SAMPLE_RATE == 16_000
