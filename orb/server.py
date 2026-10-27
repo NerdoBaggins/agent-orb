@@ -1031,6 +1031,8 @@ class OrbServer:
         text = text.strip()
         if text:
             await self.submit(Request(text, speak, ref, woken, sender))
+        elif ref is not None:
+            await self.notify("info", "nothing to send: the text was empty", ref)
 
     def blocked(self) -> bool:
         return self.busy or self.session["busy"]
