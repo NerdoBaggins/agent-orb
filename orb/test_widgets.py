@@ -149,3 +149,14 @@ def test_a_page_that_cannot_be_read_is_a_problem_naming_the_page(tmp_path):
             read_manifest(folder, "user")
     finally:
         locked.chmod(0o755)
+
+
+def test_a_widget_that_is_a_link_that_cannot_be_followed_is_a_problem_and_the_others_still_list(tmp_path, lock):
+    repo, home = tmp_path / "repo", tmp_path / "home"
+    root = home / ".config" / "orb" / "widgets"
+    installed(root, "team")
+    installed(tmp_path / "locked", "linked")
+    (root / "linked").symlink_to(tmp_path / "locked" / "linked")
+    lock(tmp_path / "locked", 0)
+    widgets, problems = list_installed(repo, home)
+    assert [w.name for w in widgets] == ["team"] and problems == [f"{root / 'linked'} could not be read: Permission denied"]

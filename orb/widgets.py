@@ -69,12 +69,14 @@ def list_installed(repo_root: Path, home: Path) -> tuple[list[Widget], list[str]
     widgets, problems = [], []
     for scope, root in widget_dirs(repo_root, home):
         try:
-            folders = pages.subfolders(root)
+            folders = pages.listing(root)
         except PageError as e:
             problems.append(str(e))
             continue
         for folder in folders:
             try:
+                if not pages.readable_folder(folder):
+                    continue
                 widgets.append(read_manifest(folder, scope))
             except PageError as e:
                 problems.append(str(e))

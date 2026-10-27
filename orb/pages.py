@@ -42,10 +42,18 @@ def still_there(entry: Path) -> bool:
     return True
 
 
-def reachable_folder(path: Path) -> bool:
+def readable_folder(path: Path) -> bool:
+    """Whether `path` is a folder; a PageError naming it when that cannot be checked."""
     try:
         return path.is_dir()
-    except OSError:
+    except OSError as e:
+        raise PageError(f"{path} could not be read: {e.strerror or e}")
+
+
+def reachable_folder(path: Path) -> bool:
+    try:
+        return readable_folder(path)
+    except PageError:
         return False
 
 
