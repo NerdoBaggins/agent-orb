@@ -11,7 +11,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from orb.feeds import STDERR_TAIL, command_env, kill_tree, resolve_program
+from orb.feeds import command_env, failure_reason, kill_tree, resolve_program
 from orb.state import private_root
 
 DEFAULT_SECONDS = 20
@@ -116,8 +116,7 @@ async def run(action: Action, args, orb: dict[str, str]) -> object:
         await proc.wait()
         raise
     if proc.returncode != 0:
-        lines = [line for line in err.decode("utf-8", "replace").splitlines() if line.strip()]
-        raise ActionError((lines[-1] if lines else f"exited {proc.returncode}")[-STDERR_TAIL:])
+        raise ActionError(failure_reason(err, proc.returncode))
     if len(out) > MAX_RESULT_BYTES:
         raise ActionError(f"its answer is over {MAX_RESULT_BYTES // 1024} KB")
     if not out.strip():

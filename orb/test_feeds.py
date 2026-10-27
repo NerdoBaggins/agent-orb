@@ -8,7 +8,7 @@ import pytest
 from pathlib import Path
 
 from orb.state import private_root
-from orb.feeds import FeedError, Feed, command_env, orb_env, output_age, read_feed, read_output, resolve_program, run
+from orb.feeds import STDERR_TAIL, FeedError, Feed, command_env, failure_reason, orb_env, output_age, read_feed, read_output, resolve_program, run
 
 
 def write_feed(home, name="prs", **feed):
@@ -24,6 +24,20 @@ def feed_in(folder, *command, every=300.0, output="data.json"):
 
 def python(code):
     return (sys.executable, "-c", code)
+
+
+def test_a_failure_reason_is_the_last_non_blank_stderr_line():
+    assert failure_reason(b"first\nsecond\n  \n\n", 1) == "second"
+
+
+@pytest.mark.parametrize("stderr", [b"", b"\n  \n\t\n"])
+def test_a_failure_with_no_stderr_text_is_named_by_its_exit_code(stderr):
+    assert failure_reason(stderr, 3) == "exited 3"
+
+
+def test_a_failure_reason_keeps_only_the_end_of_an_over_long_line():
+    line = "x" * STDERR_TAIL + "the end"
+    assert failure_reason(line.encode(), 1) == line[-STDERR_TAIL:]
 
 
 def test_a_panel_without_a_feed_has_none(tmp_path):
