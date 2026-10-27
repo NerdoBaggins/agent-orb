@@ -1,34 +1,49 @@
 # agent-orb
 
-A voice assistant with drop-in panels for Claude Code and Copilot CLI, on Windows and macOS. Hold to talk, hear
-the agent answer in a local voice, ask it to show something and a panel slides in. With the built-in engines, speech
-never leaves the machine: Moonshine for speech-to-text, Kokoro for the voice, both on the CPU. An engine you add
-yourself may be a cloud service (see [Speech engines](#speech-engines)).
+A voice window for Claude Code and GitHub Copilot CLI, on Windows and macOS. Hold a button and talk; the agent's
+reply is read aloud in a local voice; ask it to show something and an HTML panel slides in beside the orb.
+
+With the built-in engines, speech never leaves the machine: Moonshine turns your voice into text and Kokoro speaks
+the reply, both on the CPU. An engine you add yourself may be a cloud service; see [Speech engines](#speech-engines).
+
+- [What you get](#what-you-get)
+- [Install](#install)
+- [First run](#first-run)
+- [Everyday use](#everyday-use)
+- [Where your things live](#where-your-things-live)
+- [Config](#config)
+- [Panels](#panels), [Widgets](#widgets), [Skins](#skins), [Themes](#themes)
+- [Speech engines](#speech-engines), [Wake word](#wake-word)
+- [Troubleshooting](#troubleshooting), [Uninstall](#uninstall), [Developing](#developing)
 
 ## What you get
 
 - **Push to talk**: hold the button, or Space with the window focused, and speak; the reply is read aloud.
-- **Local speech**: the built-in transcription and voice run on your machine; nothing is sent to a speech service. An engine you add yourself can change that.
-- **Voice and speed**: pick the speech engine and its voice from the bar, and set the speed with a slider; each is saved per repo.
-- **Mute**: the bar's voice toggle, `M`, or `orb voice off` silences replies without closing the orb.
-- **Stop**: the stop button, or `Escape`, ends the speech or the agent's turn at once.
+- **Local speech**: the built-in transcription and voice run on your machine. An engine you add yourself can change that.
+- **Voice and speed**: pick the speech engine and its voice from the bar, set the speed with a slider; saved per repo.
+- **Mute and stop**: `M` silences replies without closing the orb; `Escape` ends the speech or the agent's turn.
 - **Talk while it works**: status, repeat and "what did I miss?" are answered at once; anything else waits for the turn to end.
 - **Transcript**: every exchange, typed or spoken, with the agent's steps folded in (`T`).
-- **Panels**: ask the agent to show something and a page slides in beside the orb, with tabs, explain buttons and live data from your own feeds. See [Panels](#panels).
-- **Widgets**: small pages of your own floating over the orb, such as a clock or a usage meter. See [Widgets](#widgets).
-- **Skins and themes**: change how the orb looks (`B` cycles skins) and how everything around it is styled. See [Skins](#skins) and [Themes](#themes).
-- **Wake word**: optional hands-free start, which can answer your enrolled voice only. See [Wake word](#wake-word).
-- **Your own engines**: plug in any speech-to-text or voice engine as a folder. See [Speech engines](#speech-engines).
-- **Both agents**: Claude Code and GitHub Copilot CLI, on Windows and macOS.
+- **Panels**: ask the agent to show something and a page slides in beside the orb, with tabs, explain buttons and live data from your own feeds.
+- **Widgets**: small pages of your own floating over the orb, such as a clock or a usage meter.
+- **Skins and themes**: change how the orb looks (`B` cycles skins) and how everything around it is styled.
+- **Wake word**: optional hands-free start, which can answer your enrolled voice only.
+- **Your own engines**: plug in any speech-to-text or voice engine as a folder.
 
 ## Install
+
+### Prerequisites
 
 You need `uv`, `node` 24 or later, and Chrome or Edge.
 
 - **Windows** (Edge is already there): `winget install astral-sh.uv OpenJS.NodeJS.LTS`
 - **macOS** (with [Homebrew](https://brew.sh)): `brew install uv node` and `brew install --cask google-chrome`
 
-**Claude Code** (2.1.275 or later installs in one step):
+Python and the speech models are fetched on the first open; nothing else to install by hand.
+
+### Claude Code
+
+Claude Code 2.1.275 or later installs it in one step:
 
 ```
 /plugin install agent-orb --marketplace NerdoBaggins/agent-orb
@@ -47,34 +62,49 @@ Then start Claude Code with the channel flag, every time you want the orb:
 claude --dangerously-load-development-channels plugin:agent-orb@nerdobaggins
 ```
 
-The flag lets the orb send your speech into the session. Channels are a research preview, so Claude Code asks you to
-confirm the flag at every start.
+**What the flag does.** A plugin's MCP server normally only answers the agent; a *channel* may also push messages
+into the session, which is how your speech reaches Claude Code. Channels are a research preview, so Claude Code
+asks you to confirm the flag at every start. The channel named here is this plugin's own (`channel/orb-channel.mjs`,
+registered by its `.mcp.json`, no npm dependencies). It listens on `127.0.0.1` only, makes a fresh random secret
+each time the session starts, and refuses any request from a browser or without that secret. The secret is written
+to this repo's state folder under `~/.config/orb/`, readable by you only, which is where the orb server on this
+machine picks it up. Without the flag the orb opens but reports **Not attached**.
 
-**Copilot CLI**: install from the same marketplace:
+### Copilot CLI
+
+Install from the same marketplace:
 
 ```
 copilot plugin marketplace add NerdoBaggins/agent-orb
 copilot plugin install agent-orb@nerdobaggins
 ```
 
-Then start Copilot as a UI server, which listens on a port; the orb attaches to Copilot through that port, so the
-two must agree on the number. The orb dials `ORB_COPILOT_PORT` when it is set in the shell that started Copilot,
-and otherwise `copilot_port` from your config, which is 4321 unless you change it.
-
-**One Copilot at a time** (the usual case): start it on the default port. No setup needed.
+Then start Copilot as a UI server. The orb attaches to Copilot through its port, so the two must agree on the
+number; the default on both sides is 4321:
 
 ```
 copilot --ui-server --port 4321
 ```
 
-**Several at once, in different repos**: each needs a port of its own, since only one program can listen on a
-port. Pick any free port and give the same number to both Copilot and the orb:
+Add your usual Copilot options after that if you want them (`--continue`, for example). One Copilot at a time needs
+no more setup; for several at once, see [Several Copilots at once](#several-copilots-at-once).
 
-```
-ORB_COPILOT_PORT=4400 copilot --ui-server --port 4400
-```
+Working on the orb itself? Load it from a checkout instead: see [Developing](#developing).
 
-**Or let a function pick the port.** `copilot-orb` takes the first free port from 4321 up and sets both for you.
+### Several Copilots at once
+
+Only one program can listen on a port, so each Copilot you run at the same time, in different repos, needs a port of
+its own. The orb dials `ORB_COPILOT_PORT` when it is set in the shell that started Copilot, and otherwise
+`copilot_port` from your [config](#config), which is 4321 unless you change it. So give both Copilot and the orb the
+same number:
+
+| | By hand, any free port |
+|---|---|
+| macOS | `ORB_COPILOT_PORT=4400 copilot --ui-server --port 4400` |
+| Windows (PowerShell) | `$env:ORB_COPILOT_PORT = 4400`, then `copilot --ui-server --port 4400` |
+
+Or let a function pick the port: `copilot-orb` takes the first free port from 4321 up and sets both for you.
+Anything after `copilot-orb` goes to Copilot, so add your usual options there.
 
 macOS, in your `~/.zshrc` (or `~/.bashrc`):
 
@@ -99,12 +129,7 @@ function copilot-orb {
 }
 ```
 
-Anything after `copilot-orb` goes to Copilot, so add your usual options there, such as `copilot-orb --continue`.
-To pick a port by hand in PowerShell instead: `$env:ORB_COPILOT_PORT = 4400`, then `copilot --ui-server --port 4400`.
-
 If the orb says Copilot is not attached, the two numbers disagree, or Copilot is not running as a UI server.
-
-Working on the orb itself? Load it from a checkout instead: see [Developing](#developing).
 
 ## First run
 
@@ -124,7 +149,8 @@ otherwise it prints the open orb's address.
 ### The bar
 
 A faint pill in the top-right corner (of the orb's side when panels share the window) shows a dot in the orb's state
-colour, the wake word when one is on, and anything that needs attention. Hover it to open the rest:
+colour, the wake word when one is on, a count of replies you missed, and what the agent is running in the
+background. Hover it to open the rest:
 
 | Control | What it does |
 |---|---|
@@ -133,6 +159,7 @@ colour, the wake word when one is on, and anything that needs attention. Hover i
 | Voice | mutes or unmutes speech (`M`) |
 | Speed | the voice speed, from 0.7 to 1.6 |
 | Size | the orb's size, marked at normal; each skin keeps its own |
+| Hearing | every installed transcription engine; switching loads it at once |
 | Speech | every installed voice engine; switching loads it at once |
 | Voice menu | the current engine's voices, when it offers them; each engine keeps its own choice |
 | Skin | every installed skin (`B` cycles them) |
@@ -158,7 +185,7 @@ A skin can add keys of its own for its options.
 
 ### The window
 
-With no panels, the orb has the whole window. With panels open, the orb takes a third of it:
+With no panels, the orb has the whole window. With panels open, the orb takes about a third of it:
 
 - Drag the divider to resize; dropped near an edge, it gives that side the whole window.
 - Double-click the orb and it takes the whole window. Double-click a panel's tab and that panel does, with the orb out
@@ -167,11 +194,9 @@ With no panels, the orb has the whole window. With panels open, the orb takes a 
 ## Everyday use
 
 **The orb follows the session, not just its own requests.** A turn typed in the terminal shows as working, with the
-step it is on. The transcript lists everything: what was typed (in the orb or the terminal), what the agent said, and
-the steps between them folded into one line.
-
-**Every reply is spoken**, whoever asked: one typed in the terminal, and the one the agent gives when a background
-task it started finishes.
+step it is on, and its reply is spoken too, as is the one the agent gives when a background task it started
+finishes. The transcript lists everything: what was typed (in the orb or the terminal), what the agent said, and the
+steps between them folded into one line.
 
 **Replies you missed.** A reply that finishes while the window is unfocused counts as new, spoken or not: a badge
 shows in the bar and the title, cleared when you look at the window, and "what did I miss?" reads them aloud.
@@ -188,7 +213,8 @@ next one.
 
 ### Commands
 
-You rarely type these; the agent runs them as `uv run --project <agent-orb> orb ...`.
+You rarely type these; the agent runs them as `uv run --project <agent-orb> orb ...`, where `<agent-orb>` is the
+plugin's folder (the skill tells the agent where that is).
 
 | Command | What |
 |---|---|
@@ -201,7 +227,7 @@ You rarely type these; the agent runs them as `uv run --project <agent-orb> orb 
 | `orb widget on\|off <name>` | show or hide one of your widgets over the orb, saved for this repo; with no orb open, sets it for the next one |
 | `orb voice on\|off\|toggle [--agent claude\|copilot]` | mute or unmute the orb's speech without closing it; with no orb open, sets it for the next one |
 | `orb voice enroll [--agent claude\|copilot]` | enroll your voiceprint in the open orb (five phrases, hold to read) |
-| `orb log [-n N] [--agent claude\|copilot]` | the newest lines of this repo's orb log |
+| `orb log [-n N] [--agent claude\|copilot]` | the newest lines (60 unless you say) of this repo's orb log |
 | `orb doctor [--no-engines]` | read-only checks: tools, browser, config, skin, theme, actions, widgets, agent links, engines, wake word |
 
 Every command also takes `--repo <path>` to act on another repo than the current one.
@@ -302,7 +328,8 @@ The old flat shape (`tts.voice`, `tts.lang`) is still read, as the `kokoro` bloc
 A panel is any HTML page the agent writes. Ask the agent to show something ("show me a chart of…") and it writes one
 and shows it; several panels become tabs. The skill (`skills/orb/SKILL.md`) tells the agent all of this.
 
-A panel gets the theme's stylesheet and these functions:
+A panel runs sandboxed: it gets the theme's stylesheet and these functions, and nothing else of the orb or the
+session.
 
 | Function | What |
 |---|---|
@@ -311,20 +338,44 @@ A panel gets the theme's stylesheet and these functions:
 | `orb.stop()` | stops the speech, or the turn in flight |
 | `orb.action(name, args)` | runs one of your actions (below) and resolves with its answer |
 | `orb.state`, `orb.on("state", fn)` | what the orb is doing: `idle`, `listening`, `transcribing`, `thinking`, `speaking` |
-| `orb.data`, `orb.on("data", fn)` | the latest output of the panel's feed |
+| `orb.data`, `orb.on("data", fn)` | the latest output of the panel's feed (below) |
 
 **Saved panels** are folders with an `index.html` and a `panel.json` (`title`, `description`), in any of the panel
 folders in [Where your things live](#where-your-things-live). A saved panel reloads itself when its files change.
 
-**Feeds keep a panel current.** A panel carries no code that fetches data. Instead, your own feed, a folder named
-after the panel with a `feed.json`, names a command and an interval. The orb runs it while the panel is open and
-hands its JSON to the page as `orb.data`.
+### Feeds and actions
 
-**Actions change something.** A panel that stars a story or signs in again calls `orb.action(name, args)`. Your own
-`actions.json`, in an actions folder named after the panel, maps each name to
-`{"command": [...], "click": true, "seconds": 20}`. The orb runs the command in that folder with `args` as JSON on
-stdin and hands back what it prints as JSON; a non-zero exit rejects with its last stderr line. An action needs a
-click unless it says `"click": false`, and the orb checks the click itself rather than taking the panel's word.
+A panel or widget carries no code that fetches data or changes anything; the only code the orb runs is yours, from
+your own folders ([Where your things live](#where-your-things-live)).
+
+**A feed keeps a page current.** It is a folder named after the panel or widget, holding a `feed.json` and whatever
+it runs:
+
+```json
+{"command": ["python3", "gen.py"], "every": 300}
+```
+
+`command` is a list of words run in that folder without a shell; `every` is seconds, at least 30. While the page is
+open the orb runs the command on that interval and hands the JSON it writes to `data.json` (or the file an optional
+`"output"` names) to the page as `orb.data`. A non-zero exit reports its last stderr line on the page; a run still
+going after 120 seconds is stopped.
+
+**An action changes something.** A page that stars a story or signs in again calls `orb.action(name, args)`. Your
+`actions.json`, in an actions folder named after the page, maps each name to a command:
+
+```json
+{"star": {"command": ["python3", "star.py"], "click": true, "seconds": 20}}
+```
+
+The orb runs the command in that folder with `args` as JSON on stdin and hands back what it prints as JSON; a
+non-zero exit rejects with its last stderr line. `seconds` (20 unless set, 120 at most) is how long it may run. An
+action needs a click unless it says `"click": false`, and the orb checks the click itself rather than taking the
+page's word.
+
+**Environment.** Every feed and action runs with `ORB_REPO`, `ORB_AGENT` (`claude` or `copilot`) and, while the orb
+knows it, `ORB_SESSION`, so a feed about the attached session reads that instead of guessing. Such a feed writes its
+JSON to the path in `ORB_OUTPUT` rather than `data.json`, so each orb on a repo gets its own reading; a feed whose
+answer is the same for every orb keeps writing `data.json`, which they share.
 
 ## Widgets
 
@@ -336,21 +387,17 @@ folder with an `index.html` and a `widget.json`:
  "size": {"width": 160, "height": 48}, "corner": "top-right"}
 ```
 
-`size` and `corner` (`top-left`, `top-right`, `bottom-left`, `bottom-right`) are optional. Widgets live in the widget
-folders in [Where your things live](#where-your-things-live).
+`size` and `corner` (`top-left`, `top-right`, `bottom-left`, `bottom-right`) are optional: 160 by 48 pixels in the
+top-left corner unless set. Widgets live in the widget folders in [Where your things live](#where-your-things-live).
 
 An installed widget is off until you tick it on in the bar's `widgets` menu (or `orb widget on <name>`). Then it
 appears at its corner, drags by its top edge, resizes by its bottom-right grip, and the orb remembers where you put it
 for this repo. It hides with the orb when a panel takes the whole window.
 
 A widget's page gets what a panel's gets: the theme, `orb.send`, `orb.speak`, `orb.action`, `orb.state` and
-`orb.data`. Its data comes from your own feed under the same name a panel's would, so one feed serves a name as a
-widget and as a panel. A widget brings only a page; the orb runs no code from its folder.
-
-**Feed and action environment.** Every feed and action runs with `ORB_REPO`, `ORB_AGENT` (`claude` or `copilot`)
-and, while the orb knows it, `ORB_SESSION`, so a feed about the attached session reads that instead of guessing. Such
-a feed writes its JSON to the path in `ORB_OUTPUT` rather than `data.json`, so each orb on a repo gets its own
-reading; a feed whose answer is the same for every orb keeps writing `data.json`, which they share.
+`orb.data`. Its data comes from your own feed under the same name a panel's would
+([Feeds and actions](#feeds-and-actions)), so one feed serves a name as a widget and as a panel. A widget brings only
+a page; the orb runs no code from its folder.
 
 ## Skins
 
@@ -407,9 +454,9 @@ whatever it is written to do: one that wraps a cloud service sends your recorded
 reply's text (voice) to that service, under its terms. Check what an engine calls before you install it; an `env`
 entry naming an API key is the usual sign that it talks to one.
 
-**Choosing one.** `stt.engine` and `tts.engine` in your config name the engines, or pick one from the bar's speech
-menu. Your folder is searched first. An engine that is missing, fails to load or dies gives way to the built-in
-default and the orb says why. A repo can neither name nor provide one.
+**Choosing one.** `stt.engine` and `tts.engine` in your config name the engines, or pick from the bar's `hearing`
+and `speech` menus. Your folder is searched first. An engine that is missing, fails to load or dies gives way to the
+built-in default and the orb says why. A repo can neither name nor provide one.
 
 An engine's, skin's or theme's folder name is lowercase letters, digits, `-` and `_` (up to 64); a folder named any
 other way is neither listed nor loaded.
@@ -426,9 +473,10 @@ other way is neither listed nor loaded.
 | `wake`, `vad` | `{"op": "frame", "pcm": …}` | `{"score": …}` |
 | `voiceprint` | `{"op": "embed", "pcm": …}` | `{"vector": […]}` |
 
-A reply carrying `error` is a failure. A `tts` engine that does not answer `voices` simply has no voice menu. `env`
-names the variables the engine needs (credentials never go in config). `max_seconds` is the longest clip an STT
-engine accepts; the orb cuts longer ones at quiet points.
+A reply carrying `error` is a failure. A `tts` engine that does not answer `voices` simply has no voice menu. In
+`engine.json`, `env` names the variables the engine needs (credentials never go in config); `max_seconds` is the
+longest clip an STT engine accepts, and the orb cuts longer ones at quiet points; `frame_samples` is how many samples
+a `wake` or `vad` engine takes per frame.
 
 ## Wake word
 
@@ -437,7 +485,8 @@ shows it), and the orb listens for the phrase while idle:
 
 ```json
 "wake": { "engine": "openwakeword", "model": "hey_jarvis", "threshold": 0.5, "vad": "silero",
-          "silence_s": 1.5, "prespeech_s": 4, "follow_up_s": 8, "voice_auth": false, "voice_auth_threshold": 0.72 }
+          "silence_s": 1.5, "prespeech_s": 4, "follow_up_s": 8,
+          "voice_auth": false, "voiceprint": "resemblyzer", "voice_auth_threshold": 0.72 }
 ```
 
 - `model` has no default: it names the wake model you installed, and the phrase the orb strips is read from it
@@ -459,15 +508,16 @@ shows it), and the orb listens for the phrase while idle:
 
 ## Troubleshooting
 
-**Start with `orb doctor`** (ask the agent to run it, or run `uv run --project <agent-orb> orb doctor`). It checks,
-without changing anything: `uv` and `node`, the browser, your config, the skin and theme, panel actions, widgets, the
-Claude channel, the Copilot UI server, the speech engines, and the wake word when one is on. Each failing line says
-what to do. `--no-engines` skips loading the speech engines, which is faster.
+**Start with `orb doctor`**: ask the agent to run it, or run `uv run --project <agent-orb> orb doctor` yourself,
+where `<agent-orb>` is the plugin's folder. It checks, without changing anything: `uv` and `node`, the browser,
+your config, the skin and theme, panel actions, widgets, the Claude channel, the Copilot UI server, the speech
+engines, and the wake word when one is on. Each failing line says what to do. `--no-engines` skips loading the
+speech engines, which is faster.
 
 | What you see | What it means |
 |---|---|
 | **Not attached: start Claude Code in this repo with …** | Claude Code was started without the channel flag, or in another folder. Quit and restart it with the command shown. |
-| **Not attached: start Copilot in this repo with …** | No Copilot UI server answers on the port the orb dials: `ORB_COPILOT_PORT` when Copilot was started with it, else `copilot_port`. Start Copilot with the command shown, on that port. |
+| **Not attached: start Copilot in this repo with …** | No Copilot UI server answers on the port the orb dials: `ORB_COPILOT_PORT` when Copilot was started with it, else `copilot_port`. Start Copilot on that port. The command the orb prints also carries `--yolo` and `--continue`, Copilot's own options; the orb needs only `--ui-server --port`. |
 | **orb already open for … in …** | That repo already has an orb for that agent with its window open. Use that window, or stop it with `orb stop` to start another. |
 | **no Chrome or Edge found** | Install one; the orb window needs it. |
 | The mic permission prompt comes back | The orb's usual port was taken, so it started on a new one, and the browser asks again. |
@@ -528,7 +578,7 @@ list where the build departed from it.
 | `channel/` | the Claude Code channel MCP server (Node, no dependencies) |
 | `copilot/` | the Copilot SDK helper (Node, no dependencies) |
 | `web/` | the orb page, the push-to-talk worklet, the panel API and stylesheet |
-| `engines/` | built-in speech engines, one folder each; `moonshine` and `kokoro` are the defaults (the bar's speech menu switches between installed engines), `fake` serves the tests |
+| `engines/` | built-in speech engines, one folder each; `moonshine` and `kokoro` are the defaults (the bar's `hearing` and `speech` menus switch between installed engines), `fake` serves the tests |
 | `skins/` | orb skins; `pulse` is the default |
 | `themes/` | orb themes; `default` is the original look |
 
