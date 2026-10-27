@@ -1068,10 +1068,11 @@ class OrbServer:
     async def submit(self, request: "Request") -> None:
         """Every request joins the queue, and the one sender sends it when its turn comes: now, if nothing is in the
         way. Never into a running turn, where Claude Code declines it as not the user's (the spec's measurement)."""
-        if self.blocked() or self.queue:
+        waiting = self.blocked() or bool(self.queue)
+        self.queue.append(request)
+        if waiting:
             await self.notify("info", f"{self.link.name} is busy; I'll send that when it finishes"
                               if self.pending or self.session["busy"] else "I'll send that next")
-        self.queue.append(request)
         await self.send_queued()
 
     async def send_queued(self) -> None:
