@@ -662,3 +662,53 @@ def test_a_request_queued_behind_a_woken_reply_goes_once_its_follow_up_window_cl
             await wait_for(lambda: len(server.link.sent) == 2)
             assert server.link.sent[1][0] == "[panel] Explain the chart"
     run(go())
+
+
+def hold_the_state_after_transcribing(server):
+    gate, held, real_set_state = asyncio.Event(), [], server.set_state
+
+    async def held_set_state(state, said=None):
+        if state != "transcribing" and not held:
+            held.append(state)
+            await gate.wait()
+        await real_set_state(state, said)
+
+    server.set_state = held_set_state
+    return gate, held
+
+
+def test_speech_is_not_overtaken_while_the_window_is_told_it_waits(tmp_path):
+    async def go():
+        server = make(tmp_path, voice=True, stt_text="said first")
+        async with await client_for(server) as c:
+            await connect(c)
+            gate, held = hold_the_state_after_transcribing(server)
+            server.session = server.session | {"busy": True}
+            spoken = asyncio.create_task(server.heard_clip(CLIP))
+            await wait_for(lambda: held)
+            await server.ask("clicked after", ref="panel:1", sender="[panel]")
+            server.session = server.session | {"busy": False}
+            gate.set()
+            await spoken
+            await wait_for(lambda: server.link.sent)
+            assert server.link.sent[0][0] == "said first"
+    run(go())
+
+
+def test_speech_heard_before_stop_is_dropped_with_what_was_waiting(tmp_path):
+    async def go():
+        server = make(tmp_path, voice=True, stt_text="said before stop")
+        server.link.interrupt = lambda: agents.Stopped.ABORTED
+        async with await client_for(server) as c:
+            await connect(c)
+            gate, held = hold_the_state_after_transcribing(server)
+            server.session = server.session | {"busy": True}
+            spoken = asyncio.create_task(server.heard_clip(CLIP))
+            await wait_for(lambda: held)
+            await server.stop()
+            server.session = server.session | {"busy": False}
+            gate.set()
+            await spoken
+            await asyncio.sleep(0.2)
+            assert server.link.sent == [] and server.queue == []
+    run(go())

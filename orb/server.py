@@ -1056,6 +1056,9 @@ class OrbServer:
     def blocked(self) -> bool:
         return self.busy or self.session["busy"]
 
+    def must_wait(self) -> bool:
+        return self.blocked() or bool(self.queue)
+
     def ready(self) -> bool:
         """The follow-up window after a woken reply is the user's to speak in; what is queued goes after it."""
         follow_up = self.waker is not None and self.waker.follow_up.is_open(time.monotonic())
@@ -1068,7 +1071,7 @@ class OrbServer:
     async def submit(self, request: "Request") -> None:
         """Every request joins the queue, and the one sender sends it when its turn comes: now, if nothing is in the
         way. Never into a running turn, where Claude Code declines it as not the user's (the spec's measurement)."""
-        waiting = self.blocked() or bool(self.queue)
+        waiting = self.must_wait()
         self.queue.append(request)
         if waiting:
             await self.notify("info", f"{self.link.name} is busy; I'll send that when it finishes"
@@ -1288,11 +1291,11 @@ class OrbServer:
         if intent is not None and (self.pending or self.session["busy"] or intent == "missed"):
             await self.side_question(text, intent)
             return
-        waits = self.blocked() or bool(self.queue)
+        waits = self.must_wait()
+        await self.submit(Request(text, woken=strip is not None, spoken=True))
         if waits and self.state != "speaking":
             await self.set_state(self.resume_state())
-        await self.submit(Request(text, woken=strip is not None, spoken=True))
-        if not waits and self.state == "idle":
+        elif not waits and self.state == "idle":
             await self.set_state("idle")
 
     async def side_question(self, text: str, intent: str) -> None:
