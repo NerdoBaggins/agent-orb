@@ -50,6 +50,7 @@ WAIT_STEADY_POLLS = 3  # a step must outlast this many polls before the orb says
 PLAYBACK_GRACE_S = 5
 WAKE_RETRY_S = 60.0
 INTERRUPT_SETTLE_S = 3.0
+PANEL_POST_MAX_BYTES = pages.MAX_TOTAL_BYTES * 4 // 3 + 1024 * 1024  # base64 grows the files by a third; the rest is names and JSON
 ACTIONS_AT_ONCE = 4  # per panel; a panel that fires more waits for an answer first
 WINDOW_GRACE_S = float(os.environ.get("ORB_WINDOW_GRACE_S", 20))  # a server with no window this long exits: closing the window ends the orb; covers a reload
 log = logging.getLogger("orb")
@@ -214,7 +215,7 @@ class OrbServer:
         self.theme_dirs = expand_dirs(self.config["theme_dirs"], home)
         self.theme = themes.select(self.config["theme"], home, self.theme_dirs)
         self.theme_note: str | None = None
-        self.app = web.Application(middlewares=[self.guard])
+        self.app = web.Application(middlewares=[self.guard], client_max_size=PANEL_POST_MAX_BYTES)
         self.app.router.add_get("/", self.index)
         self.app.router.add_get("/health", self.health)
         self.app.router.add_get("/pending", self.pending_ids)
