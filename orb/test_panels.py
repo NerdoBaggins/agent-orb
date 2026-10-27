@@ -438,3 +438,21 @@ def test_a_saved_panel_that_is_a_link_that_cannot_be_followed_is_reported_and_th
     lock(tmp_path / "locked", 0)
     panels, problems = list_saved(repo, home)
     assert [p.name for p in panels] == ["alpha"] and problems == [f"{root / 'linked'} could not be read: Permission denied"]
+
+@pytest.mark.parametrize("target", ["gone", "loop"])
+def test_a_saved_panel_that_is_a_broken_link_is_reported_and_the_others_still_list(tmp_path, target):
+    repo, home = tmp_path / "repo", tmp_path / "home"
+    root = home / ".config" / "orb" / "panels"
+    saved(root, "alpha")
+    (root / "linked").symlink_to(root / "linked" if target == "loop" else tmp_path / "gone")
+    panels, problems = list_saved(repo, home)
+    assert [p.name for p in panels] == ["alpha"] and problems == [f"{root / 'linked'} could not be read: it is a link to nothing that can be followed"]
+
+
+def test_a_stray_file_beside_the_saved_panels_is_not_a_problem(tmp_path):
+    repo, home = tmp_path / "repo", tmp_path / "home"
+    root = home / ".config" / "orb" / "panels"
+    saved(root, "alpha")
+    (root / ".DS_Store").write_bytes(b"\0")
+    panels, problems = list_saved(repo, home)
+    assert ([p.name for p in panels], problems) == (["alpha"], [])
