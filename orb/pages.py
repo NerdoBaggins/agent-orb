@@ -26,6 +26,15 @@ def valid_name(name: str) -> str:
     return name
 
 
+def listable(root: Path) -> list[Path]:
+    """What `root` holds, or nothing when it is absent or cannot be listed (a permission error on a synced folder):
+    one unreadable folder must not take every picker and list down with it."""
+    try:
+        return list(root.iterdir()) if root.is_dir() else []
+    except OSError:
+        return []
+
+
 def scoped_dirs(kind: str, repo_root: Path, home: Path, named: list[Path]) -> list[tuple[str, Path]]:
     return [("mine", private_root(home, repo_root) / kind), *[("custom", folder) for folder in named],
             ("user", Path(home) / ".config" / "orb" / kind)]

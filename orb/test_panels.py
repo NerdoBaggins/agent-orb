@@ -408,3 +408,16 @@ def test_a_folder_named_in_the_users_file_for_this_repo_is_searched(tmp_path):
     write_panel_dirs(private_root(home, repo) / "config.json", str(notes))
     saved(notes, "kept")
     assert find_saved("kept", repo, home).scope == "custom"
+
+
+def test_a_panels_folder_that_cannot_be_listed_is_reported_and_the_others_still_list(tmp_path, monkeypatch):
+    repo, home = tmp_path / "repo", tmp_path / "home"
+    locked = private_root(home, repo) / "panels"
+    locked.mkdir(parents=True)
+    saved(home / ".config" / "orb" / "panels", "alpha", title="User A")
+    real_iterdir = Path.iterdir
+    monkeypatch.setattr(Path, "iterdir", lambda self: (_ for _ in ()).throw(PermissionError(13, "Permission denied"))
+                        if self == locked else real_iterdir(self))
+    panels, problems = list_saved(repo, home)
+    assert [p.name for p in panels] == ["alpha"]
+    assert len(problems) == 1 and str(locked) in problems[0] and "could not be listed" in problems[0]

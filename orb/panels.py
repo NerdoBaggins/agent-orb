@@ -69,7 +69,12 @@ def list_saved(repo_root: Path, home: Path) -> tuple[list[SavedPanel], list[str]
     for scope, root in panel_dirs(repo_root, home):
         if not root.is_dir():
             continue
-        for folder in sorted(p for p in root.iterdir() if p.is_dir()):
+        try:
+            folders = sorted(p for p in root.iterdir() if p.is_dir())
+        except OSError as e:
+            problems.append(f"{root} could not be listed: {e.strerror or e}")
+            continue
+        for folder in folders:
             try:
                 title, description = read_manifest(folder)
                 panels.append(SavedPanel(valid_name(folder.name), title, description, folder, scope))

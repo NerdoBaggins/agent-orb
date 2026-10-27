@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -176,3 +177,12 @@ def test_a_users_copy_of_the_default_skin_that_renamed_itself_still_loads(tmp_pa
     folder = skin_in(tmp_path / ".config" / "orb" / "skins", "pulse")
     (folder / "skin.json").write_text(json.dumps({"name": "my-pulse", "version": "1"}), encoding="utf-8")
     assert select("pulse", tmp_path).path == folder
+
+
+def test_a_skins_folder_that_cannot_be_listed_leaves_the_built_in_skins_offered(tmp_path, monkeypatch):
+    locked = tmp_path / ".config" / "orb" / "skins"
+    locked.mkdir(parents=True)
+    real_iterdir = Path.iterdir
+    monkeypatch.setattr(Path, "iterdir", lambda self: (_ for _ in ()).throw(PermissionError(13, "Permission denied"))
+                        if self == locked else real_iterdir(self))
+    assert "pulse" in available(tmp_path)
