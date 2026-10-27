@@ -64,7 +64,7 @@ def files_base64_max(total: int, count: int) -> int:
     return base64_length(total + (BASE64_BLOCK - 1) * count)
 
 
-PANEL_POST_MAX_BYTES = (len(json.dumps({"name": "n" * pages.MAX_NAME_CHARS, "title": "", "files": {}, "saved": "n" * pages.MAX_NAME_CHARS}))
+PANEL_POST_MAX_BYTES = (len(json.dumps(panels.post_body("n" * pages.MAX_NAME_CHARS, "", {}, "n" * pages.MAX_NAME_CHARS)))
                         + panels.MAX_TITLE_CHARS * JSON_CHAR_MAX_BYTES
                         + JSON_ENTRY_BYTES + len("index.html")
                         + (pages.MAX_FILES - 1) * (JSON_ENTRY_BYTES + pages.MAX_PATH_CHARS * JSON_CHAR_MAX_BYTES)

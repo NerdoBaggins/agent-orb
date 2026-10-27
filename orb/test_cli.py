@@ -31,6 +31,43 @@ def test_a_panel_title_or_name_over_its_cap_is_refused_before_anything_is_sent(t
     assert sent == [] and refusal in capsys.readouterr().err
 
 
+def test_a_panel_title_exactly_at_the_cap_is_sent(tmp_path, monkeypatch):
+    folder = tmp_path / "site"
+    folder.mkdir()
+    (folder / "index.html").write_text("<p>hi</p>", encoding="utf-8")
+    sent = []
+    monkeypatch.setattr(cli, "pick_server", lambda state, agent: {})
+    monkeypatch.setattr(cli, "post", lambda server, path, body: sent.append(body))
+    title = "t" * panels.MAX_TITLE_CHARS
+    assert cli.main(["panel", "show", str(folder / "index.html"), "--title", title, "--repo", str(tmp_path / "repo"), "--home", str(tmp_path / "home")]) == 0
+    assert sent[0]["title"] == title
+
+
+def test_a_one_off_panel_whose_folder_name_is_longer_than_the_title_cap_is_sent_with_the_title_shortened(tmp_path, monkeypatch):
+    folder = tmp_path / ("a" * (panels.MAX_TITLE_CHARS + 20))
+    folder.mkdir()
+    (folder / "index.html").write_text("<p>hi</p>", encoding="utf-8")
+    sent = []
+    monkeypatch.setattr(cli, "pick_server", lambda state, agent: {})
+    monkeypatch.setattr(cli, "post", lambda server, path, body: sent.append(body))
+    assert cli.main(["panel", "show", str(folder / "index.html"), "--repo", str(tmp_path / "repo"), "--home", str(tmp_path / "home")]) == 0
+    assert sent[0]["title"] == "A" + "a" * (panels.MAX_TITLE_CHARS - 1)
+
+
+@pytest.mark.parametrize("by_path", [False, True])
+def test_a_saved_panel_whose_title_is_longer_than_the_cap_is_sent_with_the_title_shortened(tmp_path, monkeypatch, by_path):
+    folder = tmp_path / "home" / ".config" / "orb" / "panels" / "long"
+    folder.mkdir(parents=True)
+    (folder / "index.html").write_text("<p>hi</p>", encoding="utf-8")
+    (folder / "panel.json").write_text(json.dumps({"title": "T" * (panels.MAX_TITLE_CHARS + 50), "description": "d"}), encoding="utf-8")
+    sent = []
+    monkeypatch.setattr(cli, "pick_server", lambda state, agent: {})
+    monkeypatch.setattr(cli, "post", lambda server, path, body: sent.append(body))
+    target = str(folder / "index.html") if by_path else "long"
+    assert cli.main(["panel", "show", target, "--repo", str(tmp_path / "repo"), "--home", str(tmp_path / "home")]) == 0
+    assert sent[0]["title"] == "T" * panels.MAX_TITLE_CHARS
+
+
 def test_the_server_command_line_carries_no_token_and_the_server_takes_it_from_standard_input(tmp_path):
     import io
     import secrets
