@@ -71,8 +71,9 @@ port. Pick any free port and give the same number to both Copilot and the orb:
 ORB_COPILOT_PORT=4400 copilot --ui-server --port 4400
 ```
 
-**Or let a shell function pick the port** (macOS or Linux; put it in your `~/.zshrc` or `~/.bashrc`). It takes the
-first free port from 4321 up and sets both for you:
+**Or let a function pick the port.** `copilot-orb` takes the first free port from 4321 up and sets both for you.
+
+macOS or Linux, in your `~/.zshrc` or `~/.bashrc`:
 
 ```sh
 copilot-orb() {
@@ -82,8 +83,21 @@ copilot-orb() {
 }
 ```
 
+Windows, in your PowerShell profile (`notepad $PROFILE`):
+
+```powershell
+function copilot-orb {
+  $port = 4321
+  $taken = [System.Net.NetworkInformation.IPGlobalProperties]::GetIPGlobalProperties().GetActiveTcpListeners().Port
+  while ($taken -contains $port) { $port++ }
+  $previous = $env:ORB_COPILOT_PORT
+  $env:ORB_COPILOT_PORT = $port
+  try { copilot --ui-server --port $port @args } finally { $env:ORB_COPILOT_PORT = $previous }
+}
+```
+
 Anything after `copilot-orb` goes to Copilot, so add your usual options there, such as `copilot-orb --continue`.
-On Windows, run `$env:ORB_COPILOT_PORT = 4400` in PowerShell, then `copilot --ui-server --port 4400`.
+To pick a port by hand in PowerShell instead: `$env:ORB_COPILOT_PORT = 4400`, then `copilot --ui-server --port 4400`.
 
 If the orb says Copilot is not attached, the two numbers disagree, or Copilot is not running as a UI server.
 
