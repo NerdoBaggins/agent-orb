@@ -4,11 +4,11 @@ import numpy as np
 import pytest
 
 from orb import waking
+from orb.audio import SAMPLE_RATE
 from orb.engines import EngineError
 from orb.waking import WakeOff, Waker, build, load_voiceprint, save_voiceprint, voiceprint_path
 from orb.wake import settings
 
-RATE = 16_000
 
 
 def frame(first=0.0, second=0.0, third=0.0):
@@ -134,7 +134,7 @@ def test_cancel_drops_the_recording(waker):
 
 
 def test_without_voice_auth_every_clip_is_authorized(waker):
-    assert waker.authorized(np.zeros(RATE, dtype=np.float32)) == (True, None)
+    assert waker.authorized(np.zeros(SAMPLE_RATE, dtype=np.float32)) == (True, None)
 
 
 def test_with_voice_auth_the_enrolled_voice_passes_and_another_is_refused(tmp_path):

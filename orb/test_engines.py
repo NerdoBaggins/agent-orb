@@ -5,10 +5,10 @@ import numpy as np
 import pytest
 
 from orb import engines
+from orb.audio import SAMPLE_RATE
 from orb.engines import (BUILTIN_DIR, EngineError, available, EngineProcess, Manifest, Stt, Tts, cache_dir, check, find,
                          missing_env, read_manifest, split_at_quiet_points, start)
 
-RATE = 16_000
 
 
 def write_engine(root, kind, name, script, manifest=None):
@@ -229,8 +229,8 @@ def test_the_fallback_uses_the_defaults_own_settings_not_the_failed_engines(tmp_
 
 def test_stt_cuts_a_long_clip_by_the_engines_max_seconds_and_joins_the_pieces(tmp_path):
     stt = Stt(settings(engine="fake", number_pieces=True), tmp_path)
-    assert stt.transcribe(np.zeros(RATE * 45, dtype=np.float32)) == "part1 part2 part3"
-    assert stt.transcribe(np.zeros(RATE * 20, dtype=np.float32)) == "part4"
+    assert stt.transcribe(np.zeros(SAMPLE_RATE * 45, dtype=np.float32)) == "part1 part2 part3"
+    assert stt.transcribe(np.zeros(SAMPLE_RATE * 20, dtype=np.float32)) == "part4"
     stt.close()
 
 
@@ -238,21 +238,21 @@ def test_stt_without_a_max_seconds_sends_the_whole_clip(tmp_path):
     write_engine(tmp_path / ".config" / "voice-engines", "stt", "whole", (BUILTIN_DIR / "stt" / "fake" / "engine.py").read_text(),
                  {"name": "whole", "version": "1", "kind": "stt", "run": ["uv", "run", "--script", "engine.py"]})
     stt = Stt(settings(engine="whole", number_pieces=True), tmp_path)
-    assert stt.transcribe(np.zeros(RATE * 45, dtype=np.float32)) == "part1"
+    assert stt.transcribe(np.zeros(SAMPLE_RATE * 45, dtype=np.float32)) == "part1"
     stt.close()
 
 
 def test_stt_drops_an_empty_piece_from_the_join(tmp_path):
     stt = Stt(settings(engine="fake", text=""), tmp_path)
-    assert stt.transcribe(np.zeros(RATE * 45, dtype=np.float32)) == ""
+    assert stt.transcribe(np.zeros(SAMPLE_RATE * 45, dtype=np.float32)) == ""
     stt.close()
 
 
 # ---- cutting ----
 
 def _tone(seconds, amp=0.3):
-    n = int(seconds * RATE)
-    return (amp * np.sin(2 * np.pi * 220 * np.arange(n) / RATE)).astype(np.float32)
+    n = int(seconds * SAMPLE_RATE)
+    return (amp * np.sin(2 * np.pi * 220 * np.arange(n) / SAMPLE_RATE)).astype(np.float32)
 
 
 def test_audio_up_to_the_piece_length_is_one_piece_and_one_sample_more_is_two():
@@ -262,25 +262,25 @@ def test_audio_up_to_the_piece_length_is_one_piece_and_one_sample_more_is_two():
 
 
 def test_a_long_clip_is_cut_in_the_pause_inside_the_search_window_and_loses_nothing():
-    pause = 17 * RATE
+    pause = 17 * SAMPLE_RATE
     audio = _tone(50)
-    audio[pause:pause + 8000] = 0.0
+    audio[pause:pause + SAMPLE_RATE // 2] = 0.0
     pieces = split_at_quiet_points(audio, 20)
     assert sum(p.size for p in pieces) == audio.size
-    assert all(p.size <= 20 * RATE for p in pieces)
-    assert pause <= pieces[0].size <= pause + 8000
+    assert all(p.size <= 20 * SAMPLE_RATE for p in pieces)
+    assert pause <= pieces[0].size <= pause + SAMPLE_RATE // 2
 
 
 def test_a_pause_before_the_search_window_is_not_cut_at():
     audio = _tone(30)
-    audio[5 * RATE:5 * RATE + 8000] = 0.0
-    assert split_at_quiet_points(audio, 20)[0].size >= 15 * RATE
+    audio[5 * SAMPLE_RATE:5 * SAMPLE_RATE + SAMPLE_RATE // 2] = 0.0
+    assert split_at_quiet_points(audio, 20)[0].size >= 15 * SAMPLE_RATE
 
 
 def test_a_pause_at_the_far_edge_of_the_search_window_is_still_cut_at():
     audio = _tone(30)
-    audio[int(15.1 * RATE):int(15.1 * RATE) + 8000] = 0.0
-    assert split_at_quiet_points(audio, 20)[0].size < 15.7 * RATE
+    audio[int(15.1 * SAMPLE_RATE):int(15.1 * SAMPLE_RATE) + SAMPLE_RATE // 2] = 0.0
+    assert split_at_quiet_points(audio, 20)[0].size < 15.7 * SAMPLE_RATE
 
 
 def test_available_lists_engines_with_a_manifest_from_both_folders_and_never_the_test_fixtures(tmp_path):

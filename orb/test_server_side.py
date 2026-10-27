@@ -8,11 +8,12 @@ import pytest
 from aiohttp import WSMsgType
 
 from orb import agents
+from orb.audio import SAMPLE_RATE
 from orb.server import Request
 from orb.test_server import SPEECH, TOKEN, FakeLink, client_for, make, pcm, run, wait_for, waker_for
 from orb.test_server_interrupt import BlockingLink
 
-CLIP = np.zeros(16000, dtype=np.float32)
+CLIP = np.zeros(SAMPLE_RATE, dtype=np.float32)
 
 
 async def next_json(ws, matches=lambda d: True):

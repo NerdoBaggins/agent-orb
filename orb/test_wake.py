@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 
+from orb.audio import SAMPLE_RATE
 from orb.wake import (COOLDOWN_S, DEFAULTS, FIRE_FRAMES, FollowUp, Health, Prebuffer, Recording, Trigger, WakeConfigError,
                       cosine, settings, strip_phrase, voiceprint_from)
 
@@ -59,8 +60,8 @@ def test_the_prebuffer_keeps_about_the_last_second_and_empties_when_taken():
     for i in range(30):
         p.push(np.full(1280, i, dtype=np.float32))
     kept = p.take()
-    assert 16_000 <= sum(f.size for f in kept) < 16_000 + 1280
-    assert kept[-1][0] == 29 and kept[0][0] >= 16
+    assert SAMPLE_RATE <= sum(f.size for f in kept) < SAMPLE_RATE + 1280
+    assert [f[0] for f in kept] == list(range(30 - len(kept), 30))
     assert p.take() == []
 
 

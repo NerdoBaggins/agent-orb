@@ -16,6 +16,7 @@ from pathlib import Path
 import numpy as np
 
 from orb import PLUGIN_ROOT
+from orb.audio import SAMPLE_RATE
 from orb.pages import plain_name
 
 KINDS = ("stt", "tts", "wake", "vad", "voiceprint")
@@ -273,10 +274,10 @@ class Engine:
         self.process.close()
 
 
-def split_at_quiet_points(samples: np.ndarray, max_s: float, rate: int = 16_000, search_s: float = 5.0) -> list[np.ndarray]:
+def split_at_quiet_points(samples: np.ndarray, max_s: float, search_s: float = 5.0) -> list[np.ndarray]:
     """Pieces of at most `max_s`, each cut at the quietest tenth of a second in the last `search_s` before the cap."""
-    window = rate // 10
-    cap, back = int(max_s * rate), int(search_s * rate)
+    window = SAMPLE_RATE // 10
+    cap, back = int(max_s * SAMPLE_RATE), int(search_s * SAMPLE_RATE)
     pieces, start = [], 0
     while samples.size - start > cap:
         lo, hi = start + cap - back, start + cap
