@@ -10,7 +10,7 @@ from pathlib import Path
 
 from orb import actions, agents, browser, pages, skins, themes, widgets
 from orb.config import ConfigError, copilot_port_for, engine_settings, expand_dirs, load_for, tts_settings_for, widgets_on
-from orb.copilot import port_open, resolve_sdk
+from orb.copilot import port_open, resolve_sdk, start_command
 from orb import engines, wake, waking
 from orb.engines import EngineError
 from orb.state import state_dir
@@ -52,7 +52,7 @@ def check_channel(repo: Path, home: Path) -> Check:
 
 def check_copilot(port: int) -> Check:
     if not port_open(port):
-        return Check("copilot ui-server", False, f"nothing listens on port {port}; start copilot --yolo --ui-server --port {port} --continue")
+        return Check("copilot ui-server", False, f"nothing listens on port {port}; start {start_command(port)}")
     try:
         sdk = resolve_sdk()
     except agents.LinkError as e:
