@@ -1,5 +1,6 @@
 import asyncio
 import json
+import shutil
 
 import pytest
 
@@ -53,3 +54,21 @@ def test_the_pickers_stay_shown_when_only_one_other_skin_and_theme_remain_beside
 
     asyncio.run(run_page(tmp_path, [], removed, server))
     assert seen == {"skin": True, "theme": True}
+
+
+@pytest.mark.timeout(60)
+def test_the_skin_key_moves_off_a_skin_whose_folder_was_removed_to_the_one_left(tmp_path):
+    skinned(tmp_path, {})
+    (tmp_path / "home" / ".config" / "orb" / "config.json").write_text(json.dumps({"skin": "neb"}), encoding="utf-8")
+    server = make(tmp_path, voice=True)
+
+    async def removed(page):
+        shutil.rmtree(tmp_path / "home" / ".config" / "orb" / "skins" / "neb")
+        await server.refresh_pickers()
+        await page.wait_for_timeout(500)
+        await page.click("body")
+        await page.keyboard.press("KeyB")
+        await page.wait_for_timeout(500)
+
+    asyncio.run(run_page(tmp_path, [], removed, server))
+    assert server.skin.name == "pulse"
