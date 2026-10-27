@@ -68,12 +68,10 @@ def read_manifest(folder: Path, scope: str) -> Widget:
 def list_installed(repo_root: Path, home: Path) -> tuple[list[Widget], list[str]]:
     widgets, problems = [], []
     for scope, root in widget_dirs(repo_root, home):
-        if not root.is_dir():
-            continue
         try:
-            folders = sorted(p for p in root.iterdir() if p.is_dir())
-        except OSError as e:
-            problems.append(f"{root} could not be listed: {e.strerror or e}")
+            folders = pages.subfolders(root)
+        except PageError as e:
+            problems.append(str(e))
             continue
         for folder in folders:
             try:

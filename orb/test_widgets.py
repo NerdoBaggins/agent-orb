@@ -116,18 +116,24 @@ def test_the_smallest_widget_is_the_same_size_in_the_manifest_rule_and_on_the_pa
     assert f"const MIN_WIDTH = {MIN_WIDTH};" in page and f"const MIN_HEIGHT = {MIN_HEIGHT};" in page
 
 
-@pytest.mark.skipif(sys.platform == "win32" or os.geteuid() == 0, reason="an unlistable folder needs POSIX permissions and a non-root user")
-def test_a_widgets_folder_that_cannot_be_listed_is_a_problem_not_a_crash(tmp_path):
+def test_a_widgets_folder_that_cannot_be_listed_is_a_problem_not_a_crash(tmp_path, unlistable):
     repo, home = tmp_path / "repo", tmp_path / "home"
     installed(private_root(home, repo) / "widgets", "team")
     root = home / ".config" / "orb" / "widgets"
-    root.mkdir(parents=True)
-    root.chmod(0)
-    try:
-        widgets, problems = list_installed(repo, home)
-    finally:
-        root.chmod(0o755)
-    assert [w.name for w in widgets] == ["team"] and len(problems) == 1 and "could not be listed" in problems[0]
+    installed(root, "hidden")
+    unlistable(root)
+    widgets, problems = list_installed(repo, home)
+    assert [w.name for w in widgets] == ["team"] and problems == [f"{root} could not be listed: Permission denied"]
+
+
+def test_a_widgets_folder_inside_one_that_cannot_be_searched_is_a_problem_not_a_crash(tmp_path, lock):
+    repo, home, outer = tmp_path / "repo", tmp_path / "home", tmp_path / "outer"
+    installed(private_root(home, repo) / "widgets", "team")
+    write_widget_dirs(home / ".config" / "orb" / "config.json", str(outer / "notes"))
+    installed(outer / "notes", "hidden")
+    lock(outer, 0)
+    widgets, problems = list_installed(repo, home)
+    assert [w.name for w in widgets] == ["team"] and problems == [f"{outer / 'notes'} could not be listed: Permission denied"]
 
 
 @pytest.mark.skipif(sys.platform == "win32" or os.geteuid() == 0, reason="an unreadable folder needs POSIX permissions and a non-root user")

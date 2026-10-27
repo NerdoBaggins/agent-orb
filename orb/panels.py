@@ -67,12 +67,10 @@ def list_saved(repo_root: Path, home: Path) -> tuple[list[SavedPanel], list[str]
     """Saved panels, plus one line per folder that is not a valid panel."""
     panels, problems = [], []
     for scope, root in panel_dirs(repo_root, home):
-        if not root.is_dir():
-            continue
         try:
-            folders = sorted(p for p in root.iterdir() if p.is_dir())
-        except OSError as e:
-            problems.append(f"{root} could not be listed: {e.strerror or e}")
+            folders = pages.subfolders(root)
+        except PageError as e:
+            problems.append(str(e))
             continue
         for folder in folders:
             try:

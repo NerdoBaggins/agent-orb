@@ -1,6 +1,5 @@
 import os
 import json
-from pathlib import Path
 
 import pytest
 
@@ -410,14 +409,21 @@ def test_a_folder_named_in_the_users_file_for_this_repo_is_searched(tmp_path):
     assert find_saved("kept", repo, home).scope == "custom"
 
 
-def test_a_panels_folder_that_cannot_be_listed_is_reported_and_the_others_still_list(tmp_path, monkeypatch):
+def test_a_panels_folder_that_cannot_be_listed_is_reported_and_the_others_still_list(tmp_path, unlistable):
     repo, home = tmp_path / "repo", tmp_path / "home"
     locked = private_root(home, repo) / "panels"
-    locked.mkdir(parents=True)
-    saved(home / ".config" / "orb" / "panels", "alpha", title="User A")
-    real_iterdir = Path.iterdir
-    monkeypatch.setattr(Path, "iterdir", lambda self: (_ for _ in ()).throw(PermissionError(13, "Permission denied"))
-                        if self == locked else real_iterdir(self))
+    saved(locked, "hidden")
+    saved(home / ".config" / "orb" / "panels", "alpha")
+    unlistable(locked)
     panels, problems = list_saved(repo, home)
-    assert [p.name for p in panels] == ["alpha"]
-    assert len(problems) == 1 and str(locked) in problems[0] and "could not be listed" in problems[0]
+    assert [p.name for p in panels] == ["alpha"] and problems == [f"{locked} could not be listed: Permission denied"]
+
+
+def test_a_panels_folder_inside_one_that_cannot_be_searched_is_reported_and_the_others_still_list(tmp_path, lock):
+    repo, home, outer = tmp_path / "repo", tmp_path / "home", tmp_path / "outer"
+    write_panel_dirs(private_root(home, repo) / "config.json", str(outer / "notes"))
+    saved(outer / "notes", "hidden")
+    saved(home / ".config" / "orb" / "panels", "alpha")
+    lock(outer, 0)
+    panels, problems = list_saved(repo, home)
+    assert [p.name for p in panels] == ["alpha"] and problems == [f"{outer / 'notes'} could not be listed: Permission denied"]
