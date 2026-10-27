@@ -517,7 +517,7 @@ speech engines, which is faster.
 | What you see | What it means |
 |---|---|
 | **Not attached: start Claude Code in this repo with …** | Claude Code was started without the channel flag, or in another folder. Quit and restart it with the command shown. |
-| **Not attached: start Copilot in this repo with …** | No Copilot UI server answers on the port the orb dials: `ORB_COPILOT_PORT` when Copilot was started with it, else `copilot_port`. Start Copilot on that port. The command the orb prints also carries `--yolo` and `--continue`, Copilot's own options; the orb needs only `--ui-server --port`. |
+| **Not attached: start Copilot in this repo with …** | No Copilot UI server answers on the port the orb dials: `ORB_COPILOT_PORT` when Copilot was started with it, else `copilot_port`. Start Copilot with the command shown, on that port; add any of your own Copilot options to it. |
 | **orb already open for … in …** | That repo already has an orb for that agent with its window open. Use that window, or stop it with `orb stop` to start another. |
 | **no Chrome or Edge found** | Install one; the orb window needs it. |
 | The mic permission prompt comes back | The orb's usual port was taken, so it started on a new one, and the browser asks again. |
