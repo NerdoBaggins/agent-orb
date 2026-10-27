@@ -101,7 +101,7 @@ during speech silences it at once.
 **4.1 Copilot helper.** Node helper around Copilot's SDK (attach, send, abort, expected-session check), SDK location
 adapter, the poll after a `sendAndWait` timeout.
 **4.2 Agent selection.** `--agent`, probing both, the header states.
-Done when: the same voice loop works against `copilot --yolo --ui-server --port 4321 --continue`, and Stop while
+Done when: the same voice loop works against `copilot --ui-server --port 4321`, and Stop while
 thinking aborts the Copilot turn.
 
 ## Phase 5: Stop while thinking under Claude Code
