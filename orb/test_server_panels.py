@@ -3,6 +3,7 @@ import os
 
 import pytest
 
+from orb import pages
 from orb.test_server import TOKEN, client_for, make, run
 
 
@@ -500,4 +501,15 @@ def test_every_page_loads_the_shared_assets_from_the_shared_base(tmp_path):
             html = await (await c.get((await (await show(c, "one")).json())["url"])).text()
             assert f'href="{server.shared_base}panel.css"' in html and f'src="{server.shared_base}panel.js"' in html
             assert (await c.get(f"{server.shared_base}panel.js")).status == 200
+    run(go())
+
+
+def test_a_panel_just_under_the_size_cap_is_accepted_by_the_server(tmp_path):
+    async def go():
+        server = make(tmp_path)
+        files = {"index.html": base64.b64encode(b"<html><body>big</body></html>").decode(),
+                 "img/photo.bin": base64.b64encode(os.urandom(pages.MAX_TOTAL_BYTES - 4096)).decode()}
+        async with await client_for(server) as c:
+            response = await c.post("/panel", params={"token": TOKEN}, json={"name": "big", "title": "Big", "files": files})
+            assert response.status == 200, await response.text()
     run(go())
