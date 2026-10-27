@@ -9,7 +9,7 @@ from aiohttp import WSMsgType
 
 from orb import agents
 from orb.server import Request
-from orb.test_server import SPEECH, TOKEN, client_for, make, pcm, run, wait_for, waker_for
+from orb.test_server import SPEECH, TOKEN, FakeLink, client_for, make, pcm, run, wait_for, waker_for
 from orb.test_server_interrupt import BlockingLink
 
 CLIP = np.zeros(16000, dtype=np.float32)
@@ -754,4 +754,50 @@ def test_queued_speech_is_not_sent_while_the_button_is_held(tmp_path):
             server.session = server.session | {"busy": False}
             await server.send_queued()
             assert server.link.sent == []
+    run(go())
+
+
+class StallInterrupt(FakeLink):
+    def __init__(self, outcome):
+        super().__init__()
+        self.go, self.entered, self.outcome = threading.Event(), threading.Event(), outcome
+
+    def interrupt(self):
+        self.entered.set()
+        self.go.wait(5)
+        return self.outcome
+
+
+@pytest.mark.parametrize("outcome", list(agents.Stopped))
+def test_a_stop_pressed_while_speech_is_queued_leaves_the_window_on_the_orbs_state(tmp_path, outcome):
+    async def go():
+        server = make(tmp_path, voice=True, stt_text="said first")
+        server.link = StallInterrupt(outcome)
+        shown = []
+        async with await client_for(server) as c:
+            await connect(c)
+            real = server.broadcast
+            gate, held, speech = asyncio.Event(), [], []
+
+            async def stalled(message):
+                if message.get("type") == "state":
+                    shown.append(message["state"])
+                if asyncio.current_task() is speech[0] and not held and message != {"type": "state", "state": "transcribing"}:
+                    held.append(message)
+                    await gate.wait()
+                await real(message)
+            server.pending["r0"] = {"text": "earlier", "sent": True}
+            server.transcript.append({"req": "r0", "request": "earlier", "reply": None, "status": "pending"})
+            await server.set_state("thinking")
+            server.broadcast = stalled
+            speech.append(asyncio.create_task(server.heard_clip(CLIP)))
+            await wait_for(lambda: held)
+            stop = asyncio.create_task(server.stop())
+            await wait_for(lambda: server.link.entered.is_set())
+            gate.set()
+            await speech[0]
+            server.link.go.set()
+            await stop
+            await asyncio.sleep(0.1)
+            assert shown[-1] == server.state
     run(go())
