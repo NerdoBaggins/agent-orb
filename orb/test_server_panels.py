@@ -531,7 +531,7 @@ def largest_panel_post(home, title_chars):
     size -= (size - 1) % 3
     files = {chr(0x10000 + i) * pages.MAX_PATH_CHARS: base64.b64encode(bytes(size)).decode() for i in range(others)}
     files["index.html"] = base64.b64encode(bytes(pages.MAX_TOTAL_BYTES - others * size)).decode()
-    return {"name": longest_name, "title": "\U0010ffff" * title_chars, "files": files, "saved": longest_name}
+    return panels.post_body(longest_name, "\U0010ffff" * title_chars, files, longest_name)
 
 
 def test_a_panel_at_every_cap_at_once_is_accepted_by_the_server(tmp_path):

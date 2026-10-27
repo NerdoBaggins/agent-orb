@@ -39,7 +39,12 @@ def one_off_base(path: Path) -> str:
 
 def name_for(path: Path) -> str:
     stem = re.sub(r"[^a-z0-9_-]+", "-", one_off_base(path).lower()).strip("-_") or "panel"
-    return stem[:64] if stem[:64] not in BUILTIN else f"{stem[:58]}-page"
+    short = stem[:pages.MAX_NAME_CHARS]
+    return short if short not in BUILTIN else f"{short}-page"
+
+
+def post_body(name: str, title: str, encoded_files: dict[str, str], saved_name: str | None) -> dict:
+    return {"name": name, "title": title, "files": encoded_files, "saved": saved_name}
 
 
 def panel_dirs(repo_root: Path, home: Path) -> list[tuple[str, Path]]:
@@ -111,10 +116,10 @@ def resolve_show(target: str, repo_root: Path, home: Path) -> Show:
     if path.suffix.lower() in (".html", ".htm") and path.exists():
         saved = next((p for p in list_saved(repo_root, home)[0] if (p.path / "index.html").resolve() == path.resolve()), None)
         if saved and find_saved(saved.name, repo_root, home).path == saved.path:
-            return Show(saved.name, saved.title, collect_files(path.resolve()), saved.name)
-        return Show(name_for(path), one_off_base(path).replace("-", " ").replace("_", " ").strip().capitalize(),
-                    one_off_files(path, home), None)
+            return Show(saved.name, saved.title[:MAX_TITLE_CHARS], collect_files(path.resolve()), saved.name)
+        title = one_off_base(path).replace("-", " ").replace("_", " ").strip().capitalize()
+        return Show(name_for(path), title[:MAX_TITLE_CHARS], one_off_files(path, home), None)
     saved = find_saved(target, repo_root, home)
     if saved:
-        return Show(saved.name, saved.title, collect_files(saved.path / "index.html"), saved.name)
+        return Show(saved.name, saved.title[:MAX_TITLE_CHARS], collect_files(saved.path / "index.html"), saved.name)
     raise PageError(f"{target!r} is neither an HTML file nor a saved panel (orb panels list shows those)")
