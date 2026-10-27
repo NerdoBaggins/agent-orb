@@ -11,14 +11,13 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from orb.feeds import command_env, kill_tree, resolve_program
+from orb.feeds import STDERR_TAIL, command_env, kill_tree, resolve_program
 from orb.state import private_root
 
 DEFAULT_SECONDS = 20
 MAX_SECONDS = 120
 MAX_ARGS_BYTES = 64 * 1024
 MAX_RESULT_BYTES = 1024 * 1024
-STDERR_TAIL = 300
 
 
 class ActionError(ValueError):

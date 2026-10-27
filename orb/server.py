@@ -42,7 +42,7 @@ from orb.gate import custom_title, read_transcript_from
 from orb.state import port_file, read_json, read_turn, server_file, session_file, state_dir, write_json
 
 WEB = PLUGIN_ROOT / "web"
-STATES = ("idle", "wake_word", "listening", "transcribing", "thinking", "speaking")
+SERVER_STATES = ("idle", "wake_word", "listening", "transcribing", "thinking", "speaking")
 ATTACH_RECHECK_S = 5
 SESSION_POLL_S = 0.5  # Claude Code writes the transcript once per finished content block, a median 2 s apart
 PAGE_POLL_S = 2
@@ -1643,7 +1643,7 @@ class OrbServer:
                 self.sockets.discard(ws)
 
     async def set_state(self, state: str, said: str | None = None) -> None:
-        assert state in STATES, state
+        assert state in SERVER_STATES, state
         if state != self.state:
             log.info("state %s -> %s", self.state, state)
         self.state, self.said = state, said
