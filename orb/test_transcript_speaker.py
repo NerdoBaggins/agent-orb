@@ -14,7 +14,7 @@ FEED = [
 ]
 
 
-async def transcript_page(tmp_path, prepare, act, voice=True):
+async def transcript_page(tmp_path, prepare, act, voice=True, zone=None):
     server = make(tmp_path, voice=voice)
     await prepare(server)
     runner = web.AppRunner(server.app)
@@ -27,7 +27,7 @@ async def transcript_page(tmp_path, prepare, act, voice=True):
     try:
         async with playwright.async_playwright() as p:
             b = await browser(p)
-            page = await b.new_page(viewport={"width": 1400, "height": 900})
+            page = await b.new_page(viewport={"width": 1400, "height": 900}, timezone_id=zone)
             await page.goto(f"{base}/?token={TOKEN}")
             await page.wait_for_timeout(1000)
             async with ClientSession() as s:

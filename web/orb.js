@@ -1063,26 +1063,31 @@
 
   Object.assign(transcriptUi, {
     // The session's own feed: what was typed (here or in the terminal), what the agent said, and each tool call on
-    // its own line with its result folded away. A row is rebuilt only when its item changed, so a row the reader has
-    // opened or selected stays as it is while new ones arrive.
+    // its own line with its result folded away, each with the time it happened and a date line where the day changes.
+    // A row is rebuilt only when its item changed, so a row the reader has opened or selected stays as it is while new
+    // ones arrive.
     rows: new Map(),
     opened: new Set(),
     renderFeed(box) {
       const keep = new Set();
       let at = 0;
-      for (const item of orb.session.feed) {
-        const sig = JSON.stringify(item);
-        let row = this.rows.get(item.id);
+      const place = (key, sig, build) => {
+        let row = this.rows.get(key);
         if (!row || row.sig !== sig) {
-          const el = this.buildRow(item);
+          const el = build();
           if (row) row.el.replaceWith(el);
           row = { sig, el };
-          this.rows.set(item.id, row);
+          this.rows.set(key, row);
         }
-        keep.add(item.id);
+        keep.add(key);
         if (box.children[at] !== row.el) box.insertBefore(row.el, box.children[at] || null);
         at += 1;
-      }
+      };
+      const days = dateLines(orb.session.feed);
+      orb.session.feed.forEach((item, i) => {
+        if (days[i]) place(`day:${item.id}`, days[i], () => this.buildDay(days[i]));
+        place(item.id, JSON.stringify(item), () => this.buildRow(item));
+      });
       for (const [id, row] of this.rows) if (!keep.has(id)) { row.el.remove(); this.rows.delete(id); this.opened.delete(id); }
       const live = this.liveLine(box);
       if (box.lastElementChild !== live) box.appendChild(live);
@@ -1095,10 +1100,25 @@
       box.dataset.watched = "1";
       box.addEventListener("scroll", () => { this.following = nearBottom(box.scrollTop, box.clientHeight, box.scrollHeight); });
     },
+    buildDay(label) {
+      const line = document.createElement("div");
+      line.className = "tr-day";
+      line.textContent = label;
+      return line;
+    },
+    stamp(parent, item) {
+      const time = entryTime(item.ts);
+      if (!time) return;
+      const el = document.createElement("span");
+      el.className = "tr-time";
+      el.textContent = time;
+      parent.appendChild(el);
+    },
     buildRow(item) {
       if (item.kind === "step") return this.buildStep(item);
       const row = document.createElement("div");
       row.className = `tr-row ${item.kind}${item.kind === "reply" && !item.final ? " note" : ""}`;
+      this.stamp(row, item);
       const body = document.createElement("div");
       body.className = item.kind === "you" ? "tr-q" : "tr-a";
       if (item.kind === "reply") { body.classList.add("md"); body.innerHTML = markdown(item.text); } else body.textContent = item.text;
@@ -1140,7 +1160,8 @@
       details.className = `tr-step${item.error ? " error" : ""}${"result" in item ? "" : " running"}`;
       details.open = this.opened.has(item.id);
       const summary = document.createElement("summary");
-      summary.textContent = item.text;
+      this.stamp(summary, item);
+      summary.append(item.text);
       details.appendChild(summary);
       if ("result" in item) {
         const result = document.createElement("pre");
