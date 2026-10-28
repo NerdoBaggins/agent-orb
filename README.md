@@ -4,7 +4,8 @@ A voice window for Claude Code and GitHub Copilot CLI, on Windows and macOS. Hol
 reply is read aloud in a local voice; ask it to show something and an HTML panel slides in beside the orb.
 
 With the built-in engines, speech never leaves the machine: Moonshine turns your voice into text and Kokoro speaks
-the reply, both on the CPU. An engine you add yourself may be a cloud service; see [Speech engines](#speech-engines).
+the reply. Moonshine runs on the CPU; Kokoro uses an NVIDIA GPU when the machine has one that loads, and the CPU
+otherwise. An engine you add yourself may be a cloud service; see [Speech engines](#speech-engines).
 
 - [What you get](#what-you-get)
 - [Install](#install)

@@ -1,11 +1,22 @@
 # /// script
 # requires-python = ">=3.11,<3.13"
-# dependencies = ["kokoro-onnx>=0.6", "onnxruntime", "numpy"]
+# dependencies = [
+#   "kokoro-onnx>=0.6",
+#   "numpy",
+#   "onnxruntime>=1.20.1; sys_platform == 'darwin' or platform_machine not in 'x86_64 AMD64'",
+#   "onnxruntime-gpu[cuda,cudnn]>=1.20.1; sys_platform != 'darwin' and platform_machine in 'x86_64 AMD64'",
+# ]
+# [tool.uv]
+# override-dependencies = ["onnxruntime>=1.20.1; sys_platform == 'darwin' or platform_machine not in 'x86_64 AMD64'"]
 # ///
 """Kokoro-82M through kokoro-onnx, the original (not int8) model. Model files download once into the cache the orb
 names in ORB_ENGINE_CACHE. Settings: `voice` (a name, "default" for the built-in blend, or a blend {name: weight}),
-`lang`; `speed` comes with each render. `voices` lists the model's voices for the orb's menu and `voice` switches."""
+`lang`; `speed` comes with each render. `voices` lists the model's voices for the orb's menu and `voice` switches.
+It renders on the NVIDIA GPU when the GPU build of onnxruntime loads its CUDA libraries, and on the CPU otherwise."""
 import base64
+import contextlib
+import glob
+import importlib.util
 import json
 import os
 import shutil
@@ -26,6 +37,65 @@ LANGS = {"a": ("en-us", "American"), "b": ("en-gb", "British"), "e": ("es", "Spa
 GENDERS = {"f": "female", "m": "male"}
 # espeak-ng ignores a data path longer than this on Windows and fails with no message.
 MAX_DATA_PATH = 120
+
+
+def providers(available: list[str]) -> list[str]:
+    """CUDA first when this onnxruntime build offers it, the CPU always last. TensorRT is left out on purpose: with
+    no TensorRT installed it fails with a banner and gains nothing for a model this size."""
+    return [p for p in ("CUDAExecutionProvider",) if p in available] + ["CPUExecutionProvider"]
+
+
+def cuda_library_folders() -> list[str]:
+    """The folders the CUDA pip wheels put their libraries in (nvidia/<package>/bin, and bin/x86_64 for CUDA 13)."""
+    spec = importlib.util.find_spec("nvidia")
+    roots = list(spec.submodule_search_locations or []) if spec else []
+    return [d for root in roots for d in glob.glob(os.path.join(root, "*", "bin*")) + glob.glob(os.path.join(root, "*", "bin", "*"))
+            if os.path.isdir(d)]
+
+
+def register_cuda_libraries() -> None:
+    """Without these folders on the DLL search path the CUDA provider fails to load and onnxruntime quietly falls back
+    to the CPU; its own preload_dlls() does not look in the CUDA 13 wheels' layout on Windows. The folders go on PATH
+    too, because the provider's own load searches PATH and ignores add_dll_directory."""
+    if hasattr(os, "add_dll_directory"):
+        folders = cuda_library_folders()
+        for folder in folders:
+            os.add_dll_directory(folder)
+        os.environ["PATH"] = os.pathsep.join([*folders, os.environ.get("PATH", "")])
+        return
+    try:
+        import onnxruntime
+        onnxruntime.preload_dlls()
+    except Exception as e:
+        print(f"kokoro: could not preload the CUDA libraries: {e}", file=sys.stderr)
+
+
+@contextlib.contextmanager
+def stdout_to_stderr():
+    """onnxruntime's C code prints provider errors to file descriptor 1, the stream this engine speaks its protocol
+    on. Point that descriptor at standard error while it loads."""
+    sys.stdout.flush()
+    saved = os.dup(1)
+    os.dup2(2, 1)
+    try:
+        yield
+    finally:
+        try:
+            import ctypes
+            ctypes.CDLL("ucrtbase" if sys.platform == "win32" else None).fflush(None)
+        except Exception:
+            pass
+        os.dup2(saved, 1)
+        os.close(saved)
+
+
+def make_session(model_path: Path):
+    import onnxruntime
+    register_cuda_libraries()
+    with stdout_to_stderr():
+        session = onnxruntime.InferenceSession(str(model_path), providers=providers(onnxruntime.get_available_providers()))
+    print(f"kokoro: rendering on {session.get_providers()[0]}", file=sys.stderr, flush=True)
+    return session
 
 
 def cache() -> Path:
@@ -95,7 +165,7 @@ def load(settings: dict):
             fetch(RELEASE + path.name, path)
     espeak = EspeakConfig(lib_path=str(espeakng_loader.get_library_path()),
                           data_path=str(short_data_path(Path(espeakng_loader.get_data_path()))))
-    kokoro = Kokoro(str(paths[0]), str(paths[1]), espeak_config=espeak)
+    kokoro = Kokoro.from_session(make_session(paths[0]), str(paths[1]), espeak_config=espeak)
     setting = settings.get("voice", DEFAULT_ID)
     voice = style(kokoro, setting)
     lang = lang_for(setting, settings.get("lang", "en-gb")) if isinstance(setting, str) else settings.get("lang", "en-gb")

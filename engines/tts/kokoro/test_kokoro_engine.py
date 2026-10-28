@@ -1,4 +1,6 @@
+import importlib
 import importlib.util
+import sys
 from pathlib import Path
 
 spec = importlib.util.spec_from_file_location("kokoro_engine", Path(__file__).with_name("engine.py"))
@@ -28,3 +30,43 @@ def test_a_custom_blend_from_config_shows_as_its_own_entry():
     menu = engine.voice_menu(["af_heart"], {"af_heart": 0.3, "bm_george": 0.7})
     assert menu["current"] == "blend" and menu["voices"][1] == {"id": "blend", "label": "your blend"}
     assert engine.voice_menu(["af_heart"], dict(engine.DEFAULT_VOICE))["current"] == "default"
+
+
+def test_the_gpu_provider_leads_when_offered_tensorrt_is_never_used_and_the_cpu_is_always_last():
+    offered = ["TensorrtExecutionProvider", "CUDAExecutionProvider", "CPUExecutionProvider"]
+    assert engine.providers(offered) == ["CUDAExecutionProvider", "CPUExecutionProvider"]
+    assert engine.providers(["CPUExecutionProvider"]) == ["CPUExecutionProvider"]
+    assert engine.providers([]) == ["CPUExecutionProvider"]
+
+
+def test_the_cuda_library_folders_are_the_bin_folders_of_the_nvidia_packages(tmp_path, monkeypatch):
+    for sub in ("cu13/bin/x86_64", "cudnn/bin", "other/lib"):
+        (tmp_path / "nvidia" / sub).mkdir(parents=True)
+    monkeypatch.syspath_prepend(str(tmp_path))
+    importlib.invalidate_caches()
+    monkeypatch.delitem(sys.modules, "nvidia", raising=False)
+    found = {Path(p).relative_to(tmp_path / "nvidia").as_posix() for p in engine.cuda_library_folders()}
+    assert found == {"cu13/bin", "cu13/bin/x86_64", "cudnn/bin"}
+
+
+def test_without_nvidia_packages_there_are_no_cuda_library_folders(monkeypatch):
+    monkeypatch.setattr(engine.importlib.util, "find_spec", lambda name: None)
+    assert engine.cuda_library_folders() == []
+
+
+def test_the_cuda_folders_go_on_path_and_the_dll_search_path(monkeypatch):
+    added = []
+    monkeypatch.setattr(engine.os, "add_dll_directory", added.append, raising=False)
+    monkeypatch.setattr(engine, "cuda_library_folders", lambda: ["C:/a/bin", "C:/b/bin"])
+    monkeypatch.setenv("PATH", "C:/existing")
+    engine.register_cuda_libraries()
+    assert added == ["C:/a/bin", "C:/b/bin"]
+    assert engine.os.environ["PATH"].split(engine.os.pathsep)[:3] == ["C:/a/bin", "C:/b/bin", "C:/existing"]
+
+
+def test_what_onnxruntime_prints_while_the_model_loads_never_reaches_standard_output(capfd):
+    with engine.stdout_to_stderr():
+        engine.os.write(1, b"EP Error banner\n")
+    engine.os.write(1, b"after\n")
+    out, err = capfd.readouterr()
+    assert out == "after\n" and "EP Error banner" in err
