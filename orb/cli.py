@@ -49,7 +49,7 @@ def server_command(repo: Path, agent: str, port: int, home: Path, config) -> lis
 
 def spawn_detached(command: list[str], out_path: Path, stdin_text: str) -> subprocess.Popen:
     log = open(out_path, "wb")
-    flags = {"creationflags": subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP} if sys.platform == "win32" else {"start_new_session": True}
+    flags = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW} if sys.platform == "win32" else {"start_new_session": True}
     proc = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=log, stderr=log, cwd=str(PLUGIN_ROOT), **flags)
     proc.stdin.write((stdin_text + "\n").encode("utf-8"))
     proc.stdin.close()
