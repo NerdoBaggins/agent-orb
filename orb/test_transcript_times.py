@@ -36,3 +36,26 @@ def test_each_entry_shows_its_local_time_with_a_date_line_where_the_day_changes_
     assert before == [["day", "Fri 23 Oct 2026"], ["tr-row you", "16:30:00"], ["tr-step", "17:30:05"],
                       ["day", "Sat 24 Oct 2026"], ["tr-row reply", "09:05:09"], ["tr-row reply", None]]
     assert after == before
+
+
+@pytest.mark.timeout(60)
+def test_a_time_zone_change_redraws_every_entry_time_in_the_new_zone(tmp_path):
+    async def with_feed(server):
+        server.attached = True
+        server.link.activity_state = {"busy": False, "doing": None, "feed": FEED[:3], "session": "s1"}
+
+    async def in_tokyo(page, server):
+        cdp = await page.context.new_cdp_session(page)
+        await cdp.send("Emulation.setTimezoneOverride", {"timezoneId": "America/Los_Angeles"})
+        await page.reload()
+        await page.wait_for_timeout(2500)
+        before = await shown(page)
+        await cdp.send("Emulation.setTimezoneOverride", {"timezoneId": "Asia/Tokyo"})
+        server.link.activity_state = {"busy": False, "doing": None, "feed": FEED, "session": "s1"}
+        await page.wait_for_timeout(2500)
+        return before, await shown(page)
+
+    _, (before, seen) = asyncio.run(transcript_page(tmp_path, with_feed, in_tokyo))
+    assert before[1] == ["tr-row you", "16:30:00"]
+    assert seen == [["day", "Sat 24 Oct 2026"], ["tr-row you", "08:30:00"], ["tr-step", "09:30:05"],
+                    ["day", "Sun 25 Oct 2026"], ["tr-row reply", "01:05:09"], ["tr-row reply", None]]

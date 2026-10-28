@@ -1086,7 +1086,7 @@
       const days = dateLines(orb.session.feed);
       orb.session.feed.forEach((item, i) => {
         if (days[i]) place(`day:${item.id}`, days[i], () => this.buildDay(days[i]));
-        place(item.id, JSON.stringify(item), () => this.buildRow(item));
+        place(item.id, JSON.stringify(item) + entryTime(item.ts), () => this.buildRow(item));
       });
       for (const [id, row] of this.rows) if (!keep.has(id)) { row.el.remove(); this.rows.delete(id); this.opened.delete(id); }
       const live = this.liveLine(box);
