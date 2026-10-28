@@ -343,9 +343,11 @@ describes it, so agent-written panels look alike unless the agent chooses otherw
 
 ### Built-in panel: transcript
 
-What the user said and what the agent answered, newest last, with interrupted requests marked. Each reply has a
-speaker that reads it aloud in the orb's voice, with no agent turn, and stops that reading; while the orb reads a
-reply to a turn typed in the terminal, that reply's speaker stops it too. The speakers are hidden when no
+What the user said and what the agent answered, newest last, with interrupted requests marked. Each entry of the
+session's feed, tool steps included, shows the local time it was written to the session log (`HH:MM:SS`), and a date
+line comes before the first entry and wherever the day changes; an entry the log gives no time shows none. Each reply
+has a speaker that reads it aloud in the orb's voice, with no agent turn, and stops that reading; while the orb reads
+a reply to a turn typed in the terminal, that reply's speaker stops it too. The speakers are hidden when no
 text-to-speech engine is loaded.
 
 ## Configuration
