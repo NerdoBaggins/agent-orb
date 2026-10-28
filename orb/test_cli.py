@@ -92,6 +92,23 @@ def test_the_detached_server_reads_the_token_on_its_standard_input(tmp_path):
     assert proc.wait(timeout=20) == 0 and got.read_text() == "the-token\n"
 
 
+def test_on_windows_the_detached_server_gets_a_hidden_console_not_none(tmp_path, monkeypatch):
+    # A process with no console makes Windows give python.exe a visible one, which a user then closes.
+    seen = {}
+
+    class FakeProc:
+        class stdin:
+            write = close = staticmethod(lambda *a: None)
+
+    monkeypatch.setattr(cli.sys, "platform", "win32")
+    for name, value in (("DETACHED_PROCESS", 0x8), ("CREATE_NEW_PROCESS_GROUP", 0x200), ("CREATE_NO_WINDOW", 0x08000000)):
+        monkeypatch.setattr(cli.subprocess, name, value, raising=False)
+    monkeypatch.setattr(cli.subprocess, "Popen", lambda command, **kwargs: seen.update(kwargs) or FakeProc())
+    cli.spawn_detached(["server"], tmp_path / "out", "the-token")
+    flags = seen["creationflags"]
+    assert flags & 0x08000000 and not flags & 0x8
+
+
 def test_open_launches_the_browser_on_a_file_url_and_prints_the_address_without_the_token(tmp_path, monkeypatch, capsys):
     token = "s3cret-token"
     running = {"port": 4321, "token": token, "pid": 1}
