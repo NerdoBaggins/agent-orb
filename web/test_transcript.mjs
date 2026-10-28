@@ -1,7 +1,9 @@
+// A zone away from UTC, whose day boundary falls inside a UTC day, so a time or date read in UTC is told from local.
+process.env.TZ = "America/Los_Angeles";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
-const { mergeFeed, elapsed, markdown, nearBottom } = createRequire(import.meta.url)("./transcript.js");
+const { mergeFeed, elapsed, entryTime, dateLines, markdown, nearBottom } = createRequire(import.meta.url)("./transcript.js");
 
 const item = (id, text = id) => ({ id, kind: "reply", text });
 
@@ -32,6 +34,34 @@ test("a start that is missing, unreadable or still ahead of the clock shows no n
   assert.equal(elapsed(null, now), "");
   assert.equal(elapsed("not a time", now), "");
   assert.equal(elapsed(at(5), now), "0s");
+});
+
+test("an item's time is its local hour, minute and second, each two digits", () => {
+  assert.equal(entryTime("2026-10-23T16:05:09Z"), "09:05:09");
+  assert.equal(entryTime("2026-10-24T06:59:01.920Z"), "23:59:01");
+});
+
+test("an item whose time is missing or unreadable shows no time", () => {
+  assert.equal(entryTime(undefined), "");
+  assert.equal(entryTime(null), "");
+  assert.equal(entryTime("t"), "");
+});
+
+const stamped = (...stamps) => stamps.map((ts, i) => ({ id: String(i), kind: "reply", text: "", ...(ts ? { ts } : {}) }));
+
+test("the first timed item opens with its date and the rest of that local day opens none", () => {
+  // 23:30 and 00:30 UTC are two UTC days but both on Friday the 23rd in Los Angeles.
+  assert.deepEqual(dateLines(stamped("2026-10-23T23:30:00Z", "2026-10-24T00:30:00Z")), ["Fri 23 Oct 2026", null]);
+});
+
+test("an item on a later local day than the one before it opens with its date", () => {
+  assert.deepEqual(dateLines(stamped("2026-10-24T06:59:00Z", "2026-10-24T07:01:00Z", "2026-10-24T07:02:00Z")),
+    ["Fri 23 Oct 2026", "Sat 24 Oct 2026", null]);
+});
+
+test("an untimed item opens no date and the next timed item is compared with the last timed one", () => {
+  assert.deepEqual(dateLines(stamped(undefined, "2026-10-23T20:00:00Z", undefined, "2026-10-23T21:00:00Z", undefined, "2026-10-25T20:00:00Z")),
+    [null, "Fri 23 Oct 2026", null, null, null, "Sun 25 Oct 2026"]);
 });
 
 test("markup in a reply is shown as text, never emitted", () => {

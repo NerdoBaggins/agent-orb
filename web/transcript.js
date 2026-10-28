@@ -18,6 +18,42 @@ function elapsed(since, now) {
   return `${Math.floor(s / 3600)}h ${pad(Math.floor((s % 3600) / 60))}m`;
 }
 
+// When a feed item happened, from its `ts` (the session log's own timestamp), in local time. An item with no readable
+// `ts` shows no time rather than a guess. Skins run as classic scripts in this page, so only the two names it needs
+// are left global.
+const { entryTime, dateLines } = (() => {
+  const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const pad2 = (n) => String(n).padStart(2, "0");
+  const happened = (ts) => {
+    const at = Date.parse(ts);
+    return Number.isNaN(at) ? null : new Date(at);
+  };
+  // "Fri 23 Oct 2026"
+  const day = (ts) => {
+    const at = happened(ts);
+    return at ? `${DAYS[at.getDay()]} ${at.getDate()} ${MONTHS[at.getMonth()]} ${at.getFullYear()}` : "";
+  };
+  return {
+    // "14:05:09"
+    entryTime(ts) {
+      const at = happened(ts);
+      return at ? [at.getHours(), at.getMinutes(), at.getSeconds()].map(pad2).join(":") : "";
+    },
+    // The date line each item opens with, or null: one before the first timed item and one wherever the day differs
+    // from the last timed item's. An untimed item opens none and leaves the day as it was.
+    dateLines(items) {
+      let last = "";
+      return items.map((item) => {
+        const label = day(item.ts);
+        if (!label || label === last) return null;
+        last = label;
+        return label;
+      });
+    },
+  };
+})();
+
 // Replies are markdown. Everything is escaped first and only the tags built here are ever emitted, so a reply can
 // never inject markup; a link is made only for http and https addresses.
 function escapeHtml(text) {
@@ -76,4 +112,4 @@ function nearBottom(scrollTop, clientHeight, scrollHeight, slack = 40) {
   return scrollHeight - scrollTop - clientHeight <= slack;
 }
 
-if (typeof module !== "undefined") module.exports = { mergeFeed, elapsed, markdown, nearBottom };
+if (typeof module !== "undefined") module.exports = { mergeFeed, elapsed, entryTime, dateLines, markdown, nearBottom };
