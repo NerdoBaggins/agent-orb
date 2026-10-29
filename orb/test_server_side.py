@@ -675,7 +675,23 @@ def test_a_queued_request_is_sent_even_when_the_sender_wakes_before_the_follow_u
             closes = server.waker.follow_up.until
             server.queue.append(Request("what time is it", spoken=True))
             await server.send_queued_after(0)
-            assert len(server.link.sent) == 1 and time.monotonic() >= closes
+            assert len(server.link.sent) == 1
+            assert time.monotonic() >= closes
+    run(go())
+
+
+def test_a_queued_request_is_sent_when_the_wake_engine_is_gone_by_the_time_the_sender_wakes(tmp_path):
+    async def go():
+        server = make(tmp_path, voice=True, waker=waker_for(follow_up_s=0.3))
+        async with await client_for(server) as c:
+            await connect(c)
+            server.waker.follow_up.open(time.monotonic())
+            server.queue.append(Request("what time is it", spoken=True))
+            sender = asyncio.create_task(server.send_queued_after(0.05))
+            await asyncio.sleep(0)
+            server.waker = None
+            await sender
+            assert len(server.link.sent) == 1
     run(go())
 
 
