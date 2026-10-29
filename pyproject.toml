@@ -1,6 +1,6 @@
 [project]
 name = "agent-orb"
-version = "0.2.0"
+version = "0.3.0"
 description = "A voice assistant with drop-in panels for Claude Code and Copilot CLI."
 requires-python = ">=3.11,<3.13"
 license = "MIT"

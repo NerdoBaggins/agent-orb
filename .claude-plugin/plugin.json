@@ -1,6 +1,6 @@
 {
   "name": "agent-orb",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "A voice assistant with drop-in panels: hold to talk, hear the agent answer in a local voice, ask it to show things.",
   "author": {"name": "Alberto Gonda"},
   "homepage": "https://github.com/NerdoBaggins/agent-orb",
