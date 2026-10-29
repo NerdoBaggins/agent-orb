@@ -1,5 +1,5 @@
-// A zone away from UTC, whose day boundary falls inside a UTC day, so a time or date read in UTC is told from local.
-process.env.TZ = "America/Los_Angeles";
+const ZONE_WHOSE_DAY_STARTS_INSIDE_A_UTC_DAY = "America/Los_Angeles";
+process.env.TZ = ZONE_WHOSE_DAY_STARTS_INSIDE_A_UTC_DAY;
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
@@ -52,7 +52,6 @@ test("an item whose time is missing or unreadable shows no time", () => {
 const stamped = (...stamps) => stamps.map((ts, i) => ({ id: String(i), kind: "reply", text: "", ...(ts ? { ts } : {}) }));
 
 test("the first timed item opens with its date and the rest of that local day opens none", () => {
-  // 23:30 and 00:30 UTC are two UTC days but both on Friday the 23rd in Los Angeles.
   assert.deepEqual(dateLines(stamped("2026-10-23T23:30:00Z", "2026-10-24T00:30:00Z")), ["Fri 23 Oct 2026", null]);
 });
 
@@ -106,7 +105,7 @@ test("a backtick that never closes is shown as a backtick and the rest is still 
   assert.equal(markdown("it's `half and **bold**"), "<p>it&#39;s `half and <strong>bold</strong></p>");
 });
 
-test("loaded as a classic script, the time helpers leave only entryTime and dateLines global", () => {
+test("loaded as a classic script, the time helpers' DAYS, MONTHS, pad2, happened and day stay out of global scope", () => {
   const page = vm.createContext({});
   vm.runInContext(readFileSync(new URL("./transcript.js", import.meta.url), "utf8"), page);
   const kind = (name) => vm.runInContext(`typeof ${name}`, page);
