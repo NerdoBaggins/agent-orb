@@ -144,10 +144,10 @@ def test_reading_from_an_offset_returns_only_what_was_written_since(tmp_path):
 
 def test_a_last_line_still_being_written_is_left_for_the_next_read(tmp_path):
     path = tmp_path / "t.jsonl"
-    path.write_text('{"n": 1}\n{"n": 2')
+    path.write_bytes(b'{"n": 1}\n{"n": 2')
     entries, offset = read_transcript_from(str(path), 0)
-    assert [e["n"] for e in entries] == [1] and offset == len('{"n": 1}\n')
-    path.write_text('{"n": 1}\n{"n": 2}\n')
+    assert [e["n"] for e in entries] == [1] and offset == len(b'{"n": 1}\n')
+    path.write_bytes(b'{"n": 1}\n{"n": 2}\n')
     entries, _ = read_transcript_from(str(path), offset)
     assert [e["n"] for e in entries] == [2]
 

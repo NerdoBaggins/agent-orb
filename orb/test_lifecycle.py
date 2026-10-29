@@ -11,7 +11,7 @@ import pytest
 
 from orb import browser, cli, state
 from orb.cli import main
-from orb.state import port_file, read_json, server_file, state_dir
+from orb.state import pid_alive, port_file, read_json, server_file, state_dir
 
 GRACE_S = 2
 
@@ -101,14 +101,6 @@ class Window:
         self.thread.join(5)
 
 
-def alive(pid):
-    try:
-        os.kill(pid, 0)
-    except OSError:
-        return False
-    return True
-
-
 def test_opening_starts_one_attached_server_and_says_so_at_once(orb_env, capsys, monkeypatch):
     monkeypatch.setattr(Channel, "delay", 1.2)  # an agent slow to answer its first check must not read as not attached
     assert main(["open", *orb_env["args"]]) == 0
@@ -143,7 +135,7 @@ def test_closing_the_window_ends_the_server_and_the_next_open_comes_back_on_the_
     main(["open", *orb_env["args"]])
     first = record_of(orb_env)
     Window(first).close()
-    wait_until(lambda: not alive(first["pid"]), timeout=GRACE_S + 10)
+    wait_until(lambda: not pid_alive(first["pid"]), timeout=GRACE_S + 10)
     assert record_of(orb_env) is None
     assert read_json(port_file(state_dir(orb_env["home"], orb_env["repo"]), "claude"))["port"] == first["port"]
     main(["open", *orb_env["args"]])
@@ -167,7 +159,7 @@ def test_stopping_closes_the_window_and_ends_the_server_at_once(orb_env, capsys)
     window = Window(first)
     try:
         assert main(["stop", *orb_env["args"]]) == 0
-        wait_until(lambda: not alive(first["pid"]), timeout=GRACE_S + 5)
+        wait_until(lambda: not pid_alive(first["pid"]), timeout=GRACE_S + 5)
         assert any(m["type"] == "closing" for m in window.messages) and record_of(orb_env) is None
     finally:
         window.close()
@@ -184,5 +176,5 @@ def test_a_server_that_exits_leaves_the_record_of_a_newer_one_alone(orb_env):
     path = server_file(state_dir(orb_env["home"], orb_env["repo"]), "claude")
     path.write_text(json.dumps(first | {"pid": os.getpid()}), encoding="utf-8")
     cli.post(first, "/stop", {})
-    wait_until(lambda: not alive(first["pid"]), timeout=GRACE_S + 5)
+    wait_until(lambda: not pid_alive(first["pid"]), timeout=GRACE_S + 5)
     assert record_of(orb_env)["pid"] == os.getpid()
