@@ -96,7 +96,12 @@
 
   let sizeDragging = false;
   $("size").addEventListener("pointerdown", () => { sizeDragging = true; });
-  addEventListener("pointerup", () => { sizeDragging = false; });
+  addEventListener("pointerup", (ev) => {
+    sizeDragging = false;
+    const r = bar.getBoundingClientRect();
+    const over = ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top && ev.clientY <= r.bottom;
+    if (!over && bar.contains(document.activeElement)) document.activeElement.blur();
+  });
   function showSize(value) {
     orb.size = value;
     $("size").value = value;
