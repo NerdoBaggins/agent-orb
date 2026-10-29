@@ -44,6 +44,7 @@ def test_a_panel_title_exactly_at_the_cap_is_sent(tmp_path, monkeypatch):
 
 
 def test_a_one_off_panel_whose_folder_name_is_longer_than_the_title_cap_is_sent_with_the_title_shortened(tmp_path, monkeypatch):
+    monkeypatch.setattr(panels, "MAX_TITLE_CHARS", 20)
     folder = tmp_path / ("a" * (panels.MAX_TITLE_CHARS + 20))
     folder.mkdir()
     (folder / "index.html").write_text("<p>hi</p>", encoding="utf-8")

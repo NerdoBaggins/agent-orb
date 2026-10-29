@@ -101,11 +101,13 @@ def test_the_orbs_own_venv_is_taken_off_path_however_it_is_spelled(entry):
 
 def test_the_program_is_looked_up_on_the_feeds_path_not_the_orbs(tmp_path):
     own, other = tmp_path / "own", tmp_path / "other"
+    name = "tool.bat" if sys.platform == "win32" else "tool"
     for folder in (own, other):
         folder.mkdir()
-        (folder / "tool").write_text("#!/bin/sh\n")
-        (folder / "tool").chmod(0o755)
-    assert resolve_program(("tool", "a"), {"PATH": str(other)}) == [str(other / "tool"), "a"]
+        (folder / name).write_text("#!/bin/sh\n")
+        (folder / name).chmod(0o755)
+    program, *rest = resolve_program(("tool", "a"), {"PATH": str(other)})
+    assert os.path.normcase(program) == os.path.normcase(str(other / name)) and rest == ["a"]
 
 
 def test_a_feed_that_succeeds_reports_nothing_and_runs_in_its_folder(tmp_path):
