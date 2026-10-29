@@ -1,9 +1,13 @@
 # Changelog
 
-Every change to agent-orb since the repository opened, newest first. Each pull request adds its entry under
-Unreleased; a release moves those entries under its version and date.
+Every change to agent-orb since the repository opened, newest first. Versions follow
+[Semantic Versioning](https://semver.org): while the major version is 0, a release that adds or changes behavior
+bumps the minor version and a release of fixes only bumps the patch. Each pull request adds its entry under
+Unreleased; [Releasing](README.md#releasing) moves them under the new version.
 
 ## Unreleased
+
+## 0.2.0 — 2026-10-28
 
 ### Added
 
