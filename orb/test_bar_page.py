@@ -96,12 +96,20 @@ def test_every_toolbar_control_stays_inside_a_short_window_with_all_the_pickers_
 
 
 @pytest.mark.timeout(60)
-def test_the_voice_speed_slider_is_labelled_like_the_size_slider(tmp_path):
+def test_the_voice_speed_slider_shows_a_speed_label_when_the_toolbar_is_open(tmp_path):
     seen = {}
 
     async def act(page):
-        seen["speed"] = await page.evaluate("document.querySelector('.bar-speed').textContent")
-        seen["size"] = await page.evaluate("document.querySelector('.bar-size').textContent")
+        await open_bar(page)
+        seen["label"] = await page.evaluate("""() => {
+          const row = document.querySelector('.bar-speed');
+          const text = [...row.childNodes].find(n => n.nodeType === 3 && n.textContent.trim() === 'speed');
+          if (!text) return null;
+          const range = document.createRange();
+          range.selectNodeContents(text);
+          const box = range.getBoundingClientRect();
+          return {width: box.width, height: box.height, opacity: getComputedStyle(row).opacity};
+        }""")
 
     asyncio.run(run_page(tmp_path, [], act))
-    assert seen["speed"].split()[0] == "speed" and seen["size"].split()[0] == "size"
+    assert seen["label"] and seen["label"]["width"] > 0 and seen["label"]["height"] > 0 and seen["label"]["opacity"] == "1"

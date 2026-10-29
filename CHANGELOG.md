@@ -13,7 +13,7 @@ that has one adds it under Unreleased.
 
 ### Changed
 
-- The voice speed slider in the toolbar is labelled "speed", like the size slider
+- The voice speed slider in the toolbar is labelled "speed"
   ([#80](https://github.com/NerdoBaggins/agent-orb/pull/80)).
 
 ## 0.2.0 — 2026-10-28
