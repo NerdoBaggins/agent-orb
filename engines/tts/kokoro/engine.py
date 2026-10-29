@@ -3,7 +3,6 @@
 # dependencies = [
 #   "kokoro-onnx>=0.6",
 #   "numpy",
-#   "onnxruntime>=1.20.1; sys_platform == 'darwin' or platform_machine not in 'x86_64 AMD64'",
 #   "onnxruntime-gpu[cuda,cudnn]>=1.20.1; sys_platform != 'darwin' and platform_machine in 'x86_64 AMD64'",
 # ]
 # [tool.uv]
@@ -11,8 +10,7 @@
 # ///
 """Kokoro-82M through kokoro-onnx, the original (not int8) model. Model files download once into the cache the orb
 names in ORB_ENGINE_CACHE. Settings: `voice` (a name, "default" for the built-in blend, or a blend {name: weight}),
-`lang`; `speed` comes with each render. `voices` lists the model's voices for the orb's menu and `voice` switches.
-It renders on the NVIDIA GPU when the GPU build of onnxruntime loads its CUDA libraries, and on the CPU otherwise."""
+`lang`; `speed` comes with each render. `voices` lists the model's voices for the orb's menu and `voice` switches."""
 import base64
 import contextlib
 import glob
@@ -40,13 +38,10 @@ MAX_DATA_PATH = 120
 
 
 def providers(available: list[str]) -> list[str]:
-    """CUDA first when this onnxruntime build offers it, the CPU always last. TensorRT is left out on purpose: with
-    no TensorRT installed it fails with a banner and gains nothing for a model this size."""
     return [p for p in ("CUDAExecutionProvider",) if p in available] + ["CPUExecutionProvider"]
 
 
 def cuda_library_folders() -> list[str]:
-    """The folders the CUDA pip wheels put their libraries in (nvidia/<package>/bin, and bin/x86_64 for CUDA 13)."""
     spec = importlib.util.find_spec("nvidia")
     roots = list(spec.submodule_search_locations or []) if spec else []
     return [d for root in roots for d in glob.glob(os.path.join(root, "*", "bin*")) + glob.glob(os.path.join(root, "*", "bin", "*"))
@@ -54,9 +49,6 @@ def cuda_library_folders() -> list[str]:
 
 
 def register_cuda_libraries() -> None:
-    """Without these folders on the DLL search path the CUDA provider fails to load and onnxruntime quietly falls back
-    to the CPU; its own preload_dlls() does not look in the CUDA 13 wheels' layout on Windows. The folders go on PATH
-    too, because the provider's own load searches PATH and ignores add_dll_directory."""
     if hasattr(os, "add_dll_directory"):
         folders = cuda_library_folders()
         for folder in folders:
@@ -72,15 +64,13 @@ def register_cuda_libraries() -> None:
 
 @contextlib.contextmanager
 def stdout_to_stderr():
-    """onnxruntime's C code prints provider errors to file descriptor 1, the stream this engine speaks its protocol
-    on. Point that descriptor at standard error while it loads."""
     sys.stdout.flush()
     saved = os.dup(1)
     os.dup2(2, 1)
     try:
         yield
     finally:
-        sys.stdout.flush()  # Python's own buffer, while descriptor 1 still points at standard error
+        sys.stdout.flush()
         try:
             import ctypes
             ctypes.CDLL("ucrtbase" if sys.platform == "win32" else None).fflush(None)
