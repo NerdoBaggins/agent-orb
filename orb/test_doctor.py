@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -130,7 +131,7 @@ def test_every_widget_folder_that_is_not_a_widget_is_named_by_the_failing_check(
     widget(tmp_path / "home" / ".config" / "orb" / "widgets", "first", {"version": "1"})
     widget(tmp_path / "home" / ".config" / "orb" / "widgets", "second", {"description": "d"})
     check = widgets_check(tmp_path)
-    assert not check.ok and "widgets/first/widget.json" in check.detail and "widgets/second/widget.json" in check.detail
+    assert not check.ok and str(Path("widgets/first/widget.json")) in check.detail and str(Path("widgets/second/widget.json")) in check.detail
 
 
 def test_every_widget_on_but_not_installed_is_named_by_the_failing_check(tmp_path):
