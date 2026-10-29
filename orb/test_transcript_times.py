@@ -61,7 +61,7 @@ def test_a_time_zone_change_redraws_every_entry_time_in_the_new_zone(tmp_path):
 
 
 @pytest.mark.timeout(60)
-def test_while_the_zone_holds_the_voice_transcript_is_left_as_drawn(tmp_path):
+def test_while_the_zone_holds_a_voice_transcript_row_is_the_same_element_three_ticks_later(tmp_path):
     async def no_feed(server):
         server.attached = True
 
