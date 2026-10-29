@@ -1079,7 +1079,11 @@ class OrbServer:
         return bool(self.queue) and not self.blocked() and bool(self.sockets) and not follow_up
 
     async def send_queued_after(self, seconds: float) -> None:
+        """Sends what waited out the follow-up window. A sleep can wake a clock tick early on Windows (about 15 ms),
+        with the window still open and nothing left to send the queue, so the window is waited out to its end."""
         await asyncio.sleep(seconds)
+        while self.waker is not None and self.waker.follow_up.is_open(time.monotonic()):
+            await asyncio.sleep(self.waker.follow_up.until - time.monotonic())
         await self.send_queued()
 
     async def submit(self, request: "Request") -> None:
