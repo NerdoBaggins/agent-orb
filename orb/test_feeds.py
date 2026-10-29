@@ -99,13 +99,14 @@ def test_the_orbs_own_venv_is_taken_off_path_however_it_is_spelled(entry):
     assert "VIRTUAL_ENV" not in env and env["PATH"] == "/usr/bin" and env["HOME"] == "/h"
 
 
-def test_the_program_is_looked_up_on_the_feeds_path_not_the_orbs(tmp_path):
+def test_the_program_is_looked_up_on_the_feeds_path_not_the_orbs(tmp_path, monkeypatch):
     own, other = tmp_path / "own", tmp_path / "other"
     name = "tool.bat" if sys.platform == "win32" else "tool"
     for folder in (own, other):
         folder.mkdir()
         (folder / name).write_text("#!/bin/sh\n")
         (folder / name).chmod(0o755)
+    monkeypatch.setenv("PATH", str(own))
     program, *rest = resolve_program(("tool", "a"), {"PATH": str(other)})
     assert os.path.normcase(program) == os.path.normcase(str(other / name)) and rest == ["a"]
 
