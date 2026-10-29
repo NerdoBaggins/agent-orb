@@ -93,3 +93,15 @@ def test_every_toolbar_control_stays_inside_a_short_window_with_all_the_pickers_
 
     asyncio.run(run_page(tmp_path, [], act))
     assert seen["outside"] == [] and seen["bar"]["y"] + seen["bar"]["h"] <= 360
+
+
+@pytest.mark.timeout(60)
+def test_the_voice_speed_slider_is_labelled_like_the_size_slider(tmp_path):
+    seen = {}
+
+    async def act(page):
+        seen["speed"] = await page.evaluate("document.querySelector('.bar-speed').textContent")
+        seen["size"] = await page.evaluate("document.querySelector('.bar-size').textContent")
+
+    asyncio.run(run_page(tmp_path, [], act))
+    assert seen["speed"].split()[0] == "speed" and seen["size"].split()[0] == "size"

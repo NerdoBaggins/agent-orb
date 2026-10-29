@@ -11,6 +11,11 @@ that has one adds it under Unreleased.
   with a date line before the first timed entry and wherever the day changes; a time-zone change redraws them
   ([#57](https://github.com/NerdoBaggins/agent-orb/pull/57)).
 
+### Changed
+
+- The voice speed slider in the toolbar is labelled "speed", like the size slider
+  ([#80](https://github.com/NerdoBaggins/agent-orb/pull/80)).
+
 ## 0.2.0 — 2026-10-28
 
 ### Added
