@@ -77,7 +77,7 @@ def test_the_voiceprint_file_round_trips(tmp_path):
     assert load_voiceprint(tmp_path, "fake") is None
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="POSIX modes only")
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows has no POSIX file modes")
 def test_the_voiceprint_file_is_the_users_only(tmp_path):
     path = save_voiceprint(tmp_path, "fake", [0.5, 0.5])
     assert (path.stat().st_mode & 0o077) == 0
