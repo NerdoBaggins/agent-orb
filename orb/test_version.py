@@ -16,6 +16,6 @@ def test_the_package_the_lockfile_the_plugin_and_the_changelog_name_the_same_ver
 
 
 def test_every_changelog_heading_is_unreleased_or_a_version_and_date_the_release_notes_command_reads():
-    headings = re.findall(r"^## .*$", (ROOT / "CHANGELOG.md").read_text(encoding="utf-8"), re.MULTILINE)
+    headings = re.findall(r"^[ \t]*##(?!#).*$", (ROOT / "CHANGELOG.md").read_text(encoding="utf-8"), re.MULTILINE)
 
     assert [h for h in headings if h != "## Unreleased" and not re.fullmatch(r"## \d+\.\d+\.\d+ — \d{4}-\d{2}-\d{2}", h)] == []
