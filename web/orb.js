@@ -1064,7 +1064,7 @@
   Object.assign(transcriptUi, {
     // The session's own feed: what was typed (here or in the terminal), what the agent said, and each tool call on
     // its own line with its result folded away. A row is rebuilt only when its item or its shown time changed, so a row
-    // the reader has opened or selected stays as it is while new ones arrive.
+    // the reader has opened stays open while new ones arrive.
     rows: new Map(),
     opened: new Set(),
     renderFeed(box) {
