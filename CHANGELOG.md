@@ -9,6 +9,8 @@ that has one adds it under Unreleased.
 
 ### Added
 
+- The Kokoro voice renders on an NVIDIA GPU when its CUDA libraries load, and on the CPU otherwise
+  ([#61](https://github.com/NerdoBaggins/agent-orb/pull/61)).
 - Skin and theme folders added or removed while the orb is open reach the bar's pickers on the next page poll,
   without reloading the page ([#41](https://github.com/NerdoBaggins/agent-orb/pull/41)).
 - Several Copilot sessions can each have an orb: the orb dials `ORB_COPILOT_PORT` when the shell that started
@@ -17,6 +19,8 @@ that has one adds it under Unreleased.
 
 ### Changed
 
+- The open toolbar is a narrow column at the right edge, wrapping into a second column in a short window, and
+  its dropdown lists use the theme's colors ([#77](https://github.com/NerdoBaggins/agent-orb/pull/77)).
 - The hint for starting Copilot names only what the orb needs, `copilot --ui-server --port N`, without `--yolo`
   or `--continue` ([#34](https://github.com/NerdoBaggins/agent-orb/pull/34)).
 - A panel is capped at 1,000 files, 255-character paths and a 200-character title, besides the 8 MB and
@@ -30,6 +34,10 @@ that has one adds it under Unreleased.
 
 ### Fixed
 
+- On Windows the orb server starts with a hidden console, so there is no console window whose closing ends the
+  orb ([#59](https://github.com/NerdoBaggins/agent-orb/pull/59)).
+- Releasing a dragged toolbar slider away from the bar no longer leaves its controls taking space while
+  invisible ([#77](https://github.com/NerdoBaggins/agent-orb/pull/77)).
 - A skins, themes or panels folder that cannot be listed, or a widgets folder that cannot be reached, no longer
   crashes the orb: it is reported by name, a
   chosen skin or theme in it falls back to the default saying why, and `orb doctor` fails naming an unlistable
