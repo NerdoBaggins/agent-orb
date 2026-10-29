@@ -19,6 +19,12 @@ def lock():
         folder.chmod(0o755)
 
 
+@pytest.fixture
+def symlinks():
+    if sys.platform == "win32":
+        pytest.skip("creating a symlink needs a privilege Windows does not grant by default")
+
+
 @pytest.fixture(params=[0o000, 0o444, 0o111], ids=["unreadable-and-unsearchable", "unsearchable", "unreadable"])
 def unlistable(request, lock):
     return lambda folder: lock(folder, request.param)

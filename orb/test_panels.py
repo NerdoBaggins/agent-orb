@@ -180,7 +180,7 @@ def test_an_index_html_alone_directly_in_home_is_served(tmp_path):
     assert set(show.files) == {"index.html"}
 
 
-def test_a_symlinked_subfolder_is_not_followed(tmp_path):
+def test_a_symlinked_subfolder_is_not_followed(tmp_path, symlinks):
     from orb.pages import files
     folder = one_off_folder(tmp_path / "chart")
     (tmp_path / "private").mkdir()
@@ -203,7 +203,7 @@ def test_a_one_off_in_a_folder_named_like_a_built_in_panel_gets_a_name_of_its_ow
     assert resolve_show(str(folder / "index.html"), tmp_path, tmp_path / "home").name == "transcript-page"
 
 
-def test_a_symlinked_index_html_is_named_after_the_folder_it_was_shown_from(tmp_path):
+def test_a_symlinked_index_html_is_named_after_the_folder_it_was_shown_from(tmp_path, symlinks):
     built = tmp_path / "build"
     built.mkdir()
     (built / "out.html").write_text("<p>x</p>", encoding="utf-8")
@@ -213,7 +213,7 @@ def test_a_symlinked_index_html_is_named_after_the_folder_it_was_shown_from(tmp_
     assert resolve_show(str(shown / "index.html"), tmp_path, tmp_path / "home").name == "chart"
 
 
-def test_a_linked_index_html_brings_the_files_beside_the_link_not_beside_its_target(tmp_path):
+def test_a_linked_index_html_brings_the_files_beside_the_link_not_beside_its_target(tmp_path, symlinks):
     built = tmp_path / "build"
     built.mkdir()
     (built / "out.html").write_text("<p>x</p>", encoding="utf-8")
@@ -225,7 +225,7 @@ def test_a_linked_index_html_brings_the_files_beside_the_link_not_beside_its_tar
     assert set(resolve_show(str(shown / "index.html"), tmp_path, tmp_path / "home").files) == {"index.html", "data.json"}
 
 
-def test_a_page_with_another_name_linked_to_an_index_html_is_served_alone(tmp_path):
+def test_a_page_with_another_name_linked_to_an_index_html_is_served_alone(tmp_path, symlinks):
     docs = tmp_path / "docs"
     docs.mkdir()
     (docs / "index.html").write_text("<p>d</p>", encoding="utf-8")
@@ -441,7 +441,7 @@ def test_a_saved_panel_that_is_a_link_that_cannot_be_followed_is_reported_and_th
     assert [p.name for p in panels] == ["alpha"] and problems == [f"{root / 'linked'} could not be read: Permission denied"]
 
 @pytest.mark.parametrize("target", ["gone", "loop"])
-def test_a_saved_panel_that_is_a_broken_link_is_reported_and_the_others_still_list(tmp_path, target):
+def test_a_saved_panel_that_is_a_broken_link_is_reported_and_the_others_still_list(tmp_path, symlinks, target):
     repo, home = tmp_path / "repo", tmp_path / "home"
     root = home / ".config" / "orb" / "panels"
     saved(root, "alpha")
@@ -450,7 +450,7 @@ def test_a_saved_panel_that_is_a_broken_link_is_reported_and_the_others_still_li
     assert [p.name for p in panels] == ["alpha"] and problems == [f"{root / 'linked'} could not be read: it is a link to nothing that can be followed"]
 
 
-def test_a_stray_file_or_a_link_to_one_beside_the_saved_panels_is_not_a_problem(tmp_path):
+def test_a_stray_file_or_a_link_to_one_beside_the_saved_panels_is_not_a_problem(tmp_path, symlinks):
     repo, home = tmp_path / "repo", tmp_path / "home"
     root = home / ".config" / "orb" / "panels"
     saved(root, "alpha")

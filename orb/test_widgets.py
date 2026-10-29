@@ -162,7 +162,7 @@ def test_a_widget_that_is_a_link_that_cannot_be_followed_is_a_problem_and_the_ot
     assert [w.name for w in widgets] == ["team"] and problems == [f"{root / 'linked'} could not be read: Permission denied"]
 
 @pytest.mark.parametrize("target", ["gone", "loop"])
-def test_a_widget_that_is_a_broken_link_is_a_problem_and_the_others_still_list(tmp_path, target):
+def test_a_widget_that_is_a_broken_link_is_a_problem_and_the_others_still_list(tmp_path, symlinks, target):
     repo, home = tmp_path / "repo", tmp_path / "home"
     root = home / ".config" / "orb" / "widgets"
     installed(root, "team")
@@ -171,7 +171,7 @@ def test_a_widget_that_is_a_broken_link_is_a_problem_and_the_others_still_list(t
     assert [w.name for w in widgets] == ["team"] and problems == [f"{root / 'linked'} could not be read: it is a link to nothing that can be followed"]
 
 
-def test_a_stray_file_or_a_link_to_one_beside_the_widgets_is_not_a_problem(tmp_path):
+def test_a_stray_file_or_a_link_to_one_beside_the_widgets_is_not_a_problem(tmp_path, symlinks):
     repo, home = tmp_path / "repo", tmp_path / "home"
     root = home / ".config" / "orb" / "widgets"
     installed(root, "team")
