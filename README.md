@@ -584,21 +584,17 @@ list where the build departed from it.
 
 ## Releasing
 
-A release is one pull request and one tag:
-
 1. Pick the version: while the major version is 0, the minor version goes up when the release adds or changes
    behavior, the patch version when it only fixes.
 2. Set it in `pyproject.toml` and `.claude-plugin/plugin.json`, run `uv lock` so `uv.lock` carries it too, move
    the changelog's Unreleased entries under `## <version> — <date>`, and merge that pull request.
-3. Tag the merge and publish its notes:
+3. Tag the commit the merge left on `main` and publish that version's changelog section as its notes:
    ```
-   git tag -a v<version> <merge commit> -m "agent-orb <version>"
+   git tag -a v<version> origin/main -m "agent-orb <version>"
    git push origin v<version>
-   gh release create v<version> --title "agent-orb <version>" --notes-file <that version's changelog section>
+   awk '/^## <version> /{on=1; next} /^## /{on=0} on' CHANGELOG.md |
+     gh release create v<version> --title "agent-orb <version>" --notes-file -
    ```
-
-An installed plugin updates only when `plugin.json`'s version changes, so changes reach marketplace installs when a
-release ships them.
 
 ## License and credits
 

@@ -10,6 +10,6 @@ def test_the_package_the_lockfile_the_plugin_and_the_changelog_name_the_same_ver
     package = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
     plugin = json.loads((ROOT / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))["version"]
     locked = next(p["version"] for p in tomllib.loads((ROOT / "uv.lock").read_text(encoding="utf-8"))["package"] if p["name"] == "agent-orb")
-    released = re.findall(r"^## (\d+\.\d+\.\d+) — ", (ROOT / "CHANGELOG.md").read_text(encoding="utf-8"), re.MULTILINE)
+    released = re.findall(r"^## (\d+\.\d+\.\d+)\b", (ROOT / "CHANGELOG.md").read_text(encoding="utf-8"), re.MULTILINE)
 
     assert package == locked == plugin == released[0]

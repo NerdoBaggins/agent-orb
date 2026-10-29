@@ -1,8 +1,6 @@
 # Changelog
 
-Every change a user of agent-orb can notice since the repository opened, newest first; a pull request that only
-adds tests has no entry. Each pull request adds its entry under Unreleased, and [Releasing](README.md#releasing) says
-how a release moves them under its version.
+Every change a user of agent-orb can notice. Each pull request adds its entry under Unreleased.
 
 ## Unreleased
 
@@ -21,8 +19,8 @@ how a release moves them under its version.
 - The hint for starting Copilot names only what the orb needs, `copilot --ui-server --port N`, without `--yolo`
   or `--continue` ([#34](https://github.com/NerdoBaggins/agent-orb/pull/34)).
 - A panel is capped at 1,000 files, 255-character paths and a 200-character title, besides the 8 MB and
-  64-character name it already had; `orb panel show` refuses one over a cap and names it, except that a name not
-  given with `--name` is shortened to 64 characters and a title not given with `--title` to 200
+  64-character name it already had; `orb panel show` refuses one over a cap and names it, except that a one-off
+  page's name not given with `--name` is shortened to 64 characters and a title not given with `--title` to 200
   ([#36](https://github.com/NerdoBaggins/agent-orb/pull/36)).
 - The README lists what the orb does up front, follows a newcomer's path from first run to uninstall, and says
   speech stays local with the built-in engines while an engine you add may send audio or text to a service
@@ -31,7 +29,8 @@ how a release moves them under its version.
 
 ### Fixed
 
-- A skins, themes or panels folder that cannot be listed no longer crashes the orb: it is reported by name, a
+- A skins, themes or panels folder that cannot be listed, or a widgets folder that cannot be reached, no longer
+  crashes the orb: it is reported by name, a
   chosen skin or theme in it falls back to the default saying why, and `orb doctor` fails naming an unlistable
   skins or themes folder. A saved panel or widget that is a link the orb cannot follow is reported by name
   ([#37](https://github.com/NerdoBaggins/agent-orb/pull/37)).
@@ -40,11 +39,8 @@ how a release moves them under its version.
 - A blank `orb.send` from a panel is refused with a reason instead of leaving its promise pending forever
   ([#35](https://github.com/NerdoBaggins/agent-orb/pull/35)).
 - Requests reach the agent in the order they were made: a typed, panel or spoken request is queued before its
-  wait notice goes out, so a later one cannot overtake it, and Stop drops a spoken request still waiting
+  wait notice goes out, so a later one cannot overtake it
   ([#39](https://github.com/NerdoBaggins/agent-orb/pull/39)).
-- The audio sample rate and the rule that turns a failed feed's or action's stderr into a reason are each stated
-  once, and a reason survives stderr that is not UTF-8 or ends in a progress meter
-  ([#40](https://github.com/NerdoBaggins/agent-orb/pull/40)).
 
 ## 0.1.0 — 2026-10-27
 
