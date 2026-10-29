@@ -7,8 +7,8 @@ that has one adds it under Unreleased.
 
 ### Added
 
-- Each transcript entry shows the local time it happened (`HH:MM:SS`), with a date line before the first timed entry
-  and wherever the day changes; a time-zone change redraws them
+- Each entry of the session's feed in the transcript shows the local time the session log gives it (`HH:MM:SS`),
+  with a date line before the first timed entry and wherever the day changes; a time-zone change redraws them
   ([#57](https://github.com/NerdoBaggins/agent-orb/pull/57)).
 
 ## 0.2.0 — 2026-10-28
