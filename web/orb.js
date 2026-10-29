@@ -1188,7 +1188,12 @@
       if (s.busy) live.textContent = ["working", elapsed(s.since, Date.now()), s.doing].filter(Boolean).join(" · ");
     },
   });
-  setInterval(() => transcriptUi.tickLive(), 1000);
+  let shownZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  setInterval(() => {
+    transcriptUi.tickLive();
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (zone !== shownZone) { shownZone = zone; transcriptUi.render(); }
+  }, 1000);
 
   // ---- skin and the orb canvas ----
 

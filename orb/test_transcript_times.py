@@ -51,11 +51,10 @@ def test_a_time_zone_change_redraws_every_entry_time_in_the_new_zone(tmp_path):
         await page.wait_for_timeout(2500)
         before = await shown(page)
         await cdp.send("Emulation.setTimezoneOverride", {"timezoneId": "Asia/Tokyo"})
-        server.link.activity_state = {"busy": False, "doing": None, "feed": FEED, "session": "s1"}
         await page.wait_for_timeout(2500)
         return before, await shown(page)
 
     _, (before, seen) = asyncio.run(transcript_page(tmp_path, with_feed, in_tokyo))
     assert before[1] == ["tr-row you", "16:30:00"]
     assert seen == [["day", "Sat 24 Oct 2026"], ["tr-row you", "08:30:00"], ["tr-step", "09:30:05"],
-                    ["day", "Sun 25 Oct 2026"], ["tr-row reply", "01:05:09"], ["tr-row reply", None]]
+                    ["day", "Sun 25 Oct 2026"], ["tr-row reply", "01:05:09"]]
