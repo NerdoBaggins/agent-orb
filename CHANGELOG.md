@@ -1,6 +1,7 @@
 # Changelog
 
-Every change a user of agent-orb can notice. Each pull request adds its entry under Unreleased.
+Every change a user of agent-orb can notice; a pull request no user would notice has no entry. Each pull request
+that has one adds it under Unreleased.
 
 ## Unreleased
 
@@ -39,7 +40,7 @@ Every change a user of agent-orb can notice. Each pull request adds its entry un
 - A blank `orb.send` from a panel is refused with a reason instead of leaving its promise pending forever
   ([#35](https://github.com/NerdoBaggins/agent-orb/pull/35)).
 - Requests reach the agent in the order they were made: a typed, panel or spoken request is queued before its
-  wait notice goes out, so a later one cannot overtake it
+  wait notice goes out, so a later one cannot overtake it, and Stop drops speech heard just before it
   ([#39](https://github.com/NerdoBaggins/agent-orb/pull/39)).
 
 ## 0.1.0 — 2026-10-27
