@@ -93,7 +93,6 @@ def test_the_detached_server_reads_the_token_on_its_standard_input(tmp_path):
 
 
 def test_on_windows_the_detached_server_gets_a_hidden_console_not_none(tmp_path, monkeypatch):
-    # A process with no console makes Windows give python.exe a visible one, which a user then closes.
     seen = {}
 
     class FakeProc:
@@ -106,7 +105,7 @@ def test_on_windows_the_detached_server_gets_a_hidden_console_not_none(tmp_path,
     monkeypatch.setattr(cli.subprocess, "Popen", lambda command, **kwargs: seen.update(kwargs) or FakeProc())
     cli.spawn_detached(["server"], tmp_path / "out", "the-token")
     flags = seen["creationflags"]
-    assert flags & 0x08000000 and not flags & 0x8
+    assert flags & 0x08000000 and flags & 0x200 and not flags & 0x8
 
 
 def test_open_launches_the_browser_on_a_file_url_and_prints_the_address_without_the_token(tmp_path, monkeypatch, capsys):
