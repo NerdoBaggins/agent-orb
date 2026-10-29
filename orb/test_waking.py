@@ -1,4 +1,5 @@
 import json
+import sys
 
 import numpy as np
 import pytest
@@ -68,13 +69,18 @@ def test_voice_auth_with_a_voiceprint_builds_and_loads_the_voiceprint_engine(tmp
         waker.close()
 
 
-def test_the_voiceprint_file_is_the_users_only_and_round_trips(tmp_path):
+def test_the_voiceprint_file_round_trips(tmp_path):
     path = save_voiceprint(tmp_path, "fake", [0.5, 0.5])
     assert path == voiceprint_path(tmp_path, "fake") and path.parent.parent.name == "orb"
     assert load_voiceprint(tmp_path, "fake") == [0.5, 0.5]
-    assert (path.stat().st_mode & 0o077) == 0
     path.write_text("{nope", encoding="utf-8")
     assert load_voiceprint(tmp_path, "fake") is None
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX modes only")
+def test_the_voiceprint_file_is_the_users_only(tmp_path):
+    path = save_voiceprint(tmp_path, "fake", [0.5, 0.5])
+    assert (path.stat().st_mode & 0o077) == 0
 
 
 # ---- the waker's decisions with the fake engines ----
