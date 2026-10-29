@@ -72,3 +72,24 @@ def test_a_toolbar_held_open_by_focus_alone_shows_every_control_it_displays(tmp_
 
     asyncio.run(run_page(tmp_path, [], act))
     assert seen["focus"] == "voice-toggle" and "open" not in seen["classes"] and seen["invisible"] == []
+
+
+@pytest.mark.timeout(60)
+def test_every_toolbar_control_stays_inside_a_short_window_with_all_the_pickers_shown(tmp_path):
+    seen = {}
+
+    async def act(page):
+        await page.evaluate("""() => {
+          for (const id of ['stt-pick', 'tts-pick', 'voice-pick', 'theme-pick', 'skin-pick', 'bar-widgets', 'bar-tasks']) document.getElementById(id).hidden = false;
+        }""")
+        await page.set_viewport_size({"width": 1000, "height": 360})
+        await page.wait_for_timeout(300)
+        await open_bar(page)
+        seen["outside"] = await page.evaluate("""() => [...document.querySelectorAll('.bar > *')]
+          .filter(e => getComputedStyle(e).display !== 'none' && !e.hidden)
+          .filter(e => { const r = e.getBoundingClientRect(); return r.bottom > innerHeight || r.right > innerWidth || r.left < 0 || r.top < 0; })
+          .map(e => e.id || e.className)""")
+        seen["bar"] = await page.evaluate(BOX, ".bar")
+
+    asyncio.run(run_page(tmp_path, [], act))
+    assert seen["outside"] == [] and seen["bar"]["y"] + seen["bar"]["h"] <= 360

@@ -37,7 +37,8 @@ body {
 .bar::before { content: ""; position: absolute; inset: -8px -8px -16px; z-index: -1; }
 .bar.open, .bar:focus-within {
   background: color-mix(in srgb, var(--orb-stage) 88%, transparent); border-color: var(--orb-line); opacity: 1;
-  flex-direction: column; flex-wrap: nowrap; align-items: flex-end; gap: 8px; padding: 8px 12px; border-radius: 12px;
+  flex-direction: column; flex-wrap: wrap; align-items: flex-end; align-content: flex-end; max-height: calc(100vh - 20px);
+  gap: 8px; padding: 8px 12px; border-radius: 12px;
 }
 .bar > .bar-title, .bar > .bar-repo, .bar > .bar-link.ok, .bar > .bar-engines, .bar > .bar-btn, .bar > .bar-speed,
 .bar > .bar-size, .bar > .bar-options { display: none; }
