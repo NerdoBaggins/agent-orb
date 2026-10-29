@@ -65,6 +65,7 @@ body {
   background: none; border: 1px solid var(--orb-dim); border-radius: 4px; color: var(--orb-fg);
   font: inherit; font-size: 12px; padding: 1px 4px;
 }
+.bar-options select option { background: var(--orb-surface); color: var(--orb-fg); }
 .bar-wake { color: var(--orb-dim); }
 .bar-link.ok { color: var(--orb-ok); }
 .bar-link.bad { color: var(--orb-warn); }
