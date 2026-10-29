@@ -56,11 +56,11 @@ def test_without_nvidia_packages_there_are_no_cuda_library_folders(monkeypatch):
 def test_the_cuda_folders_go_on_path_and_the_dll_search_path(monkeypatch):
     added = []
     monkeypatch.setattr(engine.os, "add_dll_directory", added.append, raising=False)
-    monkeypatch.setattr(engine, "cuda_library_folders", lambda: ["C:/a/bin", "C:/b/bin"])
-    monkeypatch.setenv("PATH", "C:/existing")
+    monkeypatch.setattr(engine, "cuda_library_folders", lambda: ["a/bin", "b/bin"])
+    monkeypatch.setenv("PATH", "existing")
     engine.register_cuda_libraries()
-    assert added == ["C:/a/bin", "C:/b/bin"]
-    assert engine.os.environ["PATH"].split(engine.os.pathsep)[:3] == ["C:/a/bin", "C:/b/bin", "C:/existing"]
+    assert added == ["a/bin", "b/bin"]
+    assert engine.os.environ["PATH"] == engine.os.pathsep.join(["a/bin", "b/bin", "existing"])
 
 
 def test_what_onnxruntime_prints_while_the_model_loads_never_reaches_standard_output(capfd):
