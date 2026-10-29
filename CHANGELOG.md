@@ -11,7 +11,7 @@ how a release moves them under its version.
 ### Added
 
 - Skin and theme folders added or removed while the orb is open reach the bar's pickers on the next page poll,
-  every two seconds, without reloading the page ([#41](https://github.com/NerdoBaggins/agent-orb/pull/41)).
+  without reloading the page ([#41](https://github.com/NerdoBaggins/agent-orb/pull/41)).
 - Several Copilot sessions can each have an orb: the orb dials `ORB_COPILOT_PORT` when the shell that started
   Copilot set it, else `copilot_port` ([#31](https://github.com/NerdoBaggins/agent-orb/pull/31),
   [#32](https://github.com/NerdoBaggins/agent-orb/pull/32)).
@@ -21,8 +21,8 @@ how a release moves them under its version.
 - The hint for starting Copilot names only what the orb needs, `copilot --ui-server --port N`, without `--yolo`
   or `--continue` ([#34](https://github.com/NerdoBaggins/agent-orb/pull/34)).
 - A panel is capped at 1,000 files, 255-character paths and a 200-character title, besides the 8 MB and
-  64-character name it already had; `orb panel show` refuses one over a cap and names it, and shortens a title
-  taken from the folder name or `panel.json` to 200 characters
+  64-character name it already had; `orb panel show` refuses one over a cap and names it, except that a title not
+  given with `--title` is shortened to 200 characters
   ([#36](https://github.com/NerdoBaggins/agent-orb/pull/36)).
 - The README lists what the orb does up front, follows a newcomer's path from first run to uninstall, and says
   speech stays local with the built-in engines while an engine you add may send audio or text to a service
