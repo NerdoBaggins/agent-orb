@@ -6,7 +6,6 @@ from orb.test_transcript_speaker import transcript_page
 
 pytest.importorskip("playwright.async_api")
 
-# Friday evening and Saturday morning in Los Angeles; the first two are on different UTC days but the same local one.
 FEED = [
     {"id": "u1", "kind": "you", "text": "what is the status", "ts": "2026-10-23T23:30:00Z", "orb": True},
     {"id": "s1", "kind": "step", "text": "Bash: git status", "ts": "2026-10-24T00:30:05Z", "result": "clean"},
