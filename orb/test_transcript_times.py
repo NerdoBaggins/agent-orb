@@ -58,3 +58,19 @@ def test_a_time_zone_change_redraws_every_entry_time_in_the_new_zone(tmp_path):
     assert before[1] == ["tr-row you", "16:30:00"]
     assert seen == [["day", "Sat 24 Oct 2026"], ["tr-row you", "08:30:00"], ["tr-step", "09:30:05"],
                     ["day", "Sun 25 Oct 2026"], ["tr-row reply", "01:05:09"]]
+
+
+@pytest.mark.timeout(60)
+def test_while_the_zone_holds_the_voice_transcript_is_left_as_drawn(tmp_path):
+    async def no_feed(server):
+        server.attached = True
+
+    async def a_row_three_seconds_on(page, server):
+        await server.broadcast({"type": "heard", "text": "what is the status"})
+        await page.wait_for_timeout(500)
+        await page.evaluate("() => { document.querySelector('#builtin-transcript').firstElementChild.drawn = true; }")
+        await page.wait_for_timeout(3000)
+        return await page.evaluate("() => document.querySelector('#builtin-transcript').firstElementChild?.drawn ?? false")
+
+    _, kept = asyncio.run(transcript_page(tmp_path, no_feed, a_row_three_seconds_on, zone="America/Los_Angeles"))
+    assert kept is True
