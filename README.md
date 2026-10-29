@@ -7,6 +7,10 @@ With the built-in engines, speech never leaves the machine: Moonshine turns your
 the reply. Moonshine runs on the CPU; Kokoro uses an NVIDIA GPU when the machine has one that loads, and the CPU
 otherwise. An engine you add yourself may be a cloud service; see [Speech engines](#speech-engines).
 
+<p align="center">
+  <img src="docs/images/states.webp" width="960" alt="Three orb skins side by side, each going from idle to listening, thinking and speaking: pulse's rings, a glowing orb in a nebula, and a metallic helmet whose eyes and halo light up as it talks">
+</p>
+
 - [What you get](#what-you-get)
 - [Install](#install)
 - [First run](#first-run)
@@ -327,6 +331,10 @@ The old flat shape (`tts.voice`, `tts.lang`) is still read, as the `kokoro` bloc
 
 A panel is any HTML page the agent writes. Ask the agent to show something ("show me a chart of…") and it writes one
 and shows it; several panels become tabs. The skill (`skills/orb/SKILL.md`) tells the agent all of this.
+
+<p align="center">
+  <img src="docs/images/window.webp" width="960" alt="The orb window: the pulse orb on the left with a clock widget in its corner, and a panel on the right charting a week of build times, with an explain button">
+</p>
 
 A panel runs sandboxed: it gets the theme's stylesheet and these functions, and nothing else of the orb or the
 session.
