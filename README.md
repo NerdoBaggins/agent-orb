@@ -590,9 +590,10 @@ list where the build departed from it.
    the changelog's Unreleased entries under `## <version> — <date>`, and merge that pull request.
 3. Tag the commit the merge left on `main` and publish that version's changelog section as its notes:
    ```
+   git fetch origin
    git tag -a v<version> origin/main -m "agent-orb <version>"
    git push origin v<version>
-   awk '/^## <version> /{on=1; next} /^## /{on=0} on' CHANGELOG.md |
+   git show origin/main:CHANGELOG.md | awk '/^## <version> /{on=1; next} /^## /{on=0} on' |
      gh release create v<version> --title "agent-orb <version>" --notes-file -
    ```
 
