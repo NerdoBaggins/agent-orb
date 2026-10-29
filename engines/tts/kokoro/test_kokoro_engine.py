@@ -1,4 +1,3 @@
-import importlib
 import importlib.util
 import sys
 import types
@@ -73,7 +72,6 @@ def test_what_onnxruntime_prints_while_the_model_loads_never_reaches_standard_ou
 
 
 def test_python_level_output_while_the_model_loads_never_reaches_a_piped_standard_output(tmp_path):
-    # The orb pipes the engine's stdout, so Python buffers what it prints; that must not reach the protocol stream.
     import subprocess
     script = '''
 import importlib.util, sys, types
@@ -82,7 +80,9 @@ k = importlib.util.module_from_spec(spec); spec.loader.exec_module(k)
 fake = types.ModuleType("onnxruntime")
 fake.get_available_providers = lambda: ["CUDAExecutionProvider", "CPUExecutionProvider"]
 class Session:
-    def __init__(self, path, providers): print("fallback banner from the wrapper")
+    def __init__(self, path, providers):
+        print("fallback banner from the wrapper")
+        print("providers=" + repr(providers), file=sys.stderr)
     def get_providers(self): return ["CPUExecutionProvider"]
 fake.InferenceSession = Session
 sys.modules["onnxruntime"] = fake
@@ -93,3 +93,4 @@ print('{"ok": true}')
     r = subprocess.run([sys.executable, "-c", script, str(Path(engine.__file__))], capture_output=True, text=True, timeout=60)
     assert r.stdout == '{"ok": true}\n', r.stdout
     assert "fallback banner from the wrapper" in r.stderr and "preload diagnostic" in r.stderr
+    assert "providers=['CUDAExecutionProvider', 'CPUExecutionProvider']" in r.stderr
