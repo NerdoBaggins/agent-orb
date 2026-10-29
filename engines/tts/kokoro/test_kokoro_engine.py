@@ -1,6 +1,7 @@
 import importlib
 import importlib.util
 import sys
+import types
 from pathlib import Path
 
 spec = importlib.util.spec_from_file_location("kokoro_engine", Path(__file__).with_name("engine.py"))
@@ -42,9 +43,8 @@ def test_the_gpu_provider_leads_when_offered_tensorrt_is_never_used_and_the_cpu_
 def test_the_cuda_library_folders_are_the_bin_folders_of_the_nvidia_packages(tmp_path, monkeypatch):
     for sub in ("cu13/bin/x86_64", "cudnn/bin", "other/lib"):
         (tmp_path / "nvidia" / sub).mkdir(parents=True)
-    monkeypatch.syspath_prepend(str(tmp_path))
-    importlib.invalidate_caches()
-    monkeypatch.delitem(sys.modules, "nvidia", raising=False)
+    monkeypatch.setattr(engine.importlib.util, "find_spec",
+                        lambda name: types.SimpleNamespace(submodule_search_locations=[str(tmp_path / "nvidia")]))
     found = {Path(p).relative_to(tmp_path / "nvidia").as_posix() for p in engine.cuda_library_folders()}
     assert found == {"cu13/bin", "cu13/bin/x86_64", "cudnn/bin"}
 
