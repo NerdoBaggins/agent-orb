@@ -581,6 +581,24 @@ list where the build departed from it.
 | `skins/` | orb skins; `pulse` is the default |
 | `themes/` | orb themes; `default` is the original look |
 
+## Releasing
+
+A release is one pull request and one tag:
+
+1. Pick the version: while the major version is 0, the minor version goes up when the release adds or changes
+   behavior, the patch version when it only fixes.
+2. Set it in `pyproject.toml` and `.claude-plugin/plugin.json`, move the changelog's Unreleased entries under
+   `## <version> — <date>`, and merge that pull request.
+3. Tag the merge and publish its notes:
+   ```
+   git tag -a v<version> <merge commit> -m "agent-orb <version>"
+   git push origin v<version>
+   gh release create v<version> --title "agent-orb <version>" --notes-file <that version's changelog section>
+   ```
+
+An installed plugin updates only when `plugin.json`'s version changes, so changes reach marketplace installs when a
+release ships them.
+
 ## License and credits
 
 agent-orb is MIT-licensed (`LICENSE`). The speech models are not part of this repo; each engine downloads its own on
