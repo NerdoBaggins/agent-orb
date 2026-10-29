@@ -3,6 +3,8 @@ process.env.TZ = "America/Los_Angeles";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
+import { readFileSync } from "node:fs";
+import vm from "node:vm";
 const { mergeFeed, elapsed, entryTime, dateLines, markdown, nearBottom } = createRequire(import.meta.url)("./transcript.js");
 
 const item = (id, text = id) => ({ id, kind: "reply", text });
@@ -102,4 +104,13 @@ test("the reader follows new rows only while at the bottom, within the slack", (
 
 test("a backtick that never closes is shown as a backtick and the rest is still formatted", () => {
   assert.equal(markdown("it's `half and **bold**"), "<p>it&#39;s `half and <strong>bold</strong></p>");
+});
+
+test("loaded as a classic script, the time helpers leave only entryTime and dateLines global", () => {
+  const page = vm.createContext({});
+  vm.runInContext(readFileSync(new URL("./transcript.js", import.meta.url), "utf8"), page);
+  const kind = (name) => vm.runInContext(`typeof ${name}`, page);
+  assert.equal(kind("entryTime"), "function");
+  assert.equal(kind("dateLines"), "function");
+  for (const name of ["DAYS", "MONTHS", "pad2", "happened", "day"]) assert.equal(kind(name), "undefined", name);
 });

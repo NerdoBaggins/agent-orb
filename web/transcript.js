@@ -19,8 +19,7 @@ function elapsed(since, now) {
 }
 
 // When a feed item happened, from its `ts` (the session log's own timestamp), in local time. An item with no readable
-// `ts` shows no time rather than a guess. Skins run as classic scripts in this page, so only the two names it needs
-// are left global.
+// `ts` shows no time rather than a guess.
 const { entryTime, dateLines } = (() => {
   const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
