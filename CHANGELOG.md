@@ -21,8 +21,8 @@ how a release moves them under its version.
 - The hint for starting Copilot names only what the orb needs, `copilot --ui-server --port N`, without `--yolo`
   or `--continue` ([#34](https://github.com/NerdoBaggins/agent-orb/pull/34)).
 - A panel is capped at 1,000 files, 255-character paths and a 200-character title, besides the 8 MB and
-  64-character name it already had; `orb panel show` refuses one over a cap and names it, except that a title not
-  given with `--title` is shortened to 200 characters
+  64-character name it already had; `orb panel show` refuses one over a cap and names it, except that a name not
+  given with `--name` is shortened to 64 characters and a title not given with `--title` to 200
   ([#36](https://github.com/NerdoBaggins/agent-orb/pull/36)).
 - The README lists what the orb does up front, follows a newcomer's path from first run to uninstall, and says
   speech stays local with the built-in engines while an engine you add may send audio or text to a service
@@ -31,9 +31,9 @@ how a release moves them under its version.
 
 ### Fixed
 
-- A skins, themes, panels or widgets folder that cannot be listed no longer crashes the orb: it is reported by
-  name, a chosen skin or theme in it falls back to the default saying why, and `orb doctor` fails naming an
-  unlistable skins, themes or widgets folder
+- A skins, themes or panels folder that cannot be listed no longer crashes the orb: it is reported by name, a
+  chosen skin or theme in it falls back to the default saying why, and `orb doctor` fails naming an unlistable
+  skins or themes folder. A saved panel or widget that is a link the orb cannot follow is reported by name
   ([#37](https://github.com/NerdoBaggins/agent-orb/pull/37)).
 - Panels with between about 750 KB and 8 MB of files show instead of failing at the server's 1 MB body limit
   ([#36](https://github.com/NerdoBaggins/agent-orb/pull/36)).
