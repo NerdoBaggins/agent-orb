@@ -666,6 +666,19 @@ def test_a_request_queued_behind_a_woken_reply_goes_once_its_follow_up_window_cl
     run(go())
 
 
+def test_a_queued_request_is_sent_even_when_the_sender_wakes_before_the_follow_up_window_has_closed(tmp_path):
+    async def go():
+        server = make(tmp_path, voice=True, waker=waker_for(follow_up_s=0.3))
+        async with await client_for(server) as c:
+            await connect(c)
+            server.waker.follow_up.open(time.monotonic())
+            closes = server.waker.follow_up.until
+            server.queue.append(Request("what time is it", spoken=True))
+            await server.send_queued_after(0)
+            assert len(server.link.sent) == 1 and time.monotonic() >= closes
+    run(go())
+
+
 def hold_the_state_after_transcribing(server):
     gate, held, real_set_state = asyncio.Event(), [], server.set_state
 
