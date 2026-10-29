@@ -40,7 +40,7 @@ that has one adds it under Unreleased.
 - A blank `orb.send` from a panel is refused with a reason instead of leaving its promise pending forever
   ([#35](https://github.com/NerdoBaggins/agent-orb/pull/35)).
 - Requests reach the agent in the order they were made: a typed, panel or spoken request is queued before its
-  wait notice goes out, so a later one cannot overtake it, and Stop drops speech heard just before it
+  wait notice goes out, so a later one cannot overtake it, and a Stop drops speech still waiting its turn
   ([#39](https://github.com/NerdoBaggins/agent-orb/pull/39)).
 
 ## 0.1.0 — 2026-10-27
