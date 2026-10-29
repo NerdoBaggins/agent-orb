@@ -406,6 +406,15 @@ A skin draws the orb. Drop a skin folder in one of the skin folders in
 every installed skin. The choice is saved for this repo. `pulse` is the default. How to write one:
 `skins/README.md`.
 
+<p align="center">
+  <img src="docs/images/skins.webp" width="960" alt="Six orb skins on a dark stage: pulse's concentric rings; three glowing orbs, one in a nebula, one inside a ring of HUD ticks, one among stars; and a metallic biomechanical helmet with glowing eyes, shown in orange and in cyan">
+</p>
+
+`pulse`, top left, is the one that ships. The other five are custom skins written against the same contract, to show
+what a skin can be: three orbs drawn with three.js and bloom, and a helmet made from a reference image laid over a 3D
+relief, whose eyes, vents and halo follow the orb's state and the voice, shown in two of its colours. A skin is
+yours to draw however you like.
+
 ## Themes
 
 A skin draws the orb; a theme styles everything around it. A theme is a folder in one of the theme folders in
