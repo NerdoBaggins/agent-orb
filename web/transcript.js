@@ -18,6 +18,7 @@ function elapsed(since, now) {
   return `${Math.floor(s / 3600)}h ${pad(Math.floor((s % 3600) / 60))}m`;
 }
 
+// A feed item's `ts` is the session log's own timestamp for that entry.
 const { entryTime, dateLines } = (() => {
   const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
