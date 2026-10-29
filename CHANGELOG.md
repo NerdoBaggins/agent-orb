@@ -18,9 +18,9 @@ that has one adds it under Unreleased.
 
 ### Fixed
 
-- A request spoken or sent while the orb was reading out a reply to a wake-word request is always sent once the
+- A request spoken or sent while the orb was reading out a reply to a wake-word request is sent once the
   follow-up window ends; on Windows the timer could fire a tick early and leave it waiting
-  ([#75](https://github.com/NerdoBaggins/agent-orb/issues/75)).
+  ([#82](https://github.com/NerdoBaggins/agent-orb/pull/82)).
 
 ## 0.2.0 — 2026-10-28
 
