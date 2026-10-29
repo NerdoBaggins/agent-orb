@@ -1,0 +1,55 @@
+# Changelog
+
+Every change to agent-orb since the repository opened, newest first. Each pull request adds its entry under
+Unreleased; a release moves those entries under its version and date.
+
+## Unreleased
+
+### Added
+
+- Skin and theme folders added or removed while the orb is open reach the bar's pickers within two seconds,
+  without reloading the page ([#41](https://github.com/NerdoBaggins/agent-orb/pull/41)).
+- Several Copilot sessions can each have an orb: the orb dials `ORB_COPILOT_PORT` when the shell that started
+  Copilot set it, else `copilot_port` ([#31](https://github.com/NerdoBaggins/agent-orb/pull/31),
+  [#32](https://github.com/NerdoBaggins/agent-orb/pull/32)).
+
+### Changed
+
+- The hint for starting Copilot names only what the orb needs, `copilot --ui-server --port N`, without `--yolo`
+  or `--continue` ([#34](https://github.com/NerdoBaggins/agent-orb/pull/34)).
+- A panel is capped at 1,000 files, 255-character paths and a 200-character title, besides the 8 MB and
+  64-character name it already had; `orb panel show` refuses one over a cap and names it
+  ([#36](https://github.com/NerdoBaggins/agent-orb/pull/36)).
+- The README lists what the orb does up front, follows a newcomer's path from first run to uninstall, and says
+  speech stays local with the built-in engines while an engine you add may send audio or text to a service
+  ([#29](https://github.com/NerdoBaggins/agent-orb/pull/29),
+  [#30](https://github.com/NerdoBaggins/agent-orb/pull/30)).
+
+### Fixed
+
+- A skins, themes, panels or widgets folder that cannot be listed no longer crashes the orb: it is reported by
+  name, a chosen skin or theme in it falls back to the default saying why, and `orb doctor` fails naming it
+  ([#37](https://github.com/NerdoBaggins/agent-orb/pull/37)).
+- Panels with between about 750 KB and 8 MB of files show instead of failing at the server's 1 MB body limit
+  ([#36](https://github.com/NerdoBaggins/agent-orb/pull/36)).
+- A blank `orb.send` from a panel is refused with a reason instead of leaving its promise pending forever
+  ([#35](https://github.com/NerdoBaggins/agent-orb/pull/35)).
+- Requests reach the agent in the order they were made: a typed, panel or spoken request is queued before its
+  wait notice goes out, so a later one cannot overtake it, and Stop drops a spoken request still waiting
+  ([#39](https://github.com/NerdoBaggins/agent-orb/pull/39)).
+- The audio sample rate and the rule that turns a failed feed's or action's stderr into a reason are each stated
+  once, and a reason survives stderr that is not UTF-8 or ends in a progress meter
+  ([#40](https://github.com/NerdoBaggins/agent-orb/pull/40)).
+
+## 0.1.0 — 2026-10-27
+
+The first release: a local voice window for Claude Code and GitHub Copilot CLI.
+
+- Push to talk, with the button or Space, and the reply read aloud.
+- Local transcription and voice with the built-in engines; your own speech engines plug in as folders.
+- Voice, engine and speed chosen from the bar and saved per repo; `M` mutes, `Escape` stops.
+- Status, repeat and "what did I miss?" answered while the agent works; other requests wait for the turn to end.
+- A transcript of every exchange, typed or spoken, with the agent's steps folded in.
+- Panels the agent writes, shown beside the orb with tabs, explain buttons and live data from your own feeds;
+  actions for buttons that change something without the agent.
+- Widgets floating over the orb, skins and themes, and an optional wake word that can answer only your voice.
