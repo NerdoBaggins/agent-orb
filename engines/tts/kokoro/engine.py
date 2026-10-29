@@ -80,6 +80,7 @@ def stdout_to_stderr():
     try:
         yield
     finally:
+        sys.stdout.flush()  # Python's own buffer, while descriptor 1 still points at standard error
         try:
             import ctypes
             ctypes.CDLL("ucrtbase" if sys.platform == "win32" else None).fflush(None)
@@ -91,8 +92,8 @@ def stdout_to_stderr():
 
 def make_session(model_path: Path):
     import onnxruntime
-    register_cuda_libraries()
     with stdout_to_stderr():
+        register_cuda_libraries()
         session = onnxruntime.InferenceSession(str(model_path), providers=providers(onnxruntime.get_available_providers()))
     print(f"kokoro: rendering on {session.get_providers()[0]}", file=sys.stderr, flush=True)
     return session
