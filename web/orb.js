@@ -1226,7 +1226,10 @@
     bar.style.maxWidth = `${Math.max(120, pane.width - 24)}px`;
   }
   addEventListener("resize", resize);
-  new ResizeObserver(resize).observe(canvas.parentElement);
+  // Resizing a canvas clears it, and observer callbacks run after this frame's drawing, so the observer only marks
+  // the size stale and the next frame resizes before it draws.
+  let paneResized = false;
+  new ResizeObserver(() => { paneResized = true; }).observe(canvas.parentElement);
   resize();
 
   const STAND_IN = { wake_word: "listening", working: "thinking", waiting: "idle" };
@@ -1425,6 +1428,7 @@
   });
 
   function frame(t) {
+    if (paneResized) { paneResized = false; resize(); }
     orb.level = orb.state === "listening" ? Math.min(1, ptt.micLevel * 6) : orb.state === "speaking" ? player.level() : 0;
     const dpr = devicePixelRatio;
     const f = { state: skin.shown(shownState()), level: orb.level, time: t, width: canvas.width / dpr, height: canvas.height / dpr, scale: orb.size, options: skin.values };
