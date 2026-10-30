@@ -3,6 +3,14 @@
 Every change a user of agent-orb can notice; a pull request no user would notice has no entry. Each pull request
 that has one adds it under Unreleased.
 
+## Unreleased
+
+### Fixed
+
+- A 2D skin, such as `pulse`, is no longer drawn stretched when the orb opens with a panel already showing; the orb
+  now follows its pane's size as the panels slide in, where it used to check once and could check too early
+  ([#91](https://github.com/NerdoBaggins/agent-orb/pull/91)).
+
 ## 0.3.0 — 2026-10-29
 
 ### Added
