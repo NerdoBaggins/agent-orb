@@ -4,6 +4,7 @@ import asyncio
 import http.server
 import json
 import os
+import socket
 import threading
 import time
 
@@ -67,6 +68,14 @@ def wait_until(predicate, timeout=20.0):
     while not predicate():
         assert time.monotonic() < deadline, "timed out"
         time.sleep(0.1)
+
+
+def listening(record):
+    try:
+        socket.create_connection(("127.0.0.1", record["port"]), timeout=0.5).close()
+    except OSError:
+        return False
+    return True
 
 
 def health(record):
@@ -176,5 +185,5 @@ def test_a_server_that_exits_leaves_the_record_of_a_newer_one_alone(orb_env):
     path = server_file(state_dir(orb_env["home"], orb_env["repo"]), "claude")
     path.write_text(json.dumps(first | {"pid": os.getpid()}), encoding="utf-8")
     cli.post(first, "/stop", {})
-    wait_until(lambda: not pid_alive(first["pid"]), timeout=GRACE_S + 5)
+    wait_until(lambda: not listening(first), timeout=GRACE_S + 5)
     assert record_of(orb_env)["pid"] == os.getpid()
