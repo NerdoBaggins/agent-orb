@@ -123,7 +123,7 @@ def missing_env(manifest: Manifest, env=os.environ) -> list[str]:
 
 
 def log_text(line: str) -> str:
-    return ANSI.sub("", line.replace("\x00", "")).strip()
+    return ANSI.sub("", line.replace("\x00", "").replace("�", "")).strip()
 
 
 def encode_pcm(samples: np.ndarray) -> str:
