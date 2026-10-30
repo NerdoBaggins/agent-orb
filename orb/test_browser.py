@@ -34,7 +34,8 @@ def test_the_window_opens_as_an_app_in_the_orbs_own_private_profile(tmp_path, mo
     profile = browser.profile_dir(tmp_path)
     assert browser.open_app_window("file:///tmp/open.claude.html", profile, platform) == "Google Chrome"
     ((args, kw),) = calls
-    assert kw.get("creationflags") == (8 | 512 if platform == "win32" else None)
+    assert ("creationflags" in kw) == (platform == "win32")
+    assert kw.get("creationflags", 8 | 512) == 8 | 512
     assert args[:2] == ["chrome", "--app=file:///tmp/open.claude.html"] and f"--user-data-dir={profile}" in args
     assert {"--no-first-run", "--no-default-browser-check", "--autoplay-policy=no-user-gesture-required"} <= set(args)
 
