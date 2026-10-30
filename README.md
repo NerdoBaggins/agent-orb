@@ -8,7 +8,7 @@ the reply. Moonshine runs on the CPU; Kokoro uses an NVIDIA GPU when the machine
 otherwise. An engine you add yourself may be a cloud service; see [Speech engines](#speech-engines).
 
 <p align="center">
-  <img src="docs/images/states.webp" width="960" alt="Three orb skins side by side, each going from idle to listening, thinking and speaking: pulse's rings, a glowing orb in a nebula, and a metallic helmet whose eyes and halo light up as it talks">
+  <img src="docs/images/window-clip.webp" width="960" alt="The orb window in use: the pulse orb turns green while listening and orange while thinking, a panel charting a week of build times slides in beside it, and the orb pulses pink as the reply is spoken">
 </p>
 
 - [What you get](#what-you-get)
@@ -422,6 +422,10 @@ every installed skin. The choice is saved for this repo. `pulse` is the default.
 what a skin can be: three orbs drawn with three.js and bloom, and a helmet made from a reference image laid over a 3D
 relief, whose eyes, vents and halo follow the orb's state and the voice, shown in two of its colours. A skin is
 yours to draw however you like.
+
+<p align="center">
+  <img src="docs/images/states.webp" width="960" alt="Three orb skins side by side, each going from idle to listening, thinking and speaking: pulse's rings, a glowing orb in a nebula, and a metallic helmet whose eyes and halo light up as it talks">
+</p>
 
 ## Themes
 
