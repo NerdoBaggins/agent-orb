@@ -5,8 +5,10 @@ is missing, fails to load or keeps failing gives way to the kind's built-in defa
 fails is answered by the default, and the next goes back to it."""
 import base64
 import json
+import logging
 import os
 import queue
+import re
 import subprocess
 import sys
 import threading
@@ -18,6 +20,9 @@ import numpy as np
 from orb import PLUGIN_ROOT
 from orb.audio import SAMPLE_RATE
 from orb.pages import plain_name
+
+log = logging.getLogger("orb")
+ANSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 
 KINDS = ("stt", "tts", "wake", "vad", "voiceprint")
 DEFAULT = {"stt": "moonshine", "tts": "kokoro", "vad": "silero", "voiceprint": "resemblyzer"}
@@ -117,6 +122,10 @@ def missing_env(manifest: Manifest, env=os.environ) -> list[str]:
     return [name for name in manifest.env if not env.get(name)]
 
 
+def log_text(line: str) -> str:
+    return ANSI.sub("", line.replace("\x00", "")).strip()
+
+
 def encode_pcm(samples: np.ndarray) -> str:
     return base64.b64encode(np.asarray(samples, dtype="<f4").tobytes()).decode("ascii")
 
@@ -134,12 +143,14 @@ class EngineProcess:
         cache.mkdir(parents=True, exist_ok=True)
         try:
             self.process = subprocess.Popen(manifest.run, cwd=str(manifest.path), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                            text=True, encoding="utf-8", bufsize=1, env={**env, CACHE_ENV: str(cache)})
+                                            stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", bufsize=1, env={**env, CACHE_ENV: str(cache)})
         except OSError as e:
             raise EngineError(f"{self.label} could not start {manifest.run[0]!r}: {e}")
         self.lines: queue.Queue = queue.Queue()
         self.lock = threading.Lock()
         threading.Thread(target=self._pump, daemon=True).start()
+        self._stderr_pump = threading.Thread(target=self._pump_stderr, daemon=True)
+        self._stderr_pump.start()
 
     @property
     def label(self) -> str:
@@ -153,6 +164,11 @@ class EngineProcess:
         for line in self.process.stdout:
             self.lines.put(line)
         self.lines.put(None)
+
+    def _pump_stderr(self) -> None:
+        for line in self.process.stderr:
+            if text := log_text(line):
+                log.warning("%s: %s", self.label, text)
 
     def call(self, request: dict, timeout: float = CALL_TIMEOUT_S) -> dict:
         with self.lock:

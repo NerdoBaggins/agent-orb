@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 
 import numpy as np
@@ -111,6 +112,22 @@ for line in sys.stdin:
     assert process.call({"op": "transcribe", "pcm": ""})["cache"] == str(cache_dir(tmp_path, "stt", "echo"))
     assert cache_dir(tmp_path, "stt", "echo").is_dir()
     process.close()
+
+
+def test_an_engines_utf16_stderr_with_color_codes_reaches_the_log_as_plain_text(tmp_path, caplog):
+    write_engine(tmp_path / ".config" / "voice-engines", "stt", "noisy", '''
+import json, sys
+sys.stderr.buffer.write("\\x1b[33mgpu warning: low memory\\x1b[0m\\n".encode("utf-16-le"))
+sys.stderr.buffer.flush()
+for line in sys.stdin:
+    sys.stdout.write(json.dumps({"ok": True}) + "\\n"); sys.stdout.flush()
+''')
+    with caplog.at_level(logging.WARNING, logger="orb"):
+        process = start("stt", {"engine": "noisy"}, tmp_path)
+        process.call({"op": "transcribe", "pcm": ""})
+        process.close()
+        process._stderr_pump.join(10)
+    assert [r.getMessage() for r in caplog.records] == ["stt engine 'noisy': gpu warning: low memory"]
 
 
 def test_an_engine_that_refuses_to_load_names_the_engine_and_its_reason(tmp_path):
