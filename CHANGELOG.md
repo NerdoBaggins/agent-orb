@@ -12,9 +12,9 @@ that has one adds it under Unreleased.
 
 ### Fixed
 
-- An engine's warnings no longer garble the server's output log: stderr that arrives as UTF-16 or with colour codes,
-  such as the Kokoro engine's GPU warnings, is now logged as plain text
-  ([#66](https://github.com/NerdoBaggins/agent-orb/issues/66)).
+- An engine's warnings are now in the server log that `orb log` prints, as plain text, instead of raw in the output
+  file: ASCII text that an engine writes as UTF-16 or with colour codes, such as the Kokoro engine's GPU warnings,
+  no longer comes out garbled ([#66](https://github.com/NerdoBaggins/agent-orb/issues/66)).
 - A widget can be moved by any of its edges, not only the top one, so one placed under the bar can be moved again;
   the side and bottom edges are invisible until hovered
   ([#93](https://github.com/NerdoBaggins/agent-orb/issues/93), [#95](https://github.com/NerdoBaggins/agent-orb/issues/95)).

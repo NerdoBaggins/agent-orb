@@ -117,7 +117,7 @@ for line in sys.stdin:
 def test_an_engines_utf16_stderr_with_color_codes_reaches_the_log_as_plain_text(tmp_path, caplog):
     write_engine(tmp_path / ".config" / "voice-engines", "stt", "noisy", '''
 import json, sys
-sys.stderr.buffer.write("\\x1b[33mgpu warning: low memory\\x1b[0m\\n".encode("utf-16-le"))
+sys.stderr.buffer.write(b"\\xff\\xfe" + "\\x1b[33mgpu warning: low memory\\x1b[0m\\n".encode("utf-16-le"))
 sys.stderr.buffer.flush()
 for line in sys.stdin:
     sys.stdout.write(json.dumps({"ok": True}) + "\\n"); sys.stdout.flush()
