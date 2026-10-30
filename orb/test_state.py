@@ -1,5 +1,6 @@
 import os
 import stat
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -160,6 +161,13 @@ def test_running_server_is_none_when_the_pid_is_dead_or_the_record_is_malformed(
 def test_pid_alive_sees_this_process_and_not_a_dead_one():
     assert pid_alive(os.getpid())
     assert not pid_alive(0)
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows lets an exited process's handle be opened while its parent holds it; only the exit code says it is gone")
+def test_pid_alive_is_false_for_a_process_that_exited_while_its_handle_is_still_held():
+    child = subprocess.Popen([sys.executable, "-c", "pass"])
+    child.wait()
+    assert not pid_alive(child.pid)
 
 
 TURN_AT = datetime(2026, 10, 21, 3, 0, tzinfo=timezone.utc)
