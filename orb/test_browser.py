@@ -27,13 +27,14 @@ def test_missing_browser_is_reported_with_what_was_looked_for(monkeypatch):
 def test_the_window_opens_as_an_app_in_the_orbs_own_private_profile(tmp_path, monkeypatch, platform):
     calls = []
     monkeypatch.setattr(browser, "pick", lambda platform: ("Google Chrome", ["chrome"]))
-    monkeypatch.setattr(browser.subprocess, "Popen", lambda args, **kw: calls.append(args))
+    monkeypatch.setattr(browser.subprocess, "Popen", lambda args, **kw: calls.append((args, kw)))
     if platform == "win32":
         monkeypatch.setattr(browser.subprocess, "DETACHED_PROCESS", 8, raising=False)
         monkeypatch.setattr(browser.subprocess, "CREATE_NEW_PROCESS_GROUP", 512, raising=False)
     profile = browser.profile_dir(tmp_path)
     assert browser.open_app_window("file:///tmp/open.claude.html", profile, platform) == "Google Chrome"
-    (args,) = calls
+    ((args, kw),) = calls
+    assert kw.get("creationflags") == (8 | 512 if platform == "win32" else None)
     assert args[:2] == ["chrome", "--app=file:///tmp/open.claude.html"] and f"--user-data-dir={profile}" in args
     assert {"--no-first-run", "--no-default-browser-check", "--autoplay-policy=no-user-gesture-required"} <= set(args)
 
