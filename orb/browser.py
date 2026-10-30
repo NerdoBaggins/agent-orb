@@ -1,4 +1,4 @@
-"""Opening the orb window: a Chrome `--app` window, Edge where Chrome is absent. One adapter per platform."""
+"""Opening the orb window: a Chrome `--app` window. One adapter per platform."""
 import os
 import shutil
 import subprocess
@@ -20,12 +20,10 @@ def candidates(platform: str = sys.platform, env=os.environ) -> list[tuple[str, 
         roots = [env.get("PROGRAMFILES", r"C:\Program Files"), env.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)"),
                  env.get("LOCALAPPDATA", "")]
         chrome = [str(Path(r) / "Google/Chrome/Application/chrome.exe") for r in roots if r]
-        edge = [str(Path(r) / "Microsoft/Edge/Application/msedge.exe") for r in roots if r]
-        return [("Google Chrome", [p]) for p in chrome] + [("Microsoft Edge", [p]) for p in edge]
+        return [("Google Chrome", [p]) for p in chrome]
     if platform == "darwin":
-        return [("Google Chrome", ["open", "-na", "Google Chrome", "--args"]),
-                ("Microsoft Edge", ["open", "-na", "Microsoft Edge", "--args"])]
-    return [("Google Chrome", [p]) for p in ("google-chrome", "chromium", "chromium-browser")] + [("Microsoft Edge", ["microsoft-edge"])]
+        return [("Google Chrome", ["open", "-na", "Google Chrome", "--args"])]
+    return [("Google Chrome", [p]) for p in ("google-chrome", "chromium", "chromium-browser")]
 
 
 def _available(prefix: list[str], platform: str) -> bool:
@@ -45,7 +43,7 @@ def pick(platform: str = sys.platform) -> tuple[str, list[str]]:
         if _available(prefix, platform):
             return label, prefix
         looked.append(prefix[0] if platform != "darwin" else f"{prefix[2]}.app")
-    raise NoBrowser("no Chrome or Edge found; looked for " + ", ".join(looked))
+    raise NoBrowser("no Chrome found; looked for " + ", ".join(looked))
 
 
 def open_app_window(url: str, profile: Path, platform: str = sys.platform) -> str:

@@ -20,7 +20,7 @@ uv run --project "<ORB_ROOT>" orb <subcommand> ...
 
 Do not put anything on PATH and do not look for the command anywhere else.
 
-The orb needs `uv`, `node` 24 or later, and Chrome or Edge on the machine. Every orb command runs through `uv`, so
+The orb needs `uv`, `node` 24 or later, and Chrome on the machine. Every orb command runs through `uv`, so
 when `uv` itself is missing, tell the user to install it (https://docs.astral.sh/uv/) before anything else.
 
 ## Opening the orb

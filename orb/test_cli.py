@@ -147,7 +147,7 @@ def test_a_fresh_orb_open_prints_no_token(tmp_path, monkeypatch, capsys, browser
     monkeypatch.setattr(cli, "wait_healthy", lambda *a: {"attach_text": "attached"})
     def launch(url, profile):
         if not browser_found:
-            raise cli.browser.NoBrowser("no Chrome or Edge found")
+            raise cli.browser.NoBrowser("no Chrome found")
         return "Chrome"
     monkeypatch.setattr(cli.browser, "open_app_window", launch)
     cli.main(["open", "--agent", "claude", "--repo", str(tmp_path / "repo"), "--home", str(tmp_path / "home")])
@@ -164,7 +164,7 @@ def test_with_no_browser_orb_open_prints_the_launch_file_to_open_and_no_token(tm
     monkeypatch.setattr(cli, "spawn_detached", lambda *a: None)
     monkeypatch.setattr(cli, "wait_healthy", lambda *a: {"attach_text": "attached"})
     def launch(url, profile):
-        raise cli.browser.NoBrowser("no Chrome or Edge found")
+        raise cli.browser.NoBrowser("no Chrome found")
     monkeypatch.setattr(cli.browser, "open_app_window", launch)
     assert cli.main(["open", "--agent", "claude", "--repo", str(tmp_path / "repo"), "--home", str(tmp_path / "home")]) == 1
     err = capsys.readouterr().err
