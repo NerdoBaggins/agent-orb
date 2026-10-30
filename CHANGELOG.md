@@ -5,6 +5,11 @@ that has one adds it under Unreleased.
 
 ## Unreleased
 
+### Changed
+
+- The orb opens only in Chrome (Chromium on Linux); it no longer falls back to Microsoft Edge, which was never
+  verified ([#97](https://github.com/NerdoBaggins/agent-orb/issues/97)).
+
 ### Fixed
 
 - A widget can be moved by any of its edges, not only the top one, so one placed under the bar can be moved again;

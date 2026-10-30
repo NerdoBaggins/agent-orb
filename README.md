@@ -39,9 +39,9 @@ otherwise. An engine you add yourself may be a cloud service; see [Speech engine
 
 ### Prerequisites
 
-You need `uv`, `node` 24 or later, and Chrome or Edge.
+You need `uv`, `node` 24 or later, and Chrome.
 
-- **Windows** (Edge is already there): `winget install astral-sh.uv OpenJS.NodeJS.LTS`
+- **Windows**: `winget install astral-sh.uv OpenJS.NodeJS.LTS Google.Chrome`
 - **macOS** (with [Homebrew](https://brew.sh)): `brew install uv node` and `brew install --cask google-chrome`
 
 Python and the speech models are fetched on the first open; nothing else to install by hand.
@@ -540,7 +540,7 @@ speech engines, which is faster.
 | **Not attached: start Claude Code in this repo with …** | Claude Code was started without the channel flag, or in another folder. Quit and restart it with the command shown. |
 | **Not attached: start Copilot in this repo with …** | No Copilot UI server answers on the port the orb dials: `ORB_COPILOT_PORT` when Copilot was started with it, else `copilot_port`. Start Copilot with the command shown. |
 | **orb already open for … in …** | That repo already has an orb for that agent with its window open. Use that window, or stop it with `orb stop` to start another. |
-| **no Chrome or Edge found** | Install one; the orb window needs it. |
+| **no Chrome found** | Install it; the orb window needs it. |
 | The mic permission prompt comes back | The orb's usual port was taken, so it started on a new one, and the browser asks again. |
 | A voice or engine you picked is not used | It failed to load; the orb fell back to the built-in engine and its notice says why. `orb log` has the details. |
 

@@ -5,10 +5,10 @@ import pytest
 from orb import browser
 
 
-def test_windows_prefers_chrome_then_falls_back_to_edge(monkeypatch):
+@pytest.mark.parametrize("platform", ["linux", "darwin", "win32"])
+def test_only_chrome_is_looked_for(platform):
     env = {"PROGRAMFILES": r"C:\PF", "PROGRAMFILES(X86)": r"C:\PF86", "LOCALAPPDATA": r"C:\LA"}
-    labels = [label for label, _ in browser.candidates("win32", env)]
-    assert labels[:3] == ["Google Chrome"] * 3 and labels[3:] == ["Microsoft Edge"] * 3
+    assert {label for label, _ in browser.candidates(platform, env)} == {"Google Chrome"}
 
 
 def test_macos_uses_open_na_with_args():
@@ -20,7 +20,7 @@ def test_missing_browser_is_reported_with_what_was_looked_for(monkeypatch):
     monkeypatch.setattr(browser, "_available", lambda prefix, platform: False)
     with pytest.raises(browser.NoBrowser) as e:
         browser.pick("win32")
-    assert "chrome.exe" in str(e.value) and "msedge.exe" in str(e.value)
+    assert "chrome.exe" in str(e.value) and "Edge" not in str(e.value)
 
 
 @pytest.mark.parametrize("platform", ["linux", "darwin", "win32"])
