@@ -163,7 +163,7 @@ def test_pid_alive_sees_this_process_and_not_a_dead_one():
     assert not pid_alive(0)
 
 
-@pytest.mark.skipif(sys.platform != "win32", reason="Windows lets an exited process's handle be opened while its parent holds it; only the exit code says it is gone")
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows only: a held handle of an exited process")
 def test_pid_alive_is_false_for_a_process_that_exited_while_its_handle_is_still_held():
     child = subprocess.Popen([sys.executable, "-c", "pass"])
     child.wait()
