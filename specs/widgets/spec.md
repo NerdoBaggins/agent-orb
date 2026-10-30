@@ -65,9 +65,10 @@ too; nothing refuses it.
   while at least one widget is installed or named on but not shown: a checklist of installed widgets (name, scope
   mark, a tick), modelled on the tasks list, not a `<select>`. A name installed in more than one scope is one row. Ticking one on shows it at its starting corner and size; ticking it off hides
   it and keeps its place.
-- A shown widget is a sandboxed frame inside a thin edge on every side, owned by the orb page. Each edge is a drag
-  handle, so a widget whose top edge is under the bar is still moved by another, and shows in the accent on hover;
-  its bottom-right corner is the resize grip. While a drag or resize is in progress the frame takes no pointer
+- A shown widget is a sandboxed frame under a thin edge the orb page owns, which shows in the accent on hover. That
+  edge and the frame's outer 6px on its other three sides are drag handles, so a widget whose top edge is under the
+  bar is still moved by another; the side handles are invisible until hovered. Its bottom-right corner is the
+  resize grip. While a drag or resize is in progress the frame takes no pointer
   events (as a panel's does during a divider drag), so the page under the pointer cannot swallow it.
 - Place is kept as fractions of the orb pane (the top-left corner at `x`, `y` in 0–1 of the pane's width and
   height); size in CSS pixels. A widget is clamped inside the pane on every move, resize, and window or split
