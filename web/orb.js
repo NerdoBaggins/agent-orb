@@ -908,7 +908,6 @@
       for (const m of ["split", "orb", "panel"]) stage.classList.toggle(`mode-${m}`, any && this.mode === m);
       document.body.classList.toggle("orb-hidden", any && this.mode === "panel");
       $("divider").hidden = !any;
-      setTimeout(resize, 350);
     },
     toggle(mode) {
       this.setMode(this.mode === mode ? "split" : mode);
@@ -1227,6 +1226,7 @@
     bar.style.maxWidth = `${Math.max(120, pane.width - 24)}px`;
   }
   addEventListener("resize", resize);
+  new ResizeObserver(resize).observe(canvas.parentElement);
   resize();
 
   const STAND_IN = { wake_word: "listening", working: "thinking", waiting: "idle" };
