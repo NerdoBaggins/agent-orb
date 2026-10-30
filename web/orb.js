@@ -678,19 +678,22 @@
       }
       const frame = document.createElement("div");
       frame.className = "widget";
-      const edge = document.createElement("div");
-      edge.className = "widget-edge";
-      edge.title = `${w.name}: drag to move`;
+      const edges = ["top", "left", "right", "bottom"].map((side) => {
+        const edge = document.createElement("div");
+        edge.className = `widget-edge widget-${side}`;
+        edge.title = `${w.name}: drag to move`;
+        return edge;
+      });
       const iframe = sandboxedFrame(w.url);
       iframe.addEventListener("load", () => postData(orb.widgets.get(w.name)));
       const grip = document.createElement("div");
       grip.className = "widget-grip";
       grip.title = "drag to resize";
-      frame.append(edge, iframe, grip);
+      frame.append(edges[0], iframe, ...edges.slice(1), grip);
       $("widgets").appendChild(frame);
       orb.widgets.set(w.name, { name: w.name, description: w.description, data: w.data, data_at: w.data_at, corner: w.corner, size,
-                                place: placed ? { x: w.x, y: w.y, ...size, ...paneOf(w) } : null, refPane: null, frame, iframe, edge, feed_error: null, page_error: null });
-      this.drag(w.name, edge, (start, dx, dy) => ({ ...start, left: start.left + dx, top: start.top + dy }));
+                                place: placed ? { x: w.x, y: w.y, ...size, ...paneOf(w) } : null, refPane: null, frame, iframe, edges, feed_error: null, page_error: null });
+      for (const edge of edges) this.drag(w.name, edge, (start, dx, dy) => ({ ...start, left: start.left + dx, top: start.top + dy }));
       this.drag(w.name, grip, (start, dx, dy) => ({ ...start, width: start.width + dx, height: start.height + dy }));
       this.stale(w.name, w.feed_error);
       this.failed(w.name, w.page_error);
@@ -702,7 +705,7 @@
       p.frame.classList.toggle("failed", !!p.page_error);
       p.frame.classList.toggle("stale", !p.page_error && !!p.feed_error);
       const reason = p.page_error || (p.feed_error && `not refreshed: ${p.feed_error}`);
-      p.edge.title = reason ? `${name}: ${reason}` : `${name}: drag to move`;
+      for (const edge of p.edges) edge.title = reason ? `${name}: ${reason}` : `${name}: drag to move`;
     },
     failed(name, error) {
       const p = orb.widgets.get(name);
