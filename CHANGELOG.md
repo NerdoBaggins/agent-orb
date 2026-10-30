@@ -7,8 +7,9 @@ that has one adds it under Unreleased.
 
 ### Fixed
 
-- A widget can be moved by any of its edges, not only the top one, so one placed under the bar can be moved again
-  ([#93](https://github.com/NerdoBaggins/agent-orb/issues/93)).
+- A widget can be moved by any of its edges, not only the top one, so one placed under the bar can be moved again;
+  the side and bottom edges are invisible until hovered
+  ([#93](https://github.com/NerdoBaggins/agent-orb/issues/93), [#95](https://github.com/NerdoBaggins/agent-orb/issues/95)).
 - A 2D skin, such as `pulse`, is no longer drawn stretched when the orb opens with a panel already showing
   ([#91](https://github.com/NerdoBaggins/agent-orb/pull/91)).
 

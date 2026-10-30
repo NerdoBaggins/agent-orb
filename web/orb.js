@@ -680,7 +680,7 @@
       frame.className = "widget";
       const edges = ["top", "left", "right", "bottom"].map((side) => {
         const edge = document.createElement("div");
-        edge.className = `widget-edge widget-${side}`;
+        edge.className = side === "top" ? "widget-edge" : `widget-side widget-${side}`;
         edge.title = `${w.name}: drag to move`;
         return edge;
       });
