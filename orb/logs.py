@@ -14,8 +14,8 @@ def log_path(state: Path, agent: str) -> Path:
 
 
 def output_path(state: Path, agent: str) -> Path:
-    """The server process's own stdout and stderr: a crash before logging starts, and what engines print. Started
-    afresh by each `orb open`, so it holds one run."""
+    """The server process's own stdout and stderr: a crash before logging starts. Started afresh by each `orb open`,
+    so it holds one run."""
     return Path(state) / f"server.{agent}.out"
 
 
