@@ -117,7 +117,7 @@ for line in sys.stdin:
 def test_an_engines_utf16_stderr_with_color_codes_reaches_the_log_as_plain_text(tmp_path, caplog):
     write_engine(tmp_path / ".config" / "voice-engines", "stt", "noisy", '''
 import json, sys
-sys.stderr.buffer.write(b"\\xff\\xfe" + "\\x1b[33mgpu warning: low memory\\x1b[0m\\n".encode("utf-16-le"))
+sys.stderr.buffer.write(b"\\xff\\xfe" + "\\x1b[?25l\\x1b[33mgpu warning: low memory\\x1b[0m\\x1b[2K\\n".encode("utf-16-le"))
 sys.stderr.buffer.flush()
 for line in sys.stdin:
     sys.stdout.write(json.dumps({"ok": True}) + "\\n"); sys.stdout.flush()
@@ -128,6 +128,23 @@ for line in sys.stdin:
         process.close()
         process._stderr_pump.join(10)
     assert [r.getMessage() for r in caplog.records] == ["stt engine 'noisy': gpu warning: low memory"]
+
+
+def test_an_engine_that_writes_more_stderr_than_a_pipe_holds_is_still_answered_and_logged_to_the_end(tmp_path, caplog):
+    write_engine(tmp_path / ".config" / "voice-engines", "stt", "chatty", '''
+import json, sys
+for line in sys.stdin:
+    for n in range(3000 if json.loads(line)["op"] == "transcribe" else 0):
+        sys.stderr.write("warning %d " % n + "x" * 90 + "\\n")
+    sys.stderr.flush()
+    sys.stdout.write(json.dumps({"ok": True}) + "\\n"); sys.stdout.flush()
+''')
+    with caplog.at_level(logging.WARNING, logger="orb"):
+        process = start("stt", {"engine": "chatty"}, tmp_path)
+        process.call({"op": "transcribe", "pcm": ""}, timeout=30)
+        process.close()
+        process._stderr_pump.join(10)
+    assert len(caplog.records) == 3000 and caplog.records[-1].getMessage().startswith("stt engine 'chatty': warning 2999 ")
 
 
 def test_an_engine_that_refuses_to_load_names_the_engine_and_its_reason(tmp_path):
