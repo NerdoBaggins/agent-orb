@@ -399,7 +399,7 @@ folder with an `index.html` and a `widget.json`:
 top-left corner unless set. Widgets live in the widget folders in [Where your things live](#where-your-things-live).
 
 An installed widget is off until you tick it on in the bar's `widgets` menu (or `orb widget on <name>`). Then it
-appears at its corner, drags by its top edge, resizes by its bottom-right grip, and the orb remembers where you put it
+appears at its corner, drags by any of its edges, resizes by its bottom-right grip, and the orb remembers where you put it
 for this repo. It hides with the orb when a panel takes the whole window.
 
 A widget's page gets what a panel's gets: the theme, `orb.send`, `orb.speak`, `orb.action`, `orb.state` and

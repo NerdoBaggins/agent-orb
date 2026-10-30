@@ -168,7 +168,7 @@ tab. When the user asks for one ("put a meter on the orb", "I want a clock in th
 ```
 
 - `size` and `corner` (`top-left`, `top-right`, `bottom-left`, `bottom-right`) are only the start; the user drags
-  it by its top edge and resizes it by its bottom-right grip, and the orb remembers the place for this repo. A widget grows and shrinks with the orb pane, in proportion to the pane it was placed in.
+  it by any of its edges and resizes it by its bottom-right grip, and the orb remembers the place for this repo. A widget grows and shrinks with the orb pane, in proportion to the pane it was placed in.
 - Save it where you would save a panel, by who should see it: `~/.config/orb/repos/<repo id>/widgets/<name>/` for
   this repo only, a folder in the user's
   `widget_dirs`, or `~/.config/orb/widgets/<name>/` for every repo. Run `orb widgets list` first: a widget with a
