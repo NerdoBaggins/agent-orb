@@ -1226,8 +1226,6 @@
     bar.style.maxWidth = `${Math.max(120, pane.width - 24)}px`;
   }
   addEventListener("resize", resize);
-  // Resizing a canvas clears it, and observer callbacks run after this frame's drawing, so the observer only marks
-  // the size stale and the next frame resizes before it draws.
   let paneResized = false;
   new ResizeObserver(() => { paneResized = true; }).observe(canvas.parentElement);
   resize();
