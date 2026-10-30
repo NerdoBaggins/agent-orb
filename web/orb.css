@@ -182,9 +182,10 @@ body.bar-on-orb #tabs { padding-right: 8px; } /* the pill sits on the orb's side
 .widget-scope { color: var(--orb-dim); }
 #widgets { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
 .widget { position: absolute; pointer-events: auto; display: flex; flex-direction: column; border: 1px solid var(--orb-line); border-radius: 6px;
-  background: var(--orb-bg); overflow: hidden; padding: 0 6px 6px; }
+  background: var(--orb-bg); overflow: hidden; }
 .widget-edge { flex: 0 0 6px; cursor: move; background: var(--orb-line); }
-.widget-left, .widget-right, .widget-bottom { position: absolute; }
+.widget-side { position: absolute; cursor: move; }
+.widget-side:hover { background: color-mix(in srgb, var(--orb-accent) 60%, transparent); }
 .widget-left { left: 0; top: 0; bottom: 0; width: 6px; }
 .widget-right { right: 0; top: 0; bottom: 0; width: 6px; }
 .widget-bottom { left: 0; right: 0; bottom: 0; height: 6px; }
