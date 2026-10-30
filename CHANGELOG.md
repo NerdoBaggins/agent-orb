@@ -7,8 +7,7 @@ that has one adds it under Unreleased.
 
 ### Fixed
 
-- A 2D skin, such as `pulse`, is no longer drawn stretched when the orb opens with a panel already showing; the orb
-  now follows its pane's size as the panels slide in, where it used to check once and could check too early
+- A 2D skin, such as `pulse`, is no longer drawn stretched when the orb opens with a panel already showing
   ([#91](https://github.com/NerdoBaggins/agent-orb/pull/91)).
 
 ## 0.3.0 — 2026-10-29
