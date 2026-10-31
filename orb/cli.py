@@ -15,7 +15,7 @@ from pathlib import Path
 
 from orb import PLUGIN_ROOT, agents, browser, logs, pages, panels, widgets
 from orb.config import ConfigError, load_for, panel_dirs_for, private_config_path, save_for_repo, save_widget, widget_dirs_for, widgets_on
-from orb.copilot import read_door
+from orb.copilot import CopilotLink
 from orb.state import copilot_channel_file, port_file, private_root, read_json, running_server, server_file, session_project, state_dir, user_only
 
 HEALTH_WAIT_S = 300  # the first run downloads the speech models (about 400 MB) before the server answers
@@ -125,7 +125,7 @@ def cmd_open(args) -> int:
     channel = agents.read_channel(state)
     try:
         agent = agents.select_agent(args.agent, agents.channel_bound(channel),
-                                   read_door(copilot_channel_file(state)) is not None)
+                                   CopilotLink(copilot_channel_file(state)).probe())
     except agents.LinkError as e:
         print(f"orb: {e}", file=sys.stderr)
         return 1
