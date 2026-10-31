@@ -18,7 +18,7 @@ def title(release):
     return f"{release['version']} — {release['date']}" if release["date"] else release["version"]
 
 
-async def releases_page(tmp_path, act):
+async def releases_page(tmp_path, act, prepare=None):
     server = make(tmp_path)
     runner = web.AppRunner(server.app)
     await runner.setup()
@@ -30,6 +30,8 @@ async def releases_page(tmp_path, act):
         async with playwright.async_playwright() as p:
             b = await browser(p)
             page = await b.new_page(viewport={"width": 1400, "height": 900})
+            if prepare:
+                await prepare(page)
             await page.goto(f"{base}/?token={TOKEN}")
             await page.wait_for_timeout(1000)
             seen = await act(page, base)
@@ -83,8 +85,8 @@ def test_every_release_and_change_has_an_explain_button_and_a_heading_has_none(t
           row => [row.className, row.querySelectorAll('.rn-explain').length])""")
 
     _, rows = asyncio.run(releases_page(tmp_path, count))
-    assert rows and {kind: n for kind, n in rows if kind != "rn-section"} == {"rn-release": 1, "rn-entry": 1}
-    assert all(n == 0 for kind, n in rows if kind == "rn-section")
+    assert rows and {kind: n for kind, n in rows if kind not in ("rn-section", "rn-zoom")} == {"rn-release": 1, "rn-entry": 1}
+    assert all(n == 0 for kind, n in rows if kind in ("rn-section", "rn-zoom"))
 
 
 @pytest.mark.timeout(60)
@@ -155,8 +157,58 @@ def test_a_changelog_with_no_releases_says_so_instead_of_showing_an_empty_panel(
     async def press_r(page, base):
         await page.keyboard.press("r")
         await page.wait_for_selector("#builtin-releases")
-        await page.wait_for_function("() => document.getElementById('builtin-releases').textContent !== ''")
-        return await page.evaluate("() => document.getElementById('builtin-releases').textContent")
+        await page.wait_for_function("() => document.getElementById('builtin-releases').textContent.includes('No release notes')")
+        return await page.evaluate("() => [...document.getElementById('builtin-releases').childNodes].filter(n => n.nodeType === 3).map(n => n.textContent).join('')")
 
     _, text = asyncio.run(releases_page(tmp_path, press_r))
     assert text == "No release notes were found."
+
+
+ENTRY_SIZE = "() => getComputedStyle(document.querySelector('#builtin-releases .rn-entry')).fontSize"
+
+
+@pytest.mark.timeout(60)
+def test_the_larger_and_smaller_text_buttons_step_the_size_of_the_changes(tmp_path):
+    async def resize(page, base):
+        await page.keyboard.press("r")
+        await page.wait_for_selector("#builtin-releases .rn-entry")
+        sizes = [await page.evaluate(ENTRY_SIZE)]
+        await page.click("#builtin-releases [aria-label='Larger text']")
+        sizes.append(await page.evaluate(ENTRY_SIZE))
+        await page.click("#builtin-releases [aria-label='Smaller text']")
+        await page.click("#builtin-releases [aria-label='Smaller text']")
+        sizes.append(await page.evaluate(ENTRY_SIZE))
+        return sizes
+
+    _, sizes = asyncio.run(releases_page(tmp_path, resize))
+    assert sizes == ["16px", "18px", "14px"]
+
+
+@pytest.mark.timeout(60)
+def test_the_chosen_text_size_is_still_there_after_the_page_reloads(tmp_path):
+    async def reload(page, base):
+        await page.keyboard.press("r")
+        await page.wait_for_selector("#builtin-releases .rn-entry")
+        await page.click("#builtin-releases [aria-label='Larger text']")
+        await page.click("#builtin-releases [aria-label='Larger text']")
+        await page.reload()
+        await page.wait_for_selector("#builtin-releases .rn-entry")
+        return await page.evaluate(ENTRY_SIZE)
+
+    _, size = asyncio.run(releases_page(tmp_path, reload))
+    assert size == "20px"
+
+
+@pytest.mark.timeout(60)
+def test_the_panel_still_lists_the_releases_when_the_browser_will_not_store_the_size(tmp_path):
+    async def block(page):
+        await page.add_init_script("Object.defineProperty(window, 'localStorage', {get() { throw new Error('blocked'); }})")
+
+    async def open_and_enlarge(page, base):
+        await page.keyboard.press("r")
+        await page.wait_for_selector("#builtin-releases .rn-entry")
+        await page.click("#builtin-releases [aria-label='Larger text']")
+        return await page.evaluate(ENTRY_SIZE)
+
+    _, size = asyncio.run(releases_page(tmp_path, open_and_enlarge, prepare=block))
+    assert size == "18px"

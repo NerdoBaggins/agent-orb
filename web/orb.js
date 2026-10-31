@@ -993,14 +993,42 @@
   $("transcript-toggle").addEventListener("click", toggleTranscript);
   $("releases-toggle").addEventListener("click", toggleReleases);
 
+  function savedReleasesTextSize() {
+    try { return clampTextSize(Number(localStorage.getItem("orb.releasesTextSize"))); } catch (e) { return TEXT_SIZES.start; }
+  }
+  function saveReleasesTextSize(size) {
+    try { localStorage.setItem("orb.releasesTextSize", String(size)); } catch (e) { return; }
+  }
+
   const releasesUi = {
+    size: savedReleasesTextSize(),
+    resize(direction) {
+      this.size = nextTextSize(this.size, direction);
+      saveReleasesTextSize(this.size);
+      this.render();
+    },
     render() {
       const box = $("builtin-releases"), p = orb.panels.get("releases");
       if (!box || !p) return;
       const rows = releaseRows(p.data);
-      box.replaceChildren();
-      if (!rows.length) { box.textContent = "No release notes were found."; return; }
+      box.style.fontSize = `${this.size}px`;
+      box.replaceChildren(this.controls());
+      if (!rows.length) { box.append("No release notes were found."); return; }
       for (const row of rows) box.appendChild(this.row(row));
+    },
+    controls() {
+      const bar = document.createElement("div");
+      bar.className = "rn-zoom";
+      for (const [text, direction, name] of [["A−", -1, "Smaller text"], ["A+", 1, "Larger text"]]) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = text;
+        button.title = name;
+        button.setAttribute("aria-label", name);
+        button.addEventListener("click", () => this.resize(direction));
+        bar.appendChild(button);
+      }
+      return bar;
     },
     row({ kind, text, request }) {
       const element = document.createElement("div");
