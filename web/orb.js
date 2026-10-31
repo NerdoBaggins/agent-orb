@@ -975,8 +975,6 @@
     divider.addEventListener("pointerup", up);
   });
 
-  // The transcript and the release notes are built-in panels the server registers like any other, so they survive a
-  // reload and show in every window of this orb; a toggle only asks for one or closes it.
   async function toggleBuiltin(name, title) {
     if (orb.panels.has(name)) {
       send({ type: "panel_close", name });

@@ -160,7 +160,7 @@ background. Hover it to open the rest:
 |---|---|
 | Session name | the session the orb is attached to (Claude Code's `/rename` name, Copilot's session name), following a rename within a few seconds |
 | Transcript | shows or hides the transcript (`T`) |
-| Release notes | shows or hides what changed in each release, with an explain button on every change (`R`) |
+| Release notes | shows or hides what changed in each release, with an explain button on every change and release (`R`) |
 | Voice | mutes or unmutes speech (`M`) |
 | Speed | the voice speed, from 0.7 to 1.6 |
 | Size | the orb's size, marked at normal; each skin keeps its own |
