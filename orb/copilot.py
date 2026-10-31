@@ -24,22 +24,11 @@ DOOR_ROUTES = {"foreground": ("GET", "/health"), "send": ("POST", "/prompt"), "a
                "tasks": ("GET", "/tasks")}
 
 
-def start_command() -> str:
-    return "copilot --experimental"
-
-
 # ---- Copilot's own session state ----
 
 def copilot_home(env=None) -> Path:
     env = os.environ if env is None else env
     return Path(env.get("COPILOT_HOME") or Path.home() / ".copilot")
-
-
-def experimental_on(home: Path) -> bool:
-    try:
-        return json.loads((home / "settings.json").read_text(encoding="utf-8")).get("experimental") is True
-    except (OSError, ValueError, AttributeError):
-        return False
 
 
 def session_name(home: Path, session_id: str) -> str | None:
@@ -255,7 +244,7 @@ class CopilotLink:
         if attached and self.session_id:
             name = session_name(self.home, self.session_id)
             return f"Attached: Copilot · {name}" if name else f"Attached: Copilot ({self.session_id[:8]})"
-        return "Not attached: start Copilot in this repo with the agent-orb plugin: " + start_command()
+        return "Not attached: start Copilot in this repo with the agent-orb plugin: " + agents.COPILOT_START
 
     def send(self, text: str, request_id: str) -> str | None:
         """Blocks until Copilot has answered this request, following it in the session's event log, so background
@@ -275,7 +264,7 @@ class CopilotLink:
         log = events_path(self.home, session)
         offset = log_size(log)
         waiting = {"log": log, "offset": offset, "context": max(0, offset - CONTEXT_BYTES), "message_id": None,
-                   "released": False}
+                   "released": False, "session": session}
         self.pending = waiting
         message_id = waiting["message_id"] = self._run("send", SEND_TIMEOUT_S, f"{ORB_TAG} {text}")["messageId"]
         self.orb_messages.add(message_id)
@@ -350,6 +339,8 @@ class CopilotLink:
         running = waiting["message_id"] and request_running(read_events(waiting["log"], waiting["offset"]),
                                                             waiting["message_id"])
         waiting["released"] = True
+        if waiting.get("session") != self.session_id:
+            return agents.Stopped.RELEASED
         try:
             if running and self._run("abort", 10).get("aborted"):
                 return agents.Stopped.ABORTED

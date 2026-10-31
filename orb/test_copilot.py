@@ -10,7 +10,7 @@ from orb import agents
 from orb.agents import Stopped
 from orb.feed import ORB_TAG
 from orb.copilot import (CopilotLink, cancelled, open_work, read_events, reply_to, request_running, session_name,
-                         SessionMoved, start_command, waiting_on)
+                         SessionMoved, waiting_on)
 from orb.copilot import Door
 
 DOOR = Path("copilot-channel.json")
@@ -77,7 +77,7 @@ def test_read_events_starts_at_the_offset_and_skips_a_half_written_line(tmp_path
 
 
 def link_with_log(tmp_path, monkeypatch, events_after_send, calls):
-    """A link whose helper 'sends' by appending events to the session log, as Copilot would."""
+    """A link whose door 'sends' by appending events to the session log, as Copilot would."""
     log = tmp_path / "session-state" / "abc" / "events.jsonl"
     log.parent.mkdir(parents=True)
     log.write_text(json.dumps(user("earlier")) + "\n", encoding="utf-8")
@@ -115,7 +115,7 @@ def test_stop_aborts_while_the_orbs_own_turn_runs(tmp_path, monkeypatch):
     calls = []
     link, log = link_with_log(tmp_path, monkeypatch, [], calls)
     append(log, [user("m1"), START, said("m1", "", tools=1)])
-    link.pending = {"log": log, "offset": 0, "message_id": "m1", "released": False}
+    link.pending = {"log": log, "offset": 0, "message_id": "m1", "released": False, "session": "abc"}
     assert link.interrupt() is Stopped.ABORTED and calls[-1] == "abort"
 
 
@@ -123,7 +123,7 @@ def test_stop_after_the_orb_was_answered_aborts_nothing_and_lets_go(tmp_path, mo
     calls = []
     link, log = link_with_log(tmp_path, monkeypatch, [], calls)
     append(log, [user("m1"), START, said("m1", "Done."), END, START, said("auto", "", tools=1)])
-    link.pending = {"log": log, "offset": 0, "message_id": "m1", "released": False}
+    link.pending = {"log": log, "offset": 0, "message_id": "m1", "released": False, "session": "abc"}
     calls.clear()
     assert link.interrupt() is Stopped.RELEASED and calls == [] and link.pending["released"]
 
@@ -359,10 +359,6 @@ def test_a_copilot_session_the_hooks_never_reached_is_judged_from_its_log(tmp_pa
     assert copilot_link(tmp_path).busy(TURN_RUNNING)
 
 
-def test_the_start_hint_turns_on_the_experimental_mode_copilot_loads_extensions_in():
-    assert start_command() == "copilot --experimental"
-
-
 def test_a_send_refused_because_copilot_cleared_the_session_goes_to_the_new_session(tmp_path, monkeypatch):
     sessions = iter(["before-clear", "after-clear"])
     sent_to = []
@@ -405,11 +401,21 @@ def test_a_request_still_waiting_when_copilot_clears_its_session_ends_instead_of
         link.send("hi", "r1")
 
 
+def test_stop_after_the_orb_moved_to_the_cleared_session_lets_go_without_aborting_it(tmp_path, monkeypatch):
+    calls = []
+    link, log = link_with_log(tmp_path, monkeypatch, [], calls)
+    append(log, [user("m1"), START, said("m1", "", tools=1)])
+    link.pending = {"log": log, "offset": 0, "message_id": "m1", "released": False, "session": "abc"}
+    link.session_id = "after-clear"
+    calls.clear()
+    assert link.interrupt() is Stopped.RELEASED and calls == []
+
+
 def test_stop_after_copilot_cleared_the_session_lets_go_without_aborting_the_new_one(tmp_path, monkeypatch):
     def run(mode, timeout, prompt=""):
         raise SessionMoved("Copilot's door refused /abort (409)")
     link, log = link_with_log(tmp_path, monkeypatch, [], [])
     link._run = run
     append(log, [user("m1"), START, said("m1", "", tools=1)])
-    link.pending = {"log": log, "offset": 0, "message_id": "m1", "released": False}
+    link.pending = {"log": log, "offset": 0, "message_id": "m1", "released": False, "session": "abc"}
     assert link.interrupt() is Stopped.RELEASED
