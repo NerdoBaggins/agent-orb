@@ -710,6 +710,57 @@ def test_a_failure_in_one_window_leaves_delivered_text_out_of_the_other(tmp_path
 
 
 @pytest.mark.timeout(60)
+def test_after_leaving_the_box_for_the_orb_a_click_reaches_a_panel(tmp_path):
+    seen = {}
+
+    async def act(page):
+        await page.keyboard.press("Enter")
+        pane = await page.locator("#orb-pane").bounding_box()
+        await page.mouse.click(pane["x"] + pane["width"] / 2, pane["y"] + 200)
+        await page.wait_for_timeout(200)
+        box = await page.locator("iframe.panel-body").bounding_box()
+        await page.mouse.click(box["x"] + 200, box["y"] + 200)
+        await page.wait_for_timeout(200)
+        seen["focused"] = await page.evaluate("document.activeElement.tagName")
+
+    asyncio.run(run_page(tmp_path, [("plan", PANEL)], act, attached(tmp_path)))
+    assert seen["focused"] == "IFRAME"
+
+
+@pytest.mark.timeout(60)
+def test_a_press_that_keeps_the_focus_in_the_box_keeps_the_guard_on(tmp_path):
+    seen = {}
+
+    async def act(page):
+        await page.keyboard.press("Enter")
+        await page.evaluate("""(() => {
+            const press = new PointerEvent("pointerdown", { bubbles: true, cancelable: true });
+            press.preventDefault();
+            document.getElementById("panels").dispatchEvent(press);
+        })()""")
+        await page.wait_for_timeout(100)
+        seen["typing"] = await page.evaluate("document.body.classList.contains('typing')")
+
+    asyncio.run(run_page(tmp_path, [("plan", PANEL)], act, attached(tmp_path)))
+    assert seen["typing"] is True
+
+
+@pytest.mark.timeout(60)
+def test_a_click_on_the_panels_tab_strip_does_not_count_as_the_orb_side(tmp_path):
+    seen = {}
+
+    async def act(page):
+        await page.frame_locator("iframe.panel-body").locator("body").click(position={"x": 200, "y": 200})
+        await page.wait_for_timeout(200)
+        await page.locator("#tabs").click(position={"x": 400, "y": 5})
+        await page.keyboard.press("Enter")
+        seen["open"] = await visible(page)
+
+    asyncio.run(run_page(tmp_path, [("plan", PANEL)], act, attached(tmp_path)))
+    assert seen["open"] is False
+
+
+@pytest.mark.timeout(60)
 def test_what_was_typed_appears_in_the_transcript(tmp_path):
     seen = {}
 
