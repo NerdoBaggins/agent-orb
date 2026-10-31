@@ -860,7 +860,7 @@ def test_queued_speech_leaves_a_reply_that_started_speaking_meanwhile_marked_as_
     run(go())
 
 
-def test_typed_text_reaches_the_agent_as_exactly_what_was_typed(tmp_path):
+def test_typed_text_reaches_the_agent_trimmed_and_unmarked(tmp_path):
     async def go():
         server = make(tmp_path)
         async with await client_for(server) as c:
@@ -891,4 +891,16 @@ def test_blank_typed_text_sends_nothing(tmp_path):
             await ws.send_json({"type": "typed", "text": "real"})
             await wait_for(lambda: server.link.sent)
             assert [text for text, _ in server.link.sent] == ["real"]
+    run(go())
+
+
+def test_typed_text_goes_at_once_during_the_follow_up_window(tmp_path):
+    async def go():
+        server = make(tmp_path, voice=True, waker=waker_for(follow_up_s=30.0))
+        async with await client_for(server) as c:
+            ws = await connect(c)
+            server.waker.follow_up.open(time.monotonic())
+            await ws.send_json({"type": "typed", "text": "rename the file"})
+            await wait_for(lambda: server.link.sent)
+            assert server.link.sent[0][0] == "rename the file"
     run(go())
