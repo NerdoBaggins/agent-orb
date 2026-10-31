@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
-const { explainChange, explainRelease, releaseRows } = createRequire(import.meta.url)("./releases.js");
+const { explainChange, explainRelease, releaseRows, TEXT_SIZES, clampTextSize, nextTextSize } = createRequire(import.meta.url)("./releases.js");
 
 const released = { version: "0.4.0", date: "2026-10-30", sections: [
   { heading: "Changed", entries: ["The orb opens only in Chrome (#97)."] },
@@ -44,4 +44,18 @@ test("the panel lists each release with its date, then each heading, then each c
 
 test("no releases give no rows", () => {
   assert.deepEqual(releaseRows([]), []);
+});
+
+test("the text size steps by two points in either direction and stays between 12 and 28", () => {
+  assert.equal(nextTextSize(16, 1), 18);
+  assert.equal(nextTextSize(16, -1), 14);
+  assert.equal(nextTextSize(28, 1), 28);
+  assert.equal(nextTextSize(12, -1), 12);
+});
+
+test("a saved size that is missing, zero or not a number falls back to the start size, and one out of range is brought in", () => {
+  for (const bad of [NaN, 0, -3, Infinity, undefined]) assert.equal(clampTextSize(bad), TEXT_SIZES.start);
+  assert.equal(clampTextSize(40), 28);
+  assert.equal(clampTextSize(5), 12);
+  assert.equal(clampTextSize(20), 20);
 });
