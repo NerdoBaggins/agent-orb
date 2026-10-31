@@ -90,7 +90,7 @@ Then start Copilot in the repo you want the orb for, with its experimental mode 
 copilot --experimental
 ```
 
-Copilot loads a plugin's extensions only in experimental mode, and the orb reaches Copilot through one. To keep it on,
+A default Copilot loads a plugin's extensions only in experimental mode, and the orb reaches Copilot through one. To keep it on,
 run `/experimental on` inside Copilot once: it saves the mode in Copilot's settings, and a plain `copilot` is then
 enough.
 
@@ -572,7 +572,7 @@ list where the build departed from it.
 | `.claude-plugin/`, `.mcp.json`, `hooks/`, `skills/` | the plugin, read unchanged by both agents |
 | `orb/` | the Python package: CLI, server, config, state, the engine runner, Stop hook, interrupt adapters, doctor (tests beside the code) |
 | `channel/` | the Claude Code channel MCP server (Node, no dependencies) |
-| `copilot/` | the Copilot SDK helper (Node, no dependencies) |
+| `copilot/` | the routes of the Copilot extension's door (Node, no dependencies) |
 | `web/` | the orb page, the push-to-talk worklet, the panel API and stylesheet |
 | `engines/` | built-in speech engines, one folder each; `moonshine` and `kokoro` are the defaults (the bar's `hearing` and `speech` menus switch between installed engines), `fake` serves the tests |
 | `skins/` | orb skins; `pulse` is the default |

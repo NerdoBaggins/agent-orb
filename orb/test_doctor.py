@@ -159,21 +159,8 @@ def test_a_repo_that_ships_widgets_passes_with_a_note_and_still_reports_a_widget
 def test_the_copilot_check_with_no_door_gives_the_same_start_hint_as_the_orb(tmp_path):
     repo, home = tmp_path / "repo", tmp_path / "home"
     repo.mkdir(), home.mkdir()
-    copilot = tmp_path / "copilot"
-    copilot.mkdir()
-    (copilot / "settings.json").write_text(json.dumps({"experimental": True}), encoding="utf-8")
     orb_hint = CopilotLink(tmp_path / "none.json", home=tmp_path).describe(False).rsplit(": ", 1)[1]
-    assert doctor.check_copilot(repo, home, copilot).detail.endswith(f"start {orb_hint}")
-
-
-@pytest.mark.parametrize("settings", [None, {}, {"experimental": False}])
-def test_the_copilot_check_names_experimental_mode_when_copilot_has_it_off(tmp_path, settings):
-    repo, home, copilot = tmp_path / "repo", tmp_path / "home", tmp_path / "copilot"
-    repo.mkdir(), home.mkdir(), copilot.mkdir()
-    if settings is not None:
-        (copilot / "settings.json").write_text(json.dumps(settings), encoding="utf-8")
-    check = doctor.check_copilot(repo, home, copilot)
-    assert not check.ok and "experimental mode is off" in check.detail
+    assert doctor.check_copilot(repo, home).detail.endswith(f"start {orb_hint}")
 
 
 def test_a_live_copilot_door_alone_satisfies_the_agent_requirement():
