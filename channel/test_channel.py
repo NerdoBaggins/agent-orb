@@ -40,6 +40,7 @@ class Channel:
             if self.record_path.exists():
                 return json.loads(self.record_path.read_text(encoding="utf-8"))
             time.sleep(0.05)
+        self.proc.kill()
         raise AssertionError(f"no channel.json at {self.record_path}; stderr: {self.proc.stderr.read()}")
 
     def initialize(self):
@@ -90,10 +91,6 @@ def test_record_names_the_process_that_spawned_the_channel(channel):
     assert channel.record()["sessionPid"] == os.getpid()
 
 
-def test_initialize_declares_the_channel_capability_and_the_answer_style():
-    pass  # covered below with a live handshake
-
-
 def test_health_answers_only_with_the_channel_secret_and_says_nothing_else(channel):
     status, body = channel.http("GET", "/health")
     assert status == 403 and "secret" in body["error"]
@@ -141,6 +138,28 @@ def test_prompt_rejections(channel, case):
     # Nothing was pushed: the next thing the server writes is the reply to a ping, not a notification.
     channel.rpc({"jsonrpc": "2.0", "id": 9, "method": "ping"})
     assert channel.read().get("id") == 9
+
+
+def test_a_body_over_the_cap_is_refused(channel):
+    channel.initialize()
+    status, body = channel.http("POST", "/prompt", {"text": "x" * 40_000, "req": "r1"}, good_headers(channel))
+    assert status == 413 and "too large" in body["error"]
+
+
+def test_a_body_that_is_not_json_is_a_bad_request(channel):
+    channel.initialize()
+    rec = channel.record()
+    req = urllib.request.Request(f"http://127.0.0.1:{rec['port']}/prompt", b"{not json", method="POST",
+                                 headers=good_headers(channel))
+    with pytest.raises(urllib.error.HTTPError) as refused:
+        urllib.request.urlopen(req, timeout=5)
+    assert refused.value.code == 400 and "not JSON" in json.loads(refused.value.read())["error"]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="file modes are not the guard on Windows")
+def test_the_record_holding_the_secret_is_readable_by_its_owner_only(channel):
+    channel.record()
+    assert channel.record_path.stat().st_mode & 0o777 == 0o600
 
 
 def test_channel_exits_when_stdin_closes(channel):
