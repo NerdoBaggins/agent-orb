@@ -1,4 +1,4 @@
-"""The agent link: how a request reaches Claude Code (the channel) or Copilot (the SDK helper), and how the orb
+"""The agent link: how a request reaches Claude Code (the channel) or Copilot (the extension's door), and how the orb
 decides which one it is attached to."""
 import json
 import urllib.error
@@ -37,11 +37,17 @@ class ChannelInfo:
     session_pid: int | None = None
 
 
-def read_channel(state: Path) -> ChannelInfo | None:
-    record = read_json(channel_file(state))
-    if not record or not all(k in record for k in ("port", "secret", "pid", "repoRoot")):
+def live_record(path: Path, keys: tuple[str, ...]) -> dict | None:
+    """A door's record, while the process that wrote it is alive."""
+    record = read_json(path)
+    if not record or not all(k in record for k in keys) or not pid_alive(int(record["pid"])):
         return None
-    if not pid_alive(int(record["pid"])):
+    return record
+
+
+def read_channel(state: Path) -> ChannelInfo | None:
+    record = live_record(channel_file(state), ("port", "secret", "pid", "repoRoot"))
+    if not record:
         return None
     session_pid = record.get("sessionPid")
     return ChannelInfo(int(record["port"]), str(record["secret"]), int(record["pid"]), str(record["repoRoot"]),
@@ -84,10 +90,10 @@ def select_agent(requested: str | None, claude_ok: bool, copilot_ok: bool) -> st
     if requested in ("claude", "copilot"):
         return requested
     if claude_ok and copilot_ok:
-        raise LinkError("both Claude Code's channel and a Copilot ui-server answer; pass --agent claude or --agent copilot")
+        raise LinkError("both Claude Code's channel and Copilot's door answer; pass --agent claude or --agent copilot")
     if claude_ok:
         return "claude"
     if copilot_ok:
         return "copilot"
     raise LinkError("no agent answers: start Claude Code with the channel flag (" + restart_command() +
-                    ") or Copilot with --ui-server, then run orb open again")
+                    ") or Copilot with the agent-orb plugin, then run orb open again")

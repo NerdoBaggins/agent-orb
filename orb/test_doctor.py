@@ -13,18 +13,17 @@ def test_run_covers_tools_browser_config_skin_links_and_engines(tmp_path, monkey
     repo.mkdir(), home.mkdir()
     (home / ".config" / "orb").mkdir(parents=True)
     (home / ".config" / "orb" / "config.json").write_text(json.dumps({"stt": {"engine": "fake"}, "tts": {"engine": "fake"}, "skin": "nope"}), encoding="utf-8")
-    monkeypatch.setattr(doctor, "port_open", lambda port: False)
     names = [c.name for c in run(repo, home)]
-    assert names == ["uv", "node", "browser", "config", "skin", "theme", "theme speech", "panel actions", "widgets", "claude channel", "copilot ui-server", "stt engine", "tts engine"]
+    assert names == ["uv", "node", "browser", "config", "skin", "theme", "theme speech", "panel actions", "widgets", "claude channel", "copilot door", "stt engine", "tts engine"]
     by = {c.name: c for c in run(repo, home)}
     assert by["skin"].ok is False and "no skin named 'nope'" in by["skin"].detail
     assert by["claude channel"].ok is False and "dangerously-load-development-channels" in by["claude channel"].detail
-    assert by["copilot ui-server"].ok is False and "--ui-server" in by["copilot ui-server"].detail
+    assert by["copilot door"].ok is False and "agent-orb plugin" in by["copilot door"].detail
     assert by["stt engine"].ok and by["tts engine"].ok
 
 
 def test_report_fails_when_no_agent_answers_or_a_hard_check_fails(capsys):
-    assert report([Check("uv", True, "x"), Check("claude channel", False, "n"), Check("copilot ui-server", False, "n")]) == 1
+    assert report([Check("uv", True, "x"), Check("claude channel", False, "n"), Check("copilot door", False, "n")]) == 1
     assert report([Check("uv", True, "x"), Check("claude channel", True, "y")]) == 0
     assert report([Check("browser", False, "none"), Check("claude channel", True, "y")]) == 1
     out = capsys.readouterr().out
@@ -45,7 +44,6 @@ def test_wake_checks_cover_the_engines_and_the_voiceprint(tmp_path, monkeypatch)
     (home / ".config" / "orb" / "config.json").write_text(json.dumps({
         "stt": {"engine": "fake"}, "tts": {"engine": "fake"},
         "wake": {"engine": "fake", "model": "hey_test", "vad": "fake", "voiceprint": "fake", "voice_auth": True}}), encoding="utf-8")
-    monkeypatch.setattr(doctor, "port_open", lambda port: False)
     by = {c.name: c for c in run(repo, home)}
     assert by["wake engine"].ok and by["vad engine"].ok and by["voiceprint engine"].ok
     assert by["voiceprint"].ok is False and "orb voice enroll" in by["voiceprint"].detail
@@ -58,7 +56,6 @@ def test_bad_wake_settings_are_one_failing_check(tmp_path, monkeypatch):
     repo, home = tmp_path / "repo", tmp_path / "home"
     repo.mkdir(), (home / ".config" / "orb").mkdir(parents=True)
     (home / ".config" / "orb" / "config.json").write_text(json.dumps({"wake": {"model": "hey_test", "threshold": "x"}}), encoding="utf-8")
-    monkeypatch.setattr(doctor, "port_open", lambda port: False)
     by = {c.name: c for c in run(repo, home, engines=False)}
     assert by["wake word"].ok is False and "wake.threshold" in by["wake word"].detail
 
@@ -159,10 +156,11 @@ def test_a_repo_that_ships_widgets_passes_with_a_note_and_still_reports_a_widget
     assert not check.ok and "ghost" in check.detail and "a repo's own widgets are not loaded" in check.detail
 
 
-def test_the_copilot_check_with_nothing_listening_gives_the_same_start_hint_as_the_orb(tmp_path, monkeypatch):
-    monkeypatch.setattr(doctor, "port_open", lambda port: False)
-    orb_hint = CopilotLink(4400, home=tmp_path).describe(False).split(" with ", 1)[1]
-    assert doctor.check_copilot(4400).detail == f"nothing listens on port 4400; start {orb_hint}"
+def test_the_copilot_check_with_no_door_gives_the_same_start_hint_as_the_orb(tmp_path):
+    repo, home = tmp_path / "repo", tmp_path / "home"
+    repo.mkdir(), home.mkdir()
+    orb_hint = CopilotLink(tmp_path / "none.json", 4400, home=tmp_path).describe(False).rsplit(": ", 1)[1]
+    assert doctor.check_copilot(repo, home, 4400).detail.endswith(f"start {orb_hint}")
 
 
 @pytest.mark.parametrize("kind", ["skin", "theme"])

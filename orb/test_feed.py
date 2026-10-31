@@ -229,7 +229,7 @@ def test_copilot_activity_widens_past_a_tail_with_no_conversation_in_it(tmp_path
     lines = [json.dumps(typed("hello")), json.dumps(message("Hi there.", mid="m9"))] + [json.dumps(huge)] * 20
     log.write_text("\n".join(lines) + "\n", encoding="utf-8")
     monkeypatch.setattr(copilot, "ACTIVITY_BYTES", 2000)
-    link = copilot.CopilotLink(4321, home=tmp_path)
+    link = copilot.CopilotLink(tmp_path / "copilot-channel.json", home=tmp_path)
     link.session_id = "s1"
     assert [i["text"] for i in link.activity()["feed"]] == ["hello", "Hi there."]
 

@@ -9,6 +9,5 @@
     "engine": "kokoro",
     "speed": 1.18,
     "kokoro": { "voice": { "af_heart": 0.55, "bf_emma": 0.45 }, "lang": "en-gb" }
-  },
-  "copilot_port": 4321
+  }
 }

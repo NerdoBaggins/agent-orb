@@ -23,7 +23,6 @@ DEFAULTS = {
     "stt": {"engine": "moonshine", "moonshine": {}},
     "tts": {"engine": "kokoro", "speed": 1.18, "kokoro": {"voice": {"af_heart": 0.55, "bf_emma": 0.45}, "lang": "en-gb"}},
     "wake": None,
-    "copilot_port": 4321,
     "panel_dirs": [],
     "theme_dirs": [],
     "skin_dirs": [],
@@ -31,7 +30,7 @@ DEFAULTS = {
     "widgets": {},
 }
 TYPES = {"ptt_key": str, "skin": str, "skin_options": dict, "skin_sizes": dict, "speak": bool, "mute_key": str, "skin_key": str, "panels_key": str, "theme": str, "stt": dict, "tts": dict,
-         "wake": dict, "copilot_port": int, "panel_dirs": list,
+         "wake": dict, "panel_dirs": list,
          "theme_dirs": list, "skin_dirs": list, "widget_dirs": list, "widgets": dict}
 FOLDER_KEYS = ("panel_dirs", "theme_dirs", "skin_dirs", "widget_dirs")
 REPO_KEYS = ("ptt_key", "mute_key", "skin_key", "panels_key", "speak")
@@ -284,12 +283,12 @@ def save_skin_size(home: Path, repo_root: Path, skin: str, size: float) -> None:
 COPILOT_PORT_ENV = "ORB_COPILOT_PORT"
 
 
-def copilot_port_for(config: Config, env) -> int:
-    """`ORB_COPILOT_PORT` when the shell that started Copilot set it, so each Copilot can run on a port of its own;
-    otherwise `copilot_port`."""
+def copilot_selector(env) -> int | None:
+    """`ORB_COPILOT_PORT` when the shell that started Copilot set it: that Copilot's extension holds its door on that
+    port, so several Copilots in one repo each keep an orb. None for the one started without it."""
     raw = env.get(COPILOT_PORT_ENV, "")
     if not raw:
-        return config["copilot_port"]
+        return None
     if not raw.isdigit() or not 1 <= int(raw) <= 65535:
         raise ConfigError(f"{COPILOT_PORT_ENV} is {raw!r}; it must be a port number from 1 to 65535")
     return int(raw)
