@@ -289,6 +289,18 @@ def test_a_reply_stop_let_go_of_is_no_longer_the_orbs(tmp_path):
     assert activity_replies(tmp_path, events, {"m1"}, let_go={"m1"}) == [("Finished after all.", False)]
 
 
+def test_stop_aborts_the_orbs_own_running_turn_sent_through_send(tmp_path, monkeypatch):
+    calls, result = [], {}
+    link, _ = link_with_log(tmp_path, monkeypatch, [user("m1"), START, said("m1", "", tools=1)], calls)
+    sending = threading.Thread(target=lambda: result.update(reply=link.send("go", "r1")))
+    sending.start()
+    while not (link.pending and link.pending["message_id"]):
+        time.sleep(0.01)
+    assert link.interrupt() is Stopped.ABORTED
+    sending.join(5)
+    assert "abort" in calls
+
+
 def test_stop_lets_go_of_a_request_it_could_not_abort(tmp_path, monkeypatch):
     calls, result = [], {}
     queued = [user("other"), START, said("other", "", tools=1), user("m1", delivery="queued")]
