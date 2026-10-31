@@ -79,7 +79,7 @@ def test_the_release_notes_button_opens_the_release_notes_panel(tmp_path):
 
 
 @pytest.mark.timeout(60)
-def test_every_release_and_change_has_an_explain_button_and_a_heading_has_none(tmp_path):
+def test_every_release_and_change_has_a_speaker_button_and_a_heading_has_none(tmp_path):
     async def count(page, base):
         await page.keyboard.press("r")
         await page.wait_for_selector("#builtin-releases h3")
@@ -92,7 +92,7 @@ def test_every_release_and_change_has_an_explain_button_and_a_heading_has_none(t
 
 
 @pytest.mark.timeout(60)
-def test_every_explain_button_has_an_accessible_name(tmp_path):
+def test_every_speaker_button_has_an_accessible_name(tmp_path):
     async def names(page, base):
         await page.keyboard.press("r")
         await page.wait_for_selector("#builtin-releases h3")
