@@ -240,15 +240,19 @@ Mic and ask buttons stay disabled until the link is verified.
 
 ### Copilot CLI
 
-- The user starts `copilot` in the repo. The plugin's Copilot extension (`extensions/orb/extension.mjs`) is started
-  by Copilot with each session and joined to it over stdio (`joinSession`), so Copilot opens no listener of its own.
+- The user starts `copilot --experimental` in the repo: Copilot loads plugin extensions only in experimental mode
+  (feature `EXTENSIONS`, availability experimental; `/experimental on` saves the mode in Copilot's settings). The plugin's Copilot extension
+  (`extensions/orb/extension.mjs`) is started by Copilot with each session and joined to it over stdio
+  (`joinSession`), so Copilot opens no listener of its own.
   `copilot --ui-server` is not used: its listener takes no credential.
 - The extension opens the orb's door into the session on the terms the Claude Code channel keeps (`channel/door.mjs`,
   shared by both): loopback only, a fresh secret per start, no request with an `Origin` or without the secret. It
-  records `{port, secret, pid, sessionId, repoRoot}` in the repo's state folder, as `copilot-channel.json`, or
-  `copilot-channel-<n>.json` when Copilot was started with `ORB_COPILOT_PORT=<n>`, which also pins the port. Copilot
-  restarts the extension on `/clear`, so the orb reads the record on every call. Routes: `GET /health`
-  (session id), `POST /prompt`, `POST /abort`, `GET /tasks`.
+  records `{port, secret, pid, sessionId, repoRoot}` in the repo's state folder as `copilot-channel.json`. Routes:
+  `GET /health` (session id), `POST /prompt`, `POST /abort`, `GET /tasks`.
+- Copilot restarts the extension on `/clear`, under a new session and secret. The orb reads the record on every
+  call; `/prompt` and `/abort` name the session the orb means, and the door refuses another with 409. A refused
+  send is sent again to the new session; a refused abort lets go; a request still waiting ends once the record
+  names another session.
 - The reply is followed in the session's own event log (`~/.copilot/session-state/<id>/events.jsonl`). `send`
   returns the message id, and every reply to it carries that id as `originatingMessageId`; a message steered into
   a running request is answered under that request's id. The request is answered when a message for it asks for
@@ -264,8 +268,8 @@ Mic and ask buttons stay disabled until the link is verified.
   default for sessions that have no rule of their own.
 - **Slash commands are text here too.** A `/command` sent as a prompt reaches the model as text (it answered `/help`
   with its own help text). The SDK's `commands.enqueue` runs one as if typed; the door does not offer it yet.
-- A Copilot without the plugin, or started with a different `ORB_COPILOT_PORT` from the orb's shell, cannot be
-  attached; the orb says so and prints the command.
+- A Copilot without the plugin, or with experimental mode off, cannot be attached; the orb says so and prints the
+  command, and `orb doctor` names experimental mode when Copilot's settings have it off.
 - A question the agent asks in its own window cannot be answered from the orb; the orb says to answer it there.
 - The `Stop` hook fires under Copilot too, at every turn end (test 0.1). Its transcript is Copilot's own
   `events.jsonl`, in which the gate finds no channel turn, so it stays silent.
