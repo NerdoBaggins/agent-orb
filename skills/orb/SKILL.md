@@ -48,7 +48,8 @@ claude --dangerously-load-development-channels plugin:agent-orb@<marketplace>
 ```
 
 (`@inline` when the plugin was loaded with `--plugin-dir`.) Under Copilot, **Not attached** means the plugin's
-Copilot extension has no door open for this repo; `orb doctor` names why in its `copilot door` check.
+Copilot extension has no door open for this repo: Copilot was started without the plugin, or without experimental
+mode, which it needs to load extensions. Tell the user to restart it as `copilot --experimental`.
 
 ## Panels: showing something
 
