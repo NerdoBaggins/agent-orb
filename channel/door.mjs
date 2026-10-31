@@ -1,6 +1,3 @@
-// The orb server's locked way into an agent session: a loopback HTTP listener that answers only requests carrying
-// the per-launch secret recorded beside its port, and no request from a browser. The Claude Code channel and the
-// Copilot extension each open one.
 import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
@@ -11,7 +8,6 @@ const HOST = "127.0.0.1";
 const MAX_BODY_BYTES = 32 * 1024;
 const BIND_RETRY_MS = 3000;
 
-// Must match orb/state.py: <sanitized basename>-<first 12 hex of sha256(realpath, casefolded on Windows)>.
 export function repoId(root) {
   const real = fs.realpathSync.native(root);
   const normalized = process.platform === "win32" ? real.toLowerCase() : real;
@@ -31,12 +27,22 @@ export class Rejection extends Error {
   }
 }
 
-function recordedPort(recordFile) {
+function previousDoor(recordFile) {
   try {
-    const port = JSON.parse(fs.readFileSync(recordFile, "utf8")).port;
-    return Number.isInteger(port) && port >= 1024 && port <= 65535 ? port : null;
+    const { port, pid } = JSON.parse(fs.readFileSync(recordFile, "utf8"));
+    return { port: Number.isInteger(port) && port >= 1024 && port <= 65535 ? port : null, pid: Number.isInteger(pid) ? pid : null };
   } catch {
-    return null;
+    return { port: null, pid: null };
+  }
+}
+
+function alive(pid) {
+  if (!pid || pid === process.pid) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err.code === "EPERM";
   }
 }
 
@@ -66,12 +72,12 @@ function readJson(req) {
       total += c.length;
       if (total > MAX_BODY_BYTES) {
         reject(new Rejection(413, "request body too large"));
-        req.destroy();
         return;
       }
       chunks.push(c);
     });
     req.on("end", () => {
+      if (total > MAX_BODY_BYTES) return;
       try {
         resolve(JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}"));
       } catch {
@@ -93,14 +99,10 @@ function secretsMatch(given, secret) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
-// `routes` maps "GET /health" or "POST /prompt" to an async handler of the parsed body, returning [status, json];
-// a handler throws Rejection to refuse. `record` is what the orb reads beside the port and secret. `port` pins the
-// port; without it the recorded one is reused, so the orb finds the door where it last was.
-export function openDoor({ recordFile, record, routes, log, port: pinned = null }) {
+export function openDoor({ recordFile, record, routes, log }) {
   const secret = crypto.randomBytes(24).toString("base64url");
   const server = http.createServer(async (req, res) => {
     try {
-      // A browser request always carries Origin; nothing in a browser may reach this server.
       if (req.headers.origin !== undefined) throw new Rejection(403, "browser origins are not accepted");
       if (!secretsMatch(req.headers["x-orb-secret"], secret)) throw new Rejection(403, "missing or wrong secret");
       const handler = routes[`${req.method} ${req.url}`];
@@ -116,23 +118,27 @@ export function openDoor({ recordFile, record, routes, log, port: pinned = null 
   });
 
   (async () => {
-    const port = pinned ?? recordedPort(recordFile) ?? (await freePort());
+    const previous = previousDoor(recordFile);
+    const port = previous.port ?? (await freePort());
     let announced = false;
-    server.on("error", (err) => {
+    server.on("error", async (err) => {
       if (err?.code !== "EADDRINUSE") {
         log(`http error: ${err.message}`);
         return;
       }
-      // Another session of this repo holds the port. Take it when it frees; never steal it.
+      if (!alive(previousDoor(recordFile).pid)) {
+        server.listen(await freePort(), HOST);
+        return;
+      }
       if (!announced) {
-        log(`port ${port} is held by another session; retrying every ${BIND_RETRY_MS} ms`);
+        log(`port ${port} is held by another live session of this repo; retrying every ${BIND_RETRY_MS} ms`);
         announced = true;
       }
       setTimeout(() => server.listen(port, HOST), BIND_RETRY_MS);
     });
     server.on("listening", () => {
-      writeRecord(recordFile, { port, secret, pid: process.pid, ...record, startedAt: new Date().toISOString() });
-      log(`listening on http://${HOST}:${port}`);
+      writeRecord(recordFile, { port: server.address().port, secret, pid: process.pid, ...record, startedAt: new Date().toISOString() });
+      log(`listening on http://${HOST}:${server.address().port}`);
     });
     server.listen(port, HOST);
   })();
