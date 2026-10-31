@@ -447,7 +447,7 @@
     node: null,
     holding: false,
     heldByKey: false,
-    opening: false,
+    starting: false,
     micLevel: 0,
     live() {
       const track = this.stream && this.stream.getAudioTracks()[0];
@@ -513,22 +513,22 @@
       return true;
     },
     async hold() {
-      if (this.holding || this.opening) return;
+      if (this.holding || this.starting) return;
       const refusal = !orb.voice ? "speech engines are not loaded"
         : !orb.attached && !orb.enrolling ? orb.attachMessage || "not attached to an agent session"
         : orb.state !== "idle" && orb.state !== "thinking" ? `busy: ${orb.state}` : null;
       if (refusal) { notice(`can't listen: ${refusal}`, "error"); return; }
-      this.opening = true;
+      this.starting = true;
       if (!(await this.ensure())) return;
       if (this.ctx.state === "suspended") await this.ctx.resume();
-      if (!this.opening) return;
-      this.opening = false;
+      if (!this.starting) return;
+      this.starting = false;
       this.holding = true;
       send({ type: "ptt_start" });
     },
     release() {
       this.heldByKey = false;
-      this.opening = false;
+      this.starting = false;
       if (!this.holding) return;
       this.holding = false;
       this.micLevel = 0;
@@ -571,7 +571,7 @@
   addEventListener("keydown", (ev) => {
     if (ev.code !== orb.pttKey || ev.repeat || inTextField(ev.target)) return;
     ev.preventDefault();
-    if (orb.state === "idle" || orb.state === "thinking") { ptt.heldByKey = !ptt.opening; ptt.hold(); }
+    if (orb.state === "idle" || orb.state === "thinking") { ptt.heldByKey = !ptt.starting; ptt.hold(); }
     else if (orb.state !== "listening") stopNow();
   });
   addEventListener("keyup", (ev) => {
