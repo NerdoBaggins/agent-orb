@@ -88,6 +88,17 @@ def test_every_release_and_change_has_an_explain_button_and_a_heading_has_none(t
 
 
 @pytest.mark.timeout(60)
+def test_every_explain_button_has_an_accessible_name(tmp_path):
+    async def names(page, base):
+        await page.keyboard.press("r")
+        await page.wait_for_selector("#builtin-releases h3")
+        return await page.evaluate("() => [...document.querySelectorAll('#builtin-releases .rn-explain')].map(b => b.getAttribute('aria-label'))")
+
+    _, labels = asyncio.run(releases_page(tmp_path, names))
+    assert labels and all(labels)
+
+
+@pytest.mark.timeout(60)
 def test_clicking_explain_on_a_change_asks_the_agent_to_explain_it_marked_as_the_releases_panels(tmp_path):
     async def click_first_change(page, base):
         await page.keyboard.press("r")
@@ -100,6 +111,7 @@ def test_clicking_explain_on_a_change_asks_the_agent_to_explain_it_marked_as_the
     server, entry = asyncio.run(releases_page(tmp_path, click_first_change))
     sent = server.link.sent[0][0]
     assert sent.startswith('[sent by the orb panel "releases", not spoken] Explain this agent-orb change') and entry in sent
+    assert server.transcript[0]["speak"] is True
 
 
 @pytest.mark.timeout(60)
