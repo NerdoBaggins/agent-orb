@@ -36,13 +36,17 @@ function previousDoor(recordFile) {
   }
 }
 
-function answersAsDoor({ port, secret }) {
+function healthStatus(port, secret) {
   return new Promise((resolve) => {
     const probe = http.get({ host: HOST, port, path: "/health", headers: { "x-orb-secret": secret }, timeout: 1000 },
-      (res) => { res.resume(); resolve(res.statusCode === 200); });
+      (res) => { res.resume(); resolve(res.statusCode); });
     probe.on("timeout", () => probe.destroy());
-    probe.on("error", () => resolve(false));
+    probe.on("error", () => resolve(null));
   });
+}
+
+async function answersAsDoor({ port, secret }) {
+  return (await healthStatus(port, secret)) === 200 && (await healthStatus(port, `not-${secret}`)) === 403;
 }
 
 function freePort() {

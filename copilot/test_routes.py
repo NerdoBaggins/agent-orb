@@ -140,6 +140,33 @@ def test_a_recorded_port_another_program_now_holds_is_given_up_when_its_door_is_
             opened.close()
 
 
+def test_a_recorded_port_an_open_web_server_now_holds_is_given_up_whatever_the_recorded_pid(tmp_path):
+    import http.server
+    import threading
+
+    class AnswersEverything(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+
+        def log_message(self, *args):
+            pass
+
+    record = tmp_path / "copilot-channel.json"
+    squatter = http.server.HTTPServer(("127.0.0.1", 0), AnswersEverything)
+    threading.Thread(target=squatter.serve_forever, daemon=True).start()
+    held = squatter.server_address[1]
+    record.write_text(json.dumps({"port": held, "secret": "old", "pid": os.getpid(), "sessionId": "gone"}),
+                      encoding="utf-8")
+    opened = Door(record)
+    try:
+        moved = read_door(record)
+        assert moved is not None and moved.port != held
+    finally:
+        opened.close()
+        squatter.shutdown()
+
+
 def test_the_extension_and_the_orb_name_the_same_record(tmp_path):
     script = f"import {{ RECORD_NAME }} from {json.dumps((HERE / 'routes.mjs').as_uri())};" \
              "process.stdout.write(RECORD_NAME);"
