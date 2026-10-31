@@ -134,10 +134,11 @@ def test_showing_the_panel_again_redraws_it_from_the_data_it_was_sent(tmp_path, 
 
 
 @pytest.mark.timeout(60)
-def test_r_opens_nothing_with_alt_or_meta_held_or_while_typing_in_a_text_field(tmp_path):
+def test_r_opens_nothing_with_alt_meta_or_ctrl_held_or_while_typing_in_a_text_field(tmp_path):
     async def press(page, base):
         await page.keyboard.press("Alt+r")
         await page.keyboard.press("Meta+r")
+        await page.evaluate("() => dispatchEvent(new KeyboardEvent('keydown', {code: 'KeyR', ctrlKey: true, bubbles: true}))")
         await page.evaluate("() => { const box = document.createElement('input'); box.id = 'typing'; document.body.appendChild(box); box.focus(); }")
         await page.keyboard.press("r")
         await page.wait_for_timeout(500)
