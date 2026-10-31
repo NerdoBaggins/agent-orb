@@ -84,11 +84,15 @@ copilot plugin marketplace add NerdoBaggins/agent-orb
 copilot plugin install agent-orb@nerdobaggins
 ```
 
-Then start Copilot as usual, in the repo you want the orb for:
+Then start Copilot in the repo you want the orb for, with its experimental mode on:
 
 ```
-copilot
+copilot --experimental
 ```
+
+Copilot loads a plugin's extensions only in experimental mode, and the orb reaches Copilot through one. To keep it on,
+run `/experimental on` inside Copilot once: it saves the mode in Copilot's settings, and a plain `copilot` is then
+enough.
 
 **How the orb reaches it.** The plugin carries a Copilot extension (`extensions/orb/extension.mjs`, no npm
 dependencies). Copilot starts it with each session and joins it to that session over a private pipe, so Copilot
@@ -102,15 +106,10 @@ Working on the orb itself? Load it from a checkout instead: see [Developing](#de
 ### Several Copilots at once
 
 Copilots in different repos need nothing: each repo has its own state folder, so each orb finds its own Copilot.
+One orb per agent per repo, so two Copilots in the same repo share one orb.
 
-Two Copilots in the same repo would share that folder, so give each a number of its own with `ORB_COPILOT_PORT`, set
-in the shell you start it from, and open each orb from that same shell. The extension then holds its door on that
-port and records it under that number:
-
-| | Any free port |
-|---|---|
-| macOS | `ORB_COPILOT_PORT=4400 copilot` |
-| Windows (PowerShell) | `$env:ORB_COPILOT_PORT = 4400`, then `copilot` |
+Coming from 0.4.0? A shell function that starts `copilot --ui-server --port …` or sets `ORB_COPILOT_PORT`, as the
+0.4.0 README suggested, is no longer needed: drop both, or the uncredentialed UI server keeps running beside the orb.
 
 ## First run
 
@@ -514,7 +513,7 @@ speech engines, which is faster.
 | What you see | What it means |
 |---|---|
 | **Not attached: start Claude Code in this repo with …** | Claude Code was started without the channel flag, or in another folder. Quit and restart it with the command shown. |
-| **Not attached: start Copilot in this repo with …** | No Copilot with the agent-orb plugin is running in this repo, or it was started with a different `ORB_COPILOT_PORT` than the shell that opened the orb. Start Copilot with the command shown. |
+| **Not attached: start Copilot in this repo with …** | No Copilot with the agent-orb plugin is running in this repo, or Copilot's experimental mode is off, so it never loaded the orb's extension. `orb doctor` says which. Start Copilot with the command shown. |
 | **orb already open for … in …** | That repo already has an orb for that agent with its window open. Use that window, or stop it with `orb stop` to start another. |
 | **no Chrome found** | Install it; the orb window needs it. |
 | The mic permission prompt comes back | The orb's usual port was taken, so it started on a new one, and the browser asks again. |
@@ -550,7 +549,7 @@ Load the plugin from a checkout for one session instead of installing it:
 
 ```
 claude --plugin-dir <path to agent-orb> --dangerously-load-development-channels plugin:agent-orb@inline
-copilot --plugin-dir <path to agent-orb>
+copilot --plugin-dir <path to agent-orb> --experimental
 ```
 
 If you also installed it from the marketplace, disable that copy while you work from the checkout
