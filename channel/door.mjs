@@ -29,21 +29,20 @@ export class Rejection extends Error {
 
 function previousDoor(recordFile) {
   try {
-    const { port, pid } = JSON.parse(fs.readFileSync(recordFile, "utf8"));
-    return { port: Number.isInteger(port) && port >= 1024 && port <= 65535 ? port : null, pid: Number.isInteger(pid) ? pid : null };
+    const { port, secret } = JSON.parse(fs.readFileSync(recordFile, "utf8"));
+    return { port: Number.isInteger(port) && port >= 1024 && port <= 65535 ? port : null, secret: String(secret ?? "") };
   } catch {
-    return { port: null, pid: null };
+    return { port: null, secret: "" };
   }
 }
 
-function alive(pid) {
-  if (!pid || pid === process.pid) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (err) {
-    return err.code === "EPERM";
-  }
+function answersAsDoor({ port, secret }) {
+  return new Promise((resolve) => {
+    const probe = http.get({ host: HOST, port, path: "/health", headers: { "x-orb-secret": secret }, timeout: 1000 },
+      (res) => { res.resume(); resolve(res.statusCode === 200); });
+    probe.on("timeout", () => probe.destroy());
+    probe.on("error", () => resolve(false));
+  });
 }
 
 function freePort() {
@@ -77,7 +76,6 @@ function readJson(req) {
       chunks.push(c);
     });
     req.on("end", () => {
-      if (total > MAX_BODY_BYTES) return;
       try {
         resolve(JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}"));
       } catch {
@@ -126,7 +124,7 @@ export function openDoor({ recordFile, record, routes, log }) {
         log(`http error: ${err.message}`);
         return;
       }
-      if (!alive(previousDoor(recordFile).pid)) {
+      if (!(await answersAsDoor(previousDoor(recordFile)))) {
         server.listen(await freePort(), HOST);
         return;
       }
