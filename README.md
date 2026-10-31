@@ -513,7 +513,7 @@ speech engines, which is faster.
 | What you see | What it means |
 |---|---|
 | **Not attached: start Claude Code in this repo with …** | Claude Code was started without the channel flag, or in another folder. Quit and restart it with the command shown. |
-| **Not attached: start Copilot in this repo with …** | No Copilot with the agent-orb plugin is running in this repo, or Copilot's experimental mode is off, so it never loaded the orb's extension. `orb doctor` says which. Start Copilot with the command shown. |
+| **Not attached: start Copilot in this repo with …** | No Copilot with the agent-orb plugin is running in this repo, or Copilot's experimental mode is off, so it never loaded the orb's extension. Start Copilot with the command shown. |
 | **orb already open for … in …** | That repo already has an orb for that agent with its window open. Use that window, or stop it with `orb stop` to start another. |
 | **no Chrome found** | Install it; the orb window needs it. |
 | The mic permission prompt comes back | The orb's usual port was taken, so it started on a new one, and the browser asks again. |
