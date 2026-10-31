@@ -11,6 +11,10 @@ that has one adds it under Unreleased.
   the speaker beside a change or a release to hear it explained (it becomes a stop button until it is done, and the other speakers wait), and
   `A−` or `A+` to make the text smaller or larger
   ([#114](https://github.com/NerdoBaggins/agent-orb/issues/114)).
+- Type a request without leaving the orb: `Enter` or the bar's `type` button opens a box under the caption. `Enter`
+  sends, `Shift+Enter` starts a new line, and `Escape` closes it and keeps the draft. What you type reaches the agent
+  as your own words, waits its turn like speech, and is answered aloud
+  ([#120](https://github.com/NerdoBaggins/agent-orb/issues/120)).
 
 ### Changed
 

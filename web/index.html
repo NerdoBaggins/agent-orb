@@ -25,6 +25,7 @@
   </span>
   <button class="bar-btn" id="transcript-toggle" type="button" title="Show or hide the transcript (T)">transcript</button>
   <button class="bar-btn" id="releases-toggle" type="button" title="Show or hide the release notes (R)">release notes</button>
+  <button class="bar-btn" id="type-toggle" type="button" title="Show or hide the box to type in (Enter)">type</button>
   <button class="bar-btn" id="voice-toggle" type="button" title="Mute or unmute the orb's speech (M)">voice</button>
   <label class="bar-speed" title="Voice speed">
     speed <input id="speed" type="range" min="0.7" max="1.6" step="0.05" value="1" aria-label="Voice speed">
@@ -49,6 +50,7 @@
     <div id="widgets"></div>
     <div id="controls">
       <div id="caption"></div>
+      <textarea id="typed" rows="1" aria-label="Type to the agent" placeholder="Type to the agent" hidden></textarea>
       <div class="row">
         <button id="mic" type="button" disabled aria-label="Hold to talk" title="Hold to talk"></button>
         <button id="stop" type="button" aria-label="Stop" title="Stop" hidden><svg viewBox="0 0 12 12"><rect width="12" height="12" rx="2" fill="currentColor"/></svg></button>

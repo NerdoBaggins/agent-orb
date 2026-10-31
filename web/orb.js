@@ -371,8 +371,11 @@
     }
   }
 
+  function connected() {
+    return !!orb.ws && orb.ws.readyState === WebSocket.OPEN;
+  }
   function send(message) {
-    if (orb.ws && orb.ws.readyState === WebSocket.OPEN) orb.ws.send(JSON.stringify(message));
+    if (connected()) orb.ws.send(JSON.stringify(message));
   }
 
   // ---- playback ----
@@ -557,6 +560,10 @@
   function inTextField(target) {
     return target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
   }
+  const ACTS_ON_ENTER = ["A", "BUTTON", "SELECT", "SUMMARY"];
+  function isShortcut(ev) {
+    return !ev.repeat && !ev.metaKey && !ev.ctrlKey && !ev.altKey && !inTextField(ev.target);
+  }
   addEventListener("keydown", (ev) => {
     if (ev.code !== orb.pttKey || ev.repeat || inTextField(ev.target)) return;
     ev.preventDefault();
@@ -589,7 +596,11 @@
       const frame = this.frameOf(ev.source);
       if (!frame) return;
       if (m.orb === "stop") { stopNow(); return; }
-      if (m.orb === "key") { if (m.code === "Escape") escapeKey(); return; }
+      if (m.orb === "key") {
+        if (m.code === "Escape") escapeKey();
+        else if (m.code === "Enter") typedBox.show();
+        return;
+      }
       const active = !!(navigator.userActivation && navigator.userActivation.isActive) && document.activeElement === frame.iframe;
       if (m.orb === "action") {
         const ref = `action:${this.window}:${++this.seq}`;
@@ -1120,22 +1131,52 @@
   }
   $("voice-toggle").addEventListener("click", () => send({ type: "voice", on: !orb.speak }));
   addEventListener("keydown", (ev) => {
-    if (ev.code !== orb.muteKey || ev.repeat || ev.metaKey || ev.ctrlKey || ev.altKey || inTextField(ev.target)) return;
+    if (ev.code !== orb.muteKey || !isShortcut(ev)) return;
     ev.preventDefault();
     send({ type: "voice", on: !orb.speak });
   });
+  const typedBox = {
+    field: $("typed"),
+    toggle: $("type-toggle"),
+    show() {
+      this.field.hidden = false;
+      this.toggle.classList.add("on");
+      this.field.focus();
+    },
+    hide() {
+      this.field.hidden = true;
+      this.toggle.classList.remove("on");
+    },
+    submit() {
+      const text = this.field.value.trim();
+      if (!text) return;
+      if (!connected()) { notice("not connected, so that was not sent", "error"); return; }
+      send({ type: "typed", text });
+      this.field.value = "";
+    },
+  };
+  typedBox.toggle.addEventListener("click", () => (typedBox.field.hidden ? typedBox.show() : typedBox.hide()));
+  typedBox.field.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape") typedBox.hide();
+    else if (ev.key === "Enter" && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); typedBox.submit(); }
+  });
   addEventListener("keydown", (ev) => {
-    if (ev.code !== "KeyT" || ev.repeat || ev.metaKey || ev.ctrlKey || ev.altKey || inTextField(ev.target)) return;
+    if (ev.key !== "Enter" || !isShortcut(ev) || ACTS_ON_ENTER.includes(ev.target.tagName)) return;
+    ev.preventDefault();
+    typedBox.show();
+  });
+  addEventListener("keydown", (ev) => {
+    if (ev.code !== "KeyT" || !isShortcut(ev)) return;
     ev.preventDefault();
     toggleTranscript();
   });
   addEventListener("keydown", (ev) => {
-    if (ev.code !== "KeyR" || ev.repeat || ev.metaKey || ev.ctrlKey || ev.altKey || inTextField(ev.target)) return;
+    if (ev.code !== "KeyR" || !isShortcut(ev)) return;
     ev.preventDefault();
     toggleReleases();
   });
   addEventListener("keydown", (ev) => {
-    if (ev.code !== orb.panelsKey || ev.repeat || ev.metaKey || ev.ctrlKey || ev.altKey || inTextField(ev.target)) return;
+    if (ev.code !== orb.panelsKey || !isShortcut(ev)) return;
     ev.preventDefault();
     if (!orb.panels.size) { notice("no panels open"); return; }
     panelsUi.hideOrRestore();
@@ -1523,7 +1564,7 @@
   };
   $("theme-select").addEventListener("change", (ev) => send({ type: "theme", name: ev.target.value }));
   addEventListener("keydown", (ev) => {
-    if (ev.repeat || ev.metaKey || ev.ctrlKey || ev.altKey || inTextField(ev.target) || !skin.info) return;
+    if (!isShortcut(ev) || !skin.info) return;
     const hit = Object.entries(skin.info.options || {}).find(([, option]) => option.key === ev.code);
     if (hit) {
       ev.preventDefault();
