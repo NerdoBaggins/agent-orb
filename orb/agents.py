@@ -38,7 +38,6 @@ class ChannelInfo:
 
 
 def live_record(path: Path, keys: tuple[str, ...]) -> dict | None:
-    """A door's record, while the process that wrote it is alive."""
     record = read_json(path)
     if not record or not all(k in record for k in keys) or not pid_alive(int(record["pid"])):
         return None
