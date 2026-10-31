@@ -218,6 +218,15 @@ body.bar-on-orb #tabs { padding-right: 8px; } /* the pill sits on the orb's side
   background: none; color: var(--orb-dim); font-size: 11px; line-height: 1; cursor: pointer; }
 .tr-say::before { content: "🔊"; }
 .tr-say.stop::before { content: "■"; }
+.rn-release { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-top: 14px; padding-bottom: 4px;
+  border-bottom: 1px solid var(--orb-line); }
+.rn-release:first-child { margin-top: 0; }
+.rn-release h3 { margin: 0; font-family: var(--orb-display); font-size: 15px; }
+.rn-section { color: var(--orb-dim); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; margin: 10px 0 2px; }
+.rn-entry { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 3px 0; font-size: 13px; line-height: 1.4; }
+.rn-explain { flex: none; padding: 1px 8px; border-radius: 10px; border: 1px solid var(--orb-line); background: none; color: var(--orb-dim);
+  font-size: 11px; cursor: pointer; }
+.rn-explain:hover { border-color: var(--orb-accent); color: var(--orb-accent); }
 .tr-say:not(:disabled):hover { border-color: var(--orb-accent); color: var(--orb-accent); }
 .tr-say.stop { border-color: var(--orb-accent); color: var(--orb-accent); }
 .tr-say:disabled { opacity: 0.35; cursor: default; }
