@@ -1030,9 +1030,9 @@
       }
       return bar;
     },
-    row({ kind, text, request }) {
+    row({ kind, text, request, stripe }) {
       const element = document.createElement("div");
-      element.className = `rn-${kind}`;
+      element.className = `rn-${kind}${stripe ? " rn-stripe" : ""}`;
       const label = document.createElement(kind === "release" ? "h3" : "span");
       label.textContent = text;
       element.appendChild(label);

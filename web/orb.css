@@ -226,7 +226,8 @@ body.bar-on-orb #tabs { padding-right: 8px; } /* the pill sits on the orb's side
 .rn-zoom button:hover { border-color: var(--orb-accent); color: var(--orb-accent); }
 .rn-release h3 { margin: 0; font-family: var(--orb-display); font-size: 1.15em; }
 .rn-section { color: var(--orb-dim); font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.08em; margin: 10px 0 2px; }
-.rn-entry { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 3px 0; line-height: 1.4; }
+.rn-entry { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 4px 8px; border-radius: 4px; line-height: 1.4; }
+.rn-stripe { background: color-mix(in srgb, var(--orb-line) 40%, transparent); }
 .rn-explain { flex: none; padding: 1px 8px; border-radius: 10px; border: 1px solid var(--orb-line); background: none; color: var(--orb-dim);
   font-size: 0.8em; cursor: pointer; }
 .rn-explain:hover { border-color: var(--orb-accent); color: var(--orb-accent); }

@@ -59,3 +59,11 @@ test("a saved size that is missing, zero or not a number falls back to the start
   assert.equal(clampTextSize(5), 12);
   assert.equal(clampTextSize(20), 20);
 });
+
+test("every other change within a section is striped, starting plain, and the striping starts over in the next section", () => {
+  const release = { version: "1.0.0", date: "2026-01-02", sections: [
+    { heading: "Added", entries: ["a", "b", "c"] }, { heading: "Fixed", entries: ["d", "e"] },
+  ] };
+  assert.deepEqual(releaseRows([release]).filter((r) => r.kind === "entry").map((r) => [r.text, r.stripe]),
+    [["a", false], ["b", true], ["c", false], ["d", false], ["e", true]]);
+});
