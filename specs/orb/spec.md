@@ -269,7 +269,7 @@ Mic and ask buttons stay disabled until the link is verified.
 - **Slash commands are text here too.** A `/command` sent as a prompt reaches the model as text (it answered `/help`
   with its own help text). The SDK's `commands.enqueue` runs one as if typed; the door does not offer it yet.
 - A Copilot without the plugin, or with experimental mode off, cannot be attached; the orb says so and prints the
-  command, and `orb doctor` names experimental mode when Copilot's settings have it off.
+  command, which turns experimental mode on.
 - A question the agent asks in its own window cannot be answered from the orb; the orb says to answer it there.
 - The `Stop` hook fires under Copilot too, at every turn end (test 0.1). Its transcript is Copilot's own
   `events.jsonl`, in which the gate finds no channel turn, so it stays silent.
