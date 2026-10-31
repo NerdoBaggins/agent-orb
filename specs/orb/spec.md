@@ -109,7 +109,8 @@ box and a notice says it was not sent. While a panel fills the window the box is
 ## Talking (push-to-talk)
 
 1. The user holds the mic button, or holds the push-to-talk key (config `ptt_key`, default Space) while the window has
-   focus. The key is ignored while focus is in a text field.
+   focus. A press is ignored while focus is in a text field; the release of a press the orb took counts wherever focus
+   has moved.
 2. The page records with `getUserMedia`, resamples to 16 kHz mono in an AudioWorklet, and streams frames over the
    WebSocket while held. The orb shows **listening**, driven by the mic level.
 3. On release the server takes the clip. A clip under about 0.3 s is dropped as a tap; there is no upper limit, and a long clip is transcribed in pieces of at most 20 s cut at quiet points.
