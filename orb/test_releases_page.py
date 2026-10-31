@@ -415,25 +415,18 @@ def test_pressing_stop_while_the_agent_cannot_be_stopped_leaves_the_button_a_sto
 
 
 @pytest.mark.timeout(60)
-def test_pressing_another_speaker_stops_the_explanation_in_progress_and_starts_the_new_one(tmp_path):
-    async def switch(page, base):
+def test_while_one_change_is_being_explained_the_other_speakers_are_greyed_out_until_it_is_over(tmp_path):
+    DISABLED = "() => [...document.querySelectorAll('#builtin-releases .rn-explain')].map(b => b.disabled)"
+
+    async def explain(page, base):
         server = await explaining_second(page)
-        server.link.interrupt = lambda: agents.Stopped.ABORTED
-        stops = []
-        original = server.stop
+        during = await page.evaluate(DISABLED)
+        await server.deliver_reply(server.link.sent[0][1], "A panel.")
+        await reverted(page)
+        return during, await page.evaluate(DISABLED)
 
-        async def record():
-            stops.append(1)
-            await original()
-
-        server.stop = record
-        await page.locator(SPEAKERS).nth(2).click()
-        while len(server.link.sent) < 2:
-            await asyncio.sleep(0.05)
-        return stops, await page.evaluate(STOP_BUTTONS)
-
-    _, (stops, buttons) = asyncio.run(releases_page(tmp_path, switch))
-    assert stops and buttons[2] is True and buttons.count(True) == 1
+    _, (during, after) = asyncio.run(releases_page(tmp_path, explain))
+    assert during[1] is False and during.count(True) == len(during) - 1 and not any(after)
 
 
 @pytest.mark.timeout(60)
