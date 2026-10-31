@@ -17,7 +17,7 @@ function releaseRows(releases) {
     { kind: "release", text: release.date ? `${release.version} — ${release.date}` : release.version, request: explainRelease(release) },
     ...release.sections.flatMap((section) => [
       ...(section.heading ? [{ kind: "section", text: section.heading }] : []),
-      ...section.entries.map((entry) => ({ kind: "entry", text: entry, request: explainChange(release, section, entry) })),
+      ...section.entries.map((entry, i) => ({ kind: "entry", text: entry, request: explainChange(release, section, entry), stripe: i % 2 === 1 })),
     ]),
   ]);
 }
