@@ -705,6 +705,7 @@ def test_a_click_on_a_panel_leaves_the_box_and_the_next_click_reaches_the_panel(
 
     async def act(page):
         await page.keyboard.press("Enter")
+        await page.wait_for_timeout(300)
         box = await page.locator("iframe.panel-body").bounding_box()
         await page.mouse.click(box["x"] + 200, box["y"] + 200)
         await page.wait_for_timeout(200)
