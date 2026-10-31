@@ -206,8 +206,14 @@ def test_text_sent_with_no_agent_attached_stays_in_the_box_with_a_notice(tmp_pat
     assert "not sent" in seen["notice"]
 
 
+SLOW_MIC = """(() => {
+    const open = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    navigator.mediaDevices.getUserMedia = (c) => new Promise((r) => setTimeout(r, 800)).then(() => open(c));
+})()"""
+
+
 @pytest.mark.timeout(60)
-def test_enter_during_a_talk_key_hold_leaves_the_box_closed_and_the_key_able_to_release(tmp_path):
+def test_releasing_the_talk_key_after_enter_opened_the_box_stops_listening(tmp_path):
     server = attached(tmp_path)
     seen = {}
 
@@ -216,15 +222,96 @@ def test_enter_during_a_talk_key_hold_leaves_the_box_closed_and_the_key_able_to_
         await page.wait_for_timeout(700)
         seen["held"] = server.state
         await page.keyboard.press("Enter")
-        seen["open"] = await visible(page)
         await page.keyboard.up("Space")
         await page.wait_for_timeout(500)
         seen["released"] = server.state
 
     asyncio.run(run_page(tmp_path, [], act, server))
     assert seen["held"] == "listening"
-    assert seen["open"] is False
     assert seen["released"] != "listening"
+
+
+@pytest.mark.timeout(60)
+def test_releasing_the_talk_key_after_enter_opened_the_box_while_the_mic_opened_stops_listening(tmp_path):
+    server = attached(tmp_path)
+    seen = {}
+
+    async def act(page):
+        await page.evaluate(SLOW_MIC)
+        await page.keyboard.down("Space")
+        await page.keyboard.press("Enter")
+        await page.wait_for_timeout(1500)
+        seen["held"] = server.state
+        await page.keyboard.up("Space")
+        await page.wait_for_timeout(500)
+        seen["released"] = server.state
+
+    asyncio.run(run_page(tmp_path, [], act, server))
+    assert seen["held"] == "listening"
+    assert seen["released"] != "listening"
+
+
+@pytest.mark.timeout(60)
+def test_releasing_the_talk_key_after_clicking_into_the_box_stops_listening(tmp_path):
+    server = attached(tmp_path)
+    seen = {}
+
+    async def act(page):
+        await page.keyboard.press("Enter")
+        await page.evaluate("document.getElementById('typed').blur()")
+        await page.keyboard.down("Space")
+        await page.wait_for_timeout(700)
+        seen["held"] = server.state
+        await page.locator(FIELD).click()
+        await page.keyboard.up("Space")
+        await page.wait_for_timeout(500)
+        seen["released"] = server.state
+
+    asyncio.run(run_page(tmp_path, [], act, server))
+    assert seen["held"] == "listening"
+    assert seen["released"] != "listening"
+
+
+@pytest.mark.timeout(60)
+def test_the_talk_key_ends_a_hold_a_tap_left_listening(tmp_path):
+    server = attached(tmp_path)
+    seen = {}
+
+    async def act(page):
+        await page.keyboard.press("Space")
+        await page.wait_for_timeout(700)
+        await page.keyboard.press("Space")
+        await page.wait_for_timeout(500)
+        seen["ended"] = server.state
+
+    asyncio.run(run_page(tmp_path, [], act, server))
+    assert seen["ended"] != "listening"
+
+
+@pytest.mark.timeout(60)
+def test_a_key_up_lost_to_a_window_blur_does_not_release_a_later_mic_button_hold(tmp_path):
+    server = attached(tmp_path)
+    seen = {}
+
+    async def act(page):
+        await page.keyboard.down("Space")
+        await page.wait_for_timeout(700)
+        await page.evaluate("window.dispatchEvent(new Event('blur'))")
+        await page.wait_for_timeout(300)
+        await page.keyboard.press("Enter")
+        mic = await page.locator("#mic").bounding_box()
+        await page.mouse.move(mic["x"] + mic["width"] / 2, mic["y"] + mic["height"] / 2)
+        await page.mouse.down()
+        await page.wait_for_timeout(700)
+        seen["held"] = server.state
+        await page.keyboard.press("Space")
+        await page.wait_for_timeout(300)
+        seen["after"] = server.state
+        await page.mouse.up()
+
+    asyncio.run(run_page(tmp_path, [], act, server))
+    assert seen["held"] == "listening"
+    assert seen["after"] == "listening"
 
 
 @pytest.mark.timeout(60)
