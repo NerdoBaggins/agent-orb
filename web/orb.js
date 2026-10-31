@@ -1136,11 +1136,13 @@
     send({ type: "voice", on: !orb.speak });
   });
   const DRAFT_KEY = "orb-draft";
+  const STEALS_ALLOWED = 2;
   const typedBox = {
     field: $("typed"),
     toggle: $("type-toggle"),
     orbSideChosen: true,
     holdsFocus: false,
+    steals: 0,
     sent: new Map(),
     nextRef: 0,
     show() {
@@ -1154,7 +1156,18 @@
     },
     release() {
       this.holdsFocus = false;
+      this.steals = 0;
       document.body.classList.remove("typing");
+    },
+    repel(iframe) {
+      setTimeout(() => this.reclaim(), 0);
+      if (++this.steals > STEALS_ALLOWED) this.closeFrame(panelsBridge.frameOf(iframe.contentWindow));
+    },
+    closeFrame({ kind, name }) {
+      if (kind === "widget") send({ type: "widget", name, on: false });
+      else { send({ type: "panel_close", name }); panelsUi.close(name); }
+      notice(`closed the ${kind} ${name}: it kept taking the focus from the box`, "error");
+      this.steals = 0;
     },
     reclaim() {
       this.field.blur();
@@ -1197,7 +1210,7 @@
   });
   addEventListener("blur", () => {
     if (document.activeElement.tagName !== "IFRAME") return;
-    if (typedBox.holdsFocus) setTimeout(() => typedBox.reclaim(), 0);
+    if (typedBox.holdsFocus) typedBox.repel(document.activeElement);
     else typedBox.orbSideChosen = false;
   });
   typedBox.field.addEventListener("focus", () => typedBox.hold());

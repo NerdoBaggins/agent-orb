@@ -126,6 +126,8 @@ orb.state                        // "idle" | "listening" | "transcribing" | "thi
 orb.on("state", fn)              // follow it, e.g. to show what the orb is doing
 ```
 
+Never call `focus()` on a timer or in a loop: a page that takes the focus from the orb's text box three times is closed.
+
 `orb.send` and `orb.speak` work only inside a real click or key press, and `orb.send` rejects blank text. While the
 agent is busy, `orb.send` waits: the orb holds it and sends it when the turn ends, and the promise resolves with that
 reply. `orb.speak` rejects with `busy` unless the orb is idle; a play button stays enabled, and a `busy` rejection
