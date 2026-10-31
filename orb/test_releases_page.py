@@ -4,7 +4,7 @@ import base64
 import pytest
 from aiohttp import ClientSession, web
 
-from orb import PLUGIN_ROOT, releases
+from orb import PLUGIN_ROOT, agents, releases
 from orb.test_panel_bridge import browser
 from orb.test_server import TOKEN, make
 
@@ -31,6 +31,7 @@ async def releases_page(tmp_path, act, prepare=None):
         async with playwright.async_playwright() as p:
             b = await browser(p)
             page = await b.new_page(viewport={"width": 1400, "height": 900})
+            page.orb_server = server
             if prepare:
                 await prepare(page)
             await page.goto(f"{base}/?token={TOKEN}")
@@ -275,3 +276,115 @@ def test_the_shading_is_strong_enough_to_see_against_the_panel(tmp_path, monkeyp
 
     _, (plain, striped) = asyncio.run(releases_page(tmp_path, pixels))
     assert max(abs(a - b) for a, b in zip(plain, striped)) >= 20
+
+
+SPEAKERS = "#builtin-releases .rn-explain"
+STOP_BUTTONS = "() => [...document.querySelectorAll('#builtin-releases .rn-explain')].map(b => b.classList.contains('stop'))"
+
+
+async def open_releases(page):
+    await page.keyboard.press("r")
+    await page.wait_for_selector(SPEAKERS)
+
+
+async def reverted(page):
+    await page.wait_for_function("() => !document.querySelector('#builtin-releases .rn-explain.stop')", timeout=10000)
+
+
+@pytest.mark.timeout(60)
+def test_the_speaker_of_the_change_being_explained_becomes_a_stop_button_and_the_others_stay_speakers(tmp_path):
+    async def click_second(page, base):
+        await open_releases(page)
+        await page.locator(SPEAKERS).nth(1).click()
+        return await page.evaluate(STOP_BUTTONS), await page.locator(SPEAKERS).nth(1).get_attribute("aria-label")
+
+    _, (stops, label) = asyncio.run(releases_page(tmp_path, click_second))
+    assert stops.count(True) == 1 and stops[1] is True and label == "Stop explaining"
+
+
+@pytest.mark.timeout(60)
+def test_the_stop_button_turns_back_into_a_speaker_once_the_explanation_has_been_given(tmp_path):
+    async def explain_and_answer(page, base):
+        await open_releases(page)
+        await page.locator(SPEAKERS).nth(1).click()
+        server = page.orb_server
+        while not server.link.sent:
+            await asyncio.sleep(0.05)
+        await server.deliver_reply(server.link.sent[0][1], "It is a panel.")
+        await reverted(page)
+        return await page.locator(SPEAKERS).nth(1).get_attribute("aria-label")
+
+    _, label = asyncio.run(releases_page(tmp_path, explain_and_answer))
+    assert label == "Explain this aloud"
+
+
+@pytest.mark.timeout(60)
+def test_pressing_the_stop_button_stops_the_orb_asks_nothing_more_and_turns_it_back_into_a_speaker(tmp_path):
+    async def press_twice(page, base):
+        await open_releases(page)
+        stops = []
+        server = page.orb_server
+        original = server.stop
+
+        async def record():
+            stops.append(1)
+            await original()
+
+        server.stop = record
+        await page.locator(SPEAKERS).nth(1).click()
+        while not server.link.sent:
+            await asyncio.sleep(0.05)
+        await page.locator(SPEAKERS).nth(1).click()
+        await reverted(page)
+        await page.wait_for_timeout(300)
+        return stops, len(server.link.sent)
+
+    _, (stops, sent) = asyncio.run(releases_page(tmp_path, press_twice))
+    assert stops and sent == 1
+
+
+@pytest.mark.timeout(60)
+@pytest.mark.parametrize("outcome, back", [(agents.Stopped.ABORTED, True), (agents.Stopped.STILL_WAITING, False)])
+def test_stopping_the_orb_from_elsewhere_turns_the_stop_button_back_only_when_the_agent_stops(tmp_path, outcome, back):
+    async def escape(page, base):
+        await open_releases(page)
+        server = page.orb_server
+        server.link.interrupt = lambda: outcome
+        await page.locator(SPEAKERS).nth(1).click()
+        while not server.link.sent:
+            await asyncio.sleep(0.05)
+        await page.wait_for_function("() => document.body.dataset.state === 'thinking'")
+        await page.keyboard.press("Escape")
+        await page.wait_for_timeout(1500)
+        return await page.evaluate(STOP_BUTTONS)
+
+    _, stops = asyncio.run(releases_page(tmp_path, escape))
+    assert any(stops) is not back
+
+
+@pytest.mark.timeout(60)
+def test_a_request_that_cannot_be_delivered_turns_the_stop_button_back_into_a_speaker(tmp_path):
+    async def undeliverable(page, base):
+        await open_releases(page)
+        page.orb_server.link.fail = True
+        await page.locator(SPEAKERS).nth(1).click()
+        await reverted(page)
+        return await page.locator(SPEAKERS).nth(1).get_attribute("aria-label")
+
+    _, label = asyncio.run(releases_page(tmp_path, undeliverable))
+    assert label == "Explain this aloud"
+
+
+GLYPHS = "() => [...document.querySelectorAll('#builtin-releases .rn-explain')].map(b => getComputedStyle(b, '::before').content.replace(/\"/g, ''))"
+
+
+@pytest.mark.timeout(60)
+def test_every_button_shows_a_speaker_and_the_one_being_explained_shows_a_stop_square(tmp_path):
+    async def glyphs(page, base):
+        await open_releases(page)
+        before = await page.evaluate(GLYPHS)
+        await page.locator(SPEAKERS).nth(1).click()
+        return before, await page.evaluate(GLYPHS)
+
+    _, (before, after) = asyncio.run(releases_page(tmp_path, glyphs))
+    assert set(before) == {"🔊"} and after[1] == "■" and set(after[:1] + after[2:]) == {"🔊"}

@@ -202,6 +202,7 @@
     panelsBridge.broadcastState(state);
     transcriptUi.saying = state === "speaking" ? said || null : null;
     transcriptUi.syncSpeakers();
+    releasesUi.settle();
   }
 
   // ---- socket ----
@@ -324,14 +325,16 @@
       case "reply":
         transcriptUi.answer(m.req, m.text, "answered");
         panelsBridge.resolve(m.ref, m.text);
+        releasesUi.replied(m.ref);
         break;
       case "interrupted":
         transcriptUi.answer(m.req, null, "interrupted");
         panelsBridge.reject(m.ref, "interrupted");
+        releasesUi.ended(m.ref);
         break;
       case "notice":
         notice(m.text, m.level === "error" ? "error" : "info", true);
-        if (m.ref) panelsBridge.reject(m.ref, m.text);
+        if (m.ref) { panelsBridge.reject(m.ref, m.text); releasesUi.ended(m.ref); }
         break;
       case "speak_start":
         player.start();
@@ -1014,7 +1017,7 @@
       box.style.fontSize = `${this.size}px`;
       box.replaceChildren(this.controls());
       if (!rows.length) { box.append("No release notes were found."); return; }
-      for (const row of rows) box.appendChild(this.row(row));
+      rows.forEach((row, i) => box.appendChild(this.row(row, `row${i}`)));
     },
     controls() {
       const bar = document.createElement("div");
@@ -1030,26 +1033,60 @@
       }
       return bar;
     },
-    row({ kind, text, request, stripe }) {
+    row({ kind, text, request, stripe }, id) {
       const element = document.createElement("div");
       element.className = `rn-${kind}${stripe ? " rn-stripe" : ""}`;
       const label = document.createElement(kind === "release" ? "h3" : "span");
       label.textContent = text;
       element.appendChild(label);
-      if (request) element.appendChild(this.explainButton(request));
+      if (request) element.appendChild(this.explainButton(id, request));
       return element;
     },
-    explainButton(request) {
+    explaining: null,
+    seq: 0,
+    explainButton(id, request) {
       const button = document.createElement("button");
       button.type = "button";
-      button.className = "rn-explain";
-      button.textContent = "explain";
-      button.setAttribute("aria-label", "Explain this aloud");
-      button.addEventListener("click", () => send({
-        type: "ask", text: request, speak: true, kind: "panel", page: "releases",
-        active: !!(navigator.userActivation && navigator.userActivation.isActive),
-      }));
+      button.className = "rn-explain tr-say";
+      button.dataset.id = id;
+      button.addEventListener("click", () => this.toggle(id, request));
+      this.show(button);
       return button;
+    },
+    show(button) {
+      const mine = !!this.explaining && this.explaining.id === button.dataset.id;
+      button.classList.toggle("stop", mine);
+      button.setAttribute("aria-label", mine ? "Stop explaining" : "Explain this aloud");
+    },
+    syncButtons() {
+      for (const button of document.querySelectorAll("#builtin-releases .rn-explain")) this.show(button);
+    },
+    toggle(id, request) {
+      if (this.explaining && this.explaining.id === id) {
+        stopNow();
+        this.explaining = null;
+      } else {
+        this.explaining = { id, ref: `releases:${++this.seq}`, replied: false };
+        send({
+          type: "ask", text: request, speak: true, ref: this.explaining.ref, kind: "panel", page: "releases",
+          active: !!(navigator.userActivation && navigator.userActivation.isActive),
+        });
+      }
+      this.syncButtons();
+    },
+    replied(ref) {
+      if (this.explaining && this.explaining.ref === ref) this.explaining.replied = true;
+      this.settle();
+    },
+    ended(ref) {
+      if (this.explaining && this.explaining.ref === ref) {
+        this.explaining = null;
+        this.syncButtons();
+      }
+    },
+    settle() {
+      if (this.explaining && this.explaining.replied && orb.state === "idle") this.explaining = null;
+      this.syncButtons();
     },
   };
 
