@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from orb.config import (DEFAULTS, REPO_KEYS, SIZE_MAX, SIZE_MIN, SIZE_NORMAL, ConfigError, copilot_port_for, credential_keys, engine_settings,
+from orb.config import (DEFAULTS, REPO_KEYS, SIZE_MAX, SIZE_MIN, SIZE_NORMAL, ConfigError, credential_keys, engine_settings,
                         load, load_for, private_config_path, repo_config_path, save_skin_size, save_speed, save_widget,
                         size_for, speed_for, tts_settings_for, user_config_path)
 
@@ -40,9 +40,9 @@ def test_changing_a_loaded_config_leaves_the_next_load_on_the_defaults(tmp_path)
 
 
 def test_each_layer_overrides_the_one_before_it_for_the_same_key(tmp_path):
-    cfg = load_layers(tmp_path, user={"skin": "u", "ptt_key": "KeyU", "copilot_port": 5000},
+    cfg = load_layers(tmp_path, user={"skin": "u", "ptt_key": "KeyU", "theme": "jarvis"},
                       repo={"skin": "r", "ptt_key": "KeyR"}, private={"skin": "p"})
-    assert (cfg["skin"], cfg["ptt_key"], cfg["copilot_port"]) == ("p", "KeyR", 5000)
+    assert (cfg["skin"], cfg["ptt_key"], cfg["theme"]) == ("p", "KeyR", "jarvis")
 
 
 def test_the_users_file_for_this_repo_beats_the_repos_file_on_a_key_the_repo_may_set(tmp_path):
@@ -212,8 +212,8 @@ def test_unknown_keys_are_reported_with_their_layer_and_ignored(tmp_path, layer)
 
 
 def test_wrong_type_is_rejected_with_the_key_named(tmp_path):
-    with pytest.raises(ConfigError, match="copilot_port must be int"):
-        load_layers(tmp_path, user={"copilot_port": "4321"})
+    with pytest.raises(ConfigError, match="speak must be bool"):
+        load_layers(tmp_path, user={"speak": "yes"})
 
 
 def test_invalid_json_names_the_file(tmp_path):
@@ -321,7 +321,7 @@ def test_a_widget_entry_may_name_the_pane_it_was_placed_in(tmp_path):
 @pytest.mark.parametrize("key, value", [
     ("widgets", {"context": {"on": True, "x": 0.1, "y": 0.1}}), ("wake", {"engine": "openwakeword"}),
     ("stt", {"engine": "moonshine", "moonshine": {"model": "someone/else"}}), ("tts", {"engine": "voxtral"}),
-    ("copilot_port", 9999), ("skin", "neb"), ("skin_options", {"pulse": {"hue": 1}}), ("theme", "jarvis"),
+    ("skin", "neb"), ("skin_options", {"pulse": {"hue": 1}}), ("theme", "jarvis"),
     ("panel_dirs", ["/tmp/x"]), ("widget_dirs", ["/tmp/x"]),
 ])
 def test_a_repos_file_cannot_set_what_runs_where_requests_go_or_what_shows_and_says_so(tmp_path, key, value):
@@ -337,8 +337,8 @@ def test_a_repos_file_may_still_set_keys_and_whether_to_speak(tmp_path):
 
 
 def test_the_users_own_files_still_set_what_a_repos_file_cannot(tmp_path):
-    cfg = load_layers(tmp_path, user={"copilot_port": 5000}, private={"wake": {"engine": "openwakeword"}})
-    assert cfg["copilot_port"] == 5000 and cfg["wake"] == {"engine": "openwakeword"}
+    cfg = load_layers(tmp_path, user={"theme": "jarvis"}, private={"wake": {"engine": "openwakeword"}})
+    assert cfg["theme"] == "jarvis" and cfg["wake"] == {"engine": "openwakeword"}
 
 
 def test_a_legacy_voice_in_a_repos_file_is_reported_once_as_ignored(tmp_path):
@@ -379,15 +379,3 @@ def test_the_size_sliders_range_is_the_range_sizes_are_kept_in():
     assert (attribute("min"), attribute("max"), attribute("value")) == (SIZE_MIN, SIZE_MAX, SIZE_NORMAL)
 
 
-def test_copilot_port_comes_from_orb_copilot_port_when_set_and_from_config_otherwise():
-    config = load_for(Path("/nonexistent-repo"), Path("/nonexistent-home"))
-    assert copilot_port_for(config, {"ORB_COPILOT_PORT": "4399"}) == 4399
-    assert copilot_port_for(config, {"ORB_COPILOT_PORT": ""}) == config["copilot_port"]
-    assert copilot_port_for(config, {}) == config["copilot_port"]
-
-
-@pytest.mark.parametrize("raw", ["abc", "0", "65536", "-1", "43 21"])
-def test_copilot_port_from_the_environment_must_be_a_port_number(raw):
-    config = load_for(Path("/nonexistent-repo"), Path("/nonexistent-home"))
-    with pytest.raises(ConfigError, match="ORB_COPILOT_PORT"):
-        copilot_port_for(config, {"ORB_COPILOT_PORT": raw})

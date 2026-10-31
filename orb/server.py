@@ -30,7 +30,7 @@ from orb import PLUGIN_ROOT, actions, agents, engines, feeds, logs, pages, panel
 from orb import interrupt as interrupt_adapter
 from orb.audio import SAMPLE_RATE, TAP_S, speakable, split_sentences
 from orb.side import side_intent, status_sentence
-from orb.config import (WIDGET_PANE_KEYS, WIDGET_PLACE_KEYS, ConfigError, WidgetEntry, clamp_size, clamp_speed, copilot_port_for, engine_settings, expand_dirs, load_for,
+from orb.config import (WIDGET_PANE_KEYS, WIDGET_PLACE_KEYS, ConfigError, WidgetEntry, clamp_size, clamp_speed, engine_settings, expand_dirs, load_for,
                         overlay, save_for_repo, save_skin_size, save_speed, save_widget, size_for, speed_for, tts_settings_for, validate_widget_entry,
                         widgets_on)
 from orb import waking
@@ -39,7 +39,7 @@ from orb.wake import ENROLL_PHRASES, voiceprint_from
 from orb.background import claude_running_tasks, same
 from orb.feed import claude_busy, claude_doing, claude_feed, interrupted_since, newest_final, turn_since, unread, undelivered_final
 from orb.gate import custom_title, read_transcript_from
-from orb.state import port_file, read_json, read_turn, server_file, session_file, state_dir, write_json
+from orb.state import copilot_channel_file, port_file, read_json, read_turn, server_file, session_file, state_dir, write_json
 
 WEB = PLUGIN_ROOT / "web"
 SERVER_STATES = ("idle", "wake_word", "listening", "transcribing", "thinking", "speaking")
@@ -1731,7 +1731,7 @@ def make_link(agent: str, state: Path, config):
     if agent == "claude":
         return ClaudeLink(state)
     from orb.copilot import CopilotLink
-    return CopilotLink(copilot_port_for(config, os.environ), turns=state)
+    return CopilotLink(copilot_channel_file(state), turns=state)
 
 
 def page_sender(message: dict) -> str:

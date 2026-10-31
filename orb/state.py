@@ -59,6 +59,10 @@ def channel_file(state: Path) -> Path:
     return state / "channel.json"
 
 
+def copilot_channel_file(state: Path) -> Path:
+    return state / "copilot-channel.json"
+
+
 def session_file(state: Path) -> Path:
     """Where the Claude Code session's transcript is, written by the plugin's hooks; the server reads the session's
     name from it. Two sessions in one repo overwrite each other here, and the last hook to fire wins."""

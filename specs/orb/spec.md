@@ -26,7 +26,7 @@ it next, but setup docs for others, a release, and the espeak-ng licence check a
 2. **Orb server** (Python, run with `uv`). Serves the page and panels, holds one WebSocket to the page, runs
    speech-to-text and text-to-speech, shows panels, relays requests to the agent.
 3. **Orb page**, opened as a Chrome `--app` window (Edge `--app` where Chrome is absent).
-4. **Agent link**, one per agent (below). The only Node code: the channel server and the Copilot helper.
+4. **Agent link**, one per agent (below). The only Node code: the channel server and the Copilot extension, sharing one door module.
 5. **Panels**: any HTML the agent writes, one-off or saved. One built-in: the transcript.
 6. **Orb skins**: drop-in folders. Built-in default: `pulse`.
 
@@ -51,7 +51,7 @@ what the orb needs. Claude Code installs it with `claude plugin install`; Copilo
 - The skill reaches the `orb` command through its own base directory. Both agents tell the model, when the skill
   loads, "Base directory for this skill: <path>"; the skill text says the command is two folders above it. Skill text
   never uses `${CLAUDE_PLUGIN_ROOT}`, which Copilot leaves unexpanded. Nothing is put on PATH.
-- The channel and the Copilot helper have no npm dependencies, so there is no setup step: the four MCP messages the
+- The channel and the Copilot extension have no npm dependencies, so there is no setup step: the four MCP messages the
   channel needs are spoken raw over stdio (build note 1).
 
 ## Launch
@@ -240,11 +240,19 @@ Mic and ask buttons stay disabled until the link is verified.
 
 ### Copilot CLI
 
-- The user starts `copilot --ui-server --port 4321` (port from config `copilot_port`).
-- A Node helper attaches through the JavaScript SDK inside Copilot's own install (`RuntimeConnection.forUri`,
-  `getForegroundSessionId`, `resumeSession`, `send`, `abort`). It takes SDK path, port, mode, timeout and
-  expected session id on argv, reads the prompt on stdin, and prints one JSON object. It has no npm dependencies of
-  its own. Locating Copilot's install is a platform adapter.
+- The user starts `copilot --experimental` in the repo: Copilot loads plugin extensions only in experimental mode
+  (feature `EXTENSIONS`, availability experimental; `/experimental on` saves the mode in Copilot's settings). The plugin's Copilot extension
+  (`extensions/orb/extension.mjs`) is started by Copilot with each session and joined to it over stdio
+  (`joinSession`), so Copilot opens no listener of its own.
+  `copilot --ui-server` is not used: its listener takes no credential.
+- The extension opens the orb's door into the session on the terms the Claude Code channel keeps (`channel/door.mjs`,
+  shared by both): loopback only, a fresh secret per start, no request with an `Origin` or without the secret. It
+  records `{port, secret, pid, sessionId, repoRoot}` in the repo's state folder as `copilot-channel.json`. Routes:
+  `GET /health` (session id), `POST /prompt`, `POST /abort`, `GET /tasks`.
+- Copilot restarts the extension on `/clear`, under a new session and secret. The orb reads the record on every
+  call; `/prompt` and `/abort` name the session the orb means, and the door refuses another with 409. A refused
+  send is sent again to the new session; a refused abort lets go; a request still waiting ends once the record
+  names another session.
 - The reply is followed in the session's own event log (`~/.copilot/session-state/<id>/events.jsonl`). `send`
   returns the message id, and every reply to it carries that id as `originatingMessageId`; a message steered into
   a running request is answered under that request's id. The request is answered when a message for it asks for
@@ -258,10 +266,10 @@ Mic and ask buttons stay disabled until the link is verified.
   and cluttered its transcript. The tag is what a rule or skill of the user's own, per repo, keys on to say how the
   agent speaks and answers. The orb's feed and transcript show the request without the tag. The skill carries a
   default for sessions that have no rule of their own.
-- **Slash commands are text here too.** A `/command` sent through `sendAndWait` reaches the model as a prompt (it
-  answered `/help` with its own help text). The SDK's `commands.enqueue` runs one as if typed; the orb does not use
-  it in version 1.
-- A Copilot window not started with `--ui-server` cannot be attached; the orb says so and prints the command.
+- **Slash commands are text here too.** A `/command` sent as a prompt reaches the model as text (it answered `/help`
+  with its own help text). The SDK's `commands.enqueue` runs one as if typed; the door does not offer it yet.
+- A Copilot without the plugin, or with experimental mode off, cannot be attached; the orb says so and prints the
+  command, which turns experimental mode on.
 - A question the agent asks in its own window cannot be answered from the orb; the orb says to answer it there.
 - The `Stop` hook fires under Copilot too, at every turn end (test 0.1). Its transcript is Copilot's own
   `events.jsonl`, in which the gate finds no channel turn, so it stays silent.
@@ -367,7 +375,6 @@ Layers, weakest first: the defaults, the user's file, the repo's file, the user'
 | `stt` | `engine` and that engine's settings | `moonshine` |
 | `tts` | `engine` and that engine's settings (voice blend, lang, speed) | `kokoro`, voice above |
 | `skin` | Orb skin name | `pulse` |
-| `copilot_port` | Copilot `--ui-server` port | `4321` |
 | `panel_dirs` | Folders holding saved panels (absolute or `~/`) | `[]` |
 
 The plugin ships `config.example.json`. Unknown keys are reported at startup.
@@ -431,7 +438,7 @@ or `Origin` check. It is reference only and is rewritten to this spec in the bui
 Where the build departed from the text above, and why. Each is reversible.
 
 1. **No npm dependency anywhere.** The channel speaks initialize, initialized, ping and tools/list raw over stdio,
-   as the test 0.1 spike already did; the Copilot helper uses Copilot's own SDK. The "first run installs the
+   as the test 0.1 spike already did; the Copilot extension uses Copilot's own SDK. The "first run installs the
    channel's npm dependency" step and the skill's `setup` step are gone. One fewer failure mode on a fresh machine.
 2. **`channel.json` also records `sessionPid`**, the process that spawned the channel, i.e. the Claude Code session
    for this repo. The interrupt adapter confirms that pid still names a Claude Code image and sends Escape there and

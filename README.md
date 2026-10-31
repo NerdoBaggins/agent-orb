@@ -84,56 +84,32 @@ copilot plugin marketplace add NerdoBaggins/agent-orb
 copilot plugin install agent-orb@nerdobaggins
 ```
 
-Then start Copilot as a UI server. The orb attaches to Copilot through its port, so the two must agree on the
-number; the default on both sides is 4321:
+Then start Copilot in the repo you want the orb for, with its experimental mode on:
 
 ```
-copilot --ui-server --port 4321
+copilot --experimental
 ```
 
-One Copilot at a time needs no more setup; for several at once, see [Several Copilots at once](#several-copilots-at-once).
+A default Copilot loads a plugin's extensions only in experimental mode, and the orb reaches Copilot through one. To keep it on,
+run `/experimental on` inside Copilot once: it saves the mode in Copilot's settings, and a plain `copilot` is then
+enough.
+
+**How the orb reaches it.** The plugin carries a Copilot extension (`extensions/orb/extension.mjs`, no npm
+dependencies). Copilot starts it with each session and joins it to that session over a private pipe, so Copilot
+itself opens no port. The extension then opens the orb's way in, on the same terms as the Claude Code channel: it
+listens on `127.0.0.1` only, makes a fresh random secret each time it starts (after `/clear` too), and refuses any
+request from a browser or without that secret. The secret is written to this repo's state folder under
+`~/.config/orb/`, readable by you only, which is where the orb server on this machine picks it up.
 
 Working on the orb itself? Load it from a checkout instead: see [Developing](#developing).
 
 ### Several Copilots at once
 
-Only one program can listen on a port, so each Copilot you run at the same time, in different repos, needs a port of
-its own. The orb dials `ORB_COPILOT_PORT` when it is set in the shell that started Copilot, and otherwise
-`copilot_port` from your [config](#config), which is 4321 unless you change it. So give both Copilot and the orb the
-same number:
+Copilots in different repos need nothing: each repo has its own state folder, so each orb finds its own Copilot.
+One orb per agent per repo: of two Copilots in the same repo, only the first started is reachable, until it exits.
 
-| | By hand, any free port |
-|---|---|
-| macOS | `ORB_COPILOT_PORT=4400 copilot --ui-server --port 4400` |
-| Windows (PowerShell) | `$env:ORB_COPILOT_PORT = 4400`, then `copilot --ui-server --port 4400` |
-
-Or let a function pick the port: `copilot-orb` takes the first free port from 4321 up and sets both for you.
-Anything after `copilot-orb` goes to Copilot.
-
-macOS, in your `~/.zshrc` (or `~/.bashrc`):
-
-```sh
-copilot-orb() {
-  local port=4321
-  while lsof -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; do port=$((port + 1)); done
-  ORB_COPILOT_PORT=$port copilot --ui-server --port "$port" "$@"
-}
-```
-
-Windows, in your PowerShell profile (`notepad $PROFILE`):
-
-```powershell
-function copilot-orb {
-  $port = 4321
-  $taken = [System.Net.NetworkInformation.IPGlobalProperties]::GetIPGlobalProperties().GetActiveTcpListeners().Port
-  while ($taken -contains $port) { $port++ }
-  $previous = $env:ORB_COPILOT_PORT
-  $env:ORB_COPILOT_PORT = $port
-  try { copilot --ui-server --port $port @args } finally { $env:ORB_COPILOT_PORT = $previous }
-}
-```
-
-If the orb says Copilot is not attached, the two numbers disagree, or Copilot is not running as a UI server.
+Coming from 0.4.0? A shell function that starts `copilot --ui-server --port …` or sets `ORB_COPILOT_PORT`, as the
+0.4.0 README suggested, is no longer needed: drop both, or the uncredentialed UI server keeps running beside the orb.
 
 ## First run
 
@@ -293,7 +269,7 @@ Four layers, weakest first; each overlays the one before it per key. `config.exa
 environment.
 
 A repo's own file (layer 3) may set only `ptt_key`, `mute_key`, `skin_key`, `panels_key` and `speak`. Everything
-else (engines and their settings, the skin, the theme, the wake word, `copilot_port`, widgets, folders) is yours
+else (engines and their settings, the skin, the theme, the wake word, widgets, folders) is yours
 alone, so cloning a repo cannot change what runs on your machine, where requests go or what shows over the orb. A
 repo file that sets one is read without it, and the orb says which key it ignored. A repo file that is not valid
 JSON, gives an allowed key the wrong type, or holds a credential-named key stops the orb from opening until it is
@@ -316,7 +292,6 @@ a choice made in one repo stays there.
 | `stt` | `{"engine": "moonshine", "moonshine": {}}` |
 | `tts` | `{"engine": "kokoro", "speed": 1.18, "kokoro": {"voice": {"af_heart": 0.55, "bf_emma": 0.45}, "lang": "en-gb"}}` — `speed` is one number or per agent, `{"claude": 1.1, "copilot": 1.3}` |
 | `wake` | absent (push-to-talk only); see [Wake word](#wake-word) |
-| `copilot_port` | `4321` — `ORB_COPILOT_PORT` in the environment Copilot was started from takes precedence |
 | `panel_dirs` | `[]` — extra folders for saved panels, absolute or `~/…`; only your own two files may set it |
 | `theme_dirs` | `[]` — extra folders for themes, absolute or `~/…`, searched first; only your own two files may set it |
 | `skin_dirs` | `[]` — extra folders for skins, absolute or `~/…`, searched first; only your own two files may set it |
@@ -538,7 +513,7 @@ speech engines, which is faster.
 | What you see | What it means |
 |---|---|
 | **Not attached: start Claude Code in this repo with …** | Claude Code was started without the channel flag, or in another folder. Quit and restart it with the command shown. |
-| **Not attached: start Copilot in this repo with …** | No Copilot UI server answers on the port the orb dials: `ORB_COPILOT_PORT` when Copilot was started with it, else `copilot_port`. Start Copilot with the command shown. |
+| **Not attached: start Copilot in this repo with …** | No Copilot with the agent-orb plugin is running in this repo, or Copilot's experimental mode is off, so it never loaded the orb's extension. Start Copilot with the command shown. |
 | **orb already open for … in …** | That repo already has an orb for that agent with its window open. Use that window, or stop it with `orb stop` to start another. |
 | **no Chrome found** | Install it; the orb window needs it. |
 | The mic permission prompt comes back | The orb's usual port was taken, so it started on a new one, and the browser asks again. |
@@ -574,7 +549,7 @@ Load the plugin from a checkout for one session instead of installing it:
 
 ```
 claude --plugin-dir <path to agent-orb> --dangerously-load-development-channels plugin:agent-orb@inline
-copilot --plugin-dir <path to agent-orb> --ui-server --port 4321
+copilot --plugin-dir <path to agent-orb> --experimental
 ```
 
 If you also installed it from the marketplace, disable that copy while you work from the checkout
@@ -597,7 +572,7 @@ list where the build departed from it.
 | `.claude-plugin/`, `.mcp.json`, `hooks/`, `skills/` | the plugin, read unchanged by both agents |
 | `orb/` | the Python package: CLI, server, config, state, the engine runner, Stop hook, interrupt adapters, doctor (tests beside the code) |
 | `channel/` | the Claude Code channel MCP server (Node, no dependencies) |
-| `copilot/` | the Copilot SDK helper (Node, no dependencies) |
+| `copilot/` | the routes of the Copilot extension's door (Node, no dependencies) |
 | `web/` | the orb page, the push-to-talk worklet, the panel API and stylesheet |
 | `engines/` | built-in speech engines, one folder each; `moonshine` and `kokoro` are the defaults (the bar's `hearing` and `speech` menus switch between installed engines), `fake` serves the tests |
 | `skins/` | orb skins; `pulse` is the default |
