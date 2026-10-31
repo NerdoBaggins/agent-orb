@@ -24,7 +24,7 @@ thing the orb should show, not the product, and the tool should not belong to on
 ## Affected users and systems
 - The author first; then colleagues and any developer who uses Claude Code or Copilot CLI and wants voice.
 - Repos that adopt it, including Chinook2 through its AI coding harness, which would use the orb rather than hold it.
-- Claude Code (through its channel mechanism, research preview) and Copilot CLI (through its `--ui-server` session).
+- Claude Code (through its channel mechanism, research preview) and Copilot CLI (through the plugin's Copilot extension).
 
 ## Constraints
 - Works on Windows and macOS.

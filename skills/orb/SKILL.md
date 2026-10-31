@@ -47,8 +47,8 @@ quit and restart Claude Code in this repo as:
 claude --dangerously-load-development-channels plugin:agent-orb@<marketplace>
 ```
 
-(`@inline` when the plugin was loaded with `--plugin-dir`.) Under Copilot, **Not attached** means Copilot was not
-started with `--ui-server`; the command to restart it is printed by `orb open`.
+(`@inline` when the plugin was loaded with `--plugin-dir`.) Under Copilot, **Not attached** means the plugin's
+Copilot extension has no door open for this repo; `orb doctor` names why in its `copilot door` check.
 
 ## Panels: showing something
 
