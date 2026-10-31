@@ -921,3 +921,17 @@ def test_text_typed_during_a_woken_turn_goes_when_the_reply_ends(tmp_path):
             await wait_for(lambda: len(server.link.sent) == 2)
             assert server.link.sent[1][0] == "rename the file"
     run(go())
+
+
+def test_typed_requests_queued_together_go_as_separate_turns(tmp_path):
+    async def go():
+        server = make(tmp_path)
+        async with await client_for(server) as c:
+            await connect(c)
+            server.session["busy"] = True
+            await server.typed("second", "typed:1")
+            await server.typed("third", "typed:2")
+            server.session["busy"] = False
+            await server.send_queued()
+            assert [text for text, _ in server.link.sent] == ["second"]
+    run(go())

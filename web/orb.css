@@ -105,6 +105,7 @@ body[data-state="speaking"] #bar-state { background: var(--orb-warn); box-shadow
   font: 13px/1.4 var(--orb-font); outline: none;
 }
 #typed:focus { border-color: var(--orb-accent); }
+body.typing iframe { pointer-events: none; }
 #mic {
   width: 44px; height: 44px; padding: 0; display: grid; place-items: center; border-radius: 50%;
   border: 1px solid rgba(255, 255, 255, 0.14); background: color-mix(in srgb, var(--orb-surface) 35%, transparent); color: var(--orb-fg);

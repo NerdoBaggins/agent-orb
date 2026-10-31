@@ -1140,6 +1140,7 @@
     field: $("typed"),
     toggle: $("type-toggle"),
     orbSideChosen: true,
+    holdsFocus: false,
     sent: new Map(),
     nextRef: 0,
     show() {
@@ -1147,7 +1148,21 @@
       this.toggle.classList.add("on");
       this.field.focus();
     },
+    hold() {
+      this.holdsFocus = true;
+      document.body.classList.add("typing");
+    },
+    release() {
+      this.holdsFocus = false;
+      document.body.classList.remove("typing");
+    },
+    reclaim() {
+      this.field.blur();
+      window.focus();
+      this.field.focus();
+    },
     hide() {
+      this.release();
       this.field.hidden = true;
       this.toggle.classList.remove("on");
     },
@@ -1156,7 +1171,7 @@
       if (!text) return;
       const refusal = !connected() ? "not connected" : !orb.attached ? orb.attachMessage || "not attached to an agent session" : null;
       if (refusal) { notice(`not sent: ${refusal}`, "error"); return; }
-      const ref = `typed:${++this.nextRef}`;
+      const ref = `typed:${panelsBridge.window}:${++this.nextRef}`;
       this.sent.set(ref, text);
       send({ type: "typed", text, ref });
       this.field.value = "";
@@ -1176,11 +1191,20 @@
     },
   };
   typedBox.recall();
-  addEventListener("pointerdown", () => { typedBox.orbSideChosen = true; });
-  addEventListener("blur", () => { if (document.activeElement.tagName === "IFRAME") typedBox.orbSideChosen = false; });
+  addEventListener("pointerdown", (ev) => {
+    typedBox.orbSideChosen = true;
+    if (ev.target.closest("#panels, #widgets")) typedBox.release();
+  });
+  addEventListener("blur", () => {
+    if (document.activeElement.tagName !== "IFRAME") return;
+    if (typedBox.holdsFocus) setTimeout(() => typedBox.reclaim(), 0);
+    else typedBox.orbSideChosen = false;
+  });
+  typedBox.field.addEventListener("focus", () => typedBox.hold());
   typedBox.field.addEventListener("input", () => typedBox.remember());
   typedBox.toggle.addEventListener("click", () => (typedBox.field.hidden ? typedBox.show() : typedBox.hide()));
   typedBox.field.addEventListener("keydown", (ev) => {
+    if (ev.key === "Tab") typedBox.release();
     if (ev.key === "Escape" && !ev.isComposing) typedBox.hide();
     else if (ev.key === "Enter" && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); if (!ev.repeat) typedBox.submit(); }
   });
