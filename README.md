@@ -160,6 +160,7 @@ background. Hover it to open the rest:
 |---|---|
 | Session name | the session the orb is attached to (Claude Code's `/rename` name, Copilot's session name), following a rename within a few seconds |
 | Transcript | shows or hides the transcript (`T`) |
+| Type | shows or hides the box to type a request in (`Enter` opens it) |
 | Voice | mutes or unmutes speech (`M`) |
 | Speed | the voice speed, from 0.7 to 1.6 |
 | Size | the orb's size, marked at normal; each skin keeps its own |
@@ -181,7 +182,7 @@ They work while the orb window has focus and you are not typing in a text field.
 | `Space` (hold) | push to talk | `ptt_key` |
 | `M` | mute or unmute | `mute_key` |
 | `T` | show or hide the transcript | — |
-| `Enter` | open the box to type a request in | — |
+| `Enter` | open the box to type a request in, unless a button, link or menu has focus | — |
 | `B` | next skin | `skin_key` |
 | `P` | hide the open panels, and bring them back as they were | `panels_key` |
 | `Escape` | close the box you are typing in; otherwise restore the orb and panels split; otherwise stop the speech or the agent's turn | — |
@@ -455,7 +456,7 @@ picked afterwards stays. When they cannot be used, the current voice keeps speak
 `orb doctor` flags a theme naming an engine that is not installed. `default` is the original look, names `pulse` and
 speaks in the built-in `kokoro`, with whichever voice was last picked for it.
 
-**What an `orb.css` can name:** `.bar` (the corner pill) with `.bar-title`, `.bar-btn`, `.bar-options` and
+**What an `orb.css` can name:** `#typed` (the box to type in), `.bar` (the corner pill) with `.bar-title`, `.bar-btn`, `.bar-options` and
 `#bar-state` (its state dot); `#mic`, `#stop`, `#caption`, `#hint` and `#notice` under the orb; `#panels`, `#tabs`,
 `.tab` and `.tab.active`, and `#divider` beside it; `#tasks-list`; and `body[data-state="listening"]` and the other
 states.

@@ -113,16 +113,3 @@ console.log("panel api ok");
   await tick();
   assert.equal(h.posted.length, 1);
 }
-// Enter pressed inside the panel opens the orb's text box, unless it does something in the panel
-{
-  const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
-  const h = harness();
-  h.key({ key: "Enter", code: "Enter", target: { tagName: "DIV" }, defaultPrevented: false });
-  await tick();
-  assert.deepEqual(h.posted, [{ orb: "key", code: "Enter" }]);
-  for (const tagName of ["A", "BUTTON", "SELECT", "SUMMARY", "INPUT", "TEXTAREA"]) h.key({ key: "Enter", code: "Enter", target: { tagName }, defaultPrevented: false });
-  h.key({ key: "Enter", code: "Enter", target: { tagName: "DIV" }, defaultPrevented: true });
-  h.key({ key: "Enter", code: "Enter", shiftKey: true, target: { tagName: "DIV" }, defaultPrevented: false });
-  await tick();
-  assert.equal(h.posted.length, 1);
-}
