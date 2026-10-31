@@ -11,6 +11,7 @@ from orb import PLUGIN_ROOT
 from orb.state import channel_file, pid_alive, read_json
 
 PROBE_TIMEOUT_S = 2
+COPILOT_START = "copilot --experimental"
 
 
 class LinkError(RuntimeError):
@@ -95,4 +96,4 @@ def select_agent(requested: str | None, claude_ok: bool, copilot_ok: bool) -> st
     if copilot_ok:
         return "copilot"
     raise LinkError("no agent answers: start Claude Code with the channel flag (" + restart_command() +
-                    ") or Copilot with the agent-orb plugin, then run orb open again")
+                    ") or Copilot with the agent-orb plugin (" + COPILOT_START + "), then run orb open again")

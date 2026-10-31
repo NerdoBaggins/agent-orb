@@ -26,7 +26,7 @@ it next, but setup docs for others, a release, and the espeak-ng licence check a
 2. **Orb server** (Python, run with `uv`). Serves the page and panels, holds one WebSocket to the page, runs
    speech-to-text and text-to-speech, shows panels, relays requests to the agent.
 3. **Orb page**, opened as a Chrome `--app` window (Edge `--app` where Chrome is absent).
-4. **Agent link**, one per agent (below). The only Node code: the channel server and the Copilot helper.
+4. **Agent link**, one per agent (below). The only Node code: the channel server and the Copilot extension, sharing one door module.
 5. **Panels**: any HTML the agent writes, one-off or saved. Two built-ins: the transcript and the release notes.
 6. **Orb skins**: drop-in folders. Built-in default: `pulse`.
 
@@ -51,7 +51,7 @@ what the orb needs. Claude Code installs it with `claude plugin install`; Copilo
 - The skill reaches the `orb` command through its own base directory. Both agents tell the model, when the skill
   loads, "Base directory for this skill: <path>"; the skill text says the command is two folders above it. Skill text
   never uses `${CLAUDE_PLUGIN_ROOT}`, which Copilot leaves unexpanded. Nothing is put on PATH.
-- The channel and the Copilot helper have no npm dependencies, so there is no setup step: the four MCP messages the
+- The channel and the Copilot extension have no npm dependencies, so there is no setup step: the four MCP messages the
   channel needs are spoken raw over stdio (build note 1).
 
 ## Launch
