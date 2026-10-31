@@ -331,6 +331,7 @@ def test_pressing_the_stop_button_stops_the_orb_asks_nothing_more_and_turns_it_b
             await original()
 
         server.stop = record
+        server.link.interrupt = lambda: agents.Stopped.ABORTED
         await page.locator(SPEAKERS).nth(1).click()
         while not server.link.sent:
             await asyncio.sleep(0.05)
@@ -388,3 +389,90 @@ def test_every_button_shows_a_speaker_and_the_one_being_explained_shows_a_stop_s
 
     _, (before, after) = asyncio.run(releases_page(tmp_path, glyphs))
     assert set(before) == {"🔊"} and after[1] == "■" and set(after[:1] + after[2:]) == {"🔊"}
+
+
+async def explaining_second(page):
+    await open_releases(page)
+    await page.locator(SPEAKERS).nth(1).click()
+    server = page.orb_server
+    while not server.link.sent:
+        await asyncio.sleep(0.05)
+    await page.wait_for_function("() => document.body.dataset.state === 'thinking'")
+    return server
+
+
+@pytest.mark.timeout(60)
+def test_pressing_stop_while_the_agent_cannot_be_stopped_leaves_the_button_a_stop_until_it_has_spoken(tmp_path):
+    async def press_stop(page, base):
+        server = await explaining_second(page)
+        server.link.interrupt = lambda: agents.Stopped.STILL_WAITING
+        await page.locator(SPEAKERS).nth(1).click()
+        await page.wait_for_timeout(1000)
+        return await page.evaluate(STOP_BUTTONS)
+
+    _, stops = asyncio.run(releases_page(tmp_path, press_stop))
+    assert stops[1] is True and stops.count(True) == 1
+
+
+@pytest.mark.timeout(60)
+def test_pressing_another_speaker_stops_the_explanation_in_progress_and_starts_the_new_one(tmp_path):
+    async def switch(page, base):
+        server = await explaining_second(page)
+        server.link.interrupt = lambda: agents.Stopped.ABORTED
+        stops = []
+        original = server.stop
+
+        async def record():
+            stops.append(1)
+            await original()
+
+        server.stop = record
+        await page.locator(SPEAKERS).nth(2).click()
+        while len(server.link.sent) < 2:
+            await asyncio.sleep(0.05)
+        return stops, await page.evaluate(STOP_BUTTONS)
+
+    _, (stops, buttons) = asyncio.run(releases_page(tmp_path, switch))
+    assert stops and buttons[2] is True and buttons.count(True) == 1
+
+
+@pytest.mark.timeout(60)
+def test_an_idle_that_comes_before_the_reply_does_not_turn_the_stop_button_back(tmp_path):
+    async def idle_early(page, base):
+        server = await explaining_second(page)
+        await server.set_state("idle")
+        await page.wait_for_timeout(500)
+        return await page.evaluate(STOP_BUTTONS)
+
+    _, stops = asyncio.run(releases_page(tmp_path, idle_early))
+    assert stops[1] is True
+
+
+@pytest.mark.timeout(60)
+def test_the_stop_button_waits_for_the_orb_to_be_idle_after_the_reply(tmp_path):
+    async def reply_then_idle(page, base):
+        server = await explaining_second(page)
+        ref = server.transcript[0]["ref"]
+        await server.broadcast({"type": "reply", "req": server.link.sent[0][1], "text": "A panel.", "ref": ref})
+        await page.wait_for_timeout(500)
+        while_busy = await page.evaluate(STOP_BUTTONS)
+        await server.set_state("idle")
+        await reverted(page)
+        return while_busy
+
+    _, while_busy = asyncio.run(releases_page(tmp_path, reply_then_idle))
+    assert while_busy[1] is True
+
+
+@pytest.mark.timeout(60)
+def test_a_reply_or_an_interruption_for_another_request_leaves_the_stop_button_alone(tmp_path):
+    async def other_request(page, base):
+        server = await explaining_second(page)
+        await server.broadcast({"type": "reply", "req": "x", "text": "t", "ref": "releases:999"})
+        await server.broadcast({"type": "interrupted", "req": "x", "ref": "releases:999"})
+        await server.set_state("idle")
+        await page.wait_for_timeout(500)
+        return await page.evaluate(STOP_BUTTONS)
+
+    _, stops = asyncio.run(releases_page(tmp_path, other_request))
+    assert stops[1] is True
