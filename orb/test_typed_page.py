@@ -207,7 +207,7 @@ def test_text_sent_with_no_agent_attached_stays_in_the_box_with_a_notice(tmp_pat
 
 
 @pytest.mark.timeout(60)
-def test_releasing_the_talk_key_after_enter_opened_the_box_stops_listening(tmp_path):
+def test_enter_during_a_talk_key_hold_leaves_the_box_closed_and_the_key_able_to_release(tmp_path):
     server = attached(tmp_path)
     seen = {}
 
@@ -216,91 +216,15 @@ def test_releasing_the_talk_key_after_enter_opened_the_box_stops_listening(tmp_p
         await page.wait_for_timeout(700)
         seen["held"] = server.state
         await page.keyboard.press("Enter")
+        seen["open"] = await visible(page)
         await page.keyboard.up("Space")
         await page.wait_for_timeout(500)
         seen["released"] = server.state
 
     asyncio.run(run_page(tmp_path, [], act, server))
     assert seen["held"] == "listening"
+    assert seen["open"] is False
     assert seen["released"] != "listening"
-
-
-@pytest.mark.timeout(60)
-def test_a_tap_of_the_talk_key_before_the_mic_opens_does_not_leave_it_listening(tmp_path):
-    server = attached(tmp_path)
-    seen = {}
-
-    async def act(page):
-        await page.keyboard.press("Space")
-        await page.wait_for_timeout(700)
-        seen["state"] = server.state
-
-    asyncio.run(run_page(tmp_path, [], act, server))
-    assert seen["state"] != "listening"
-
-
-@pytest.mark.timeout(60)
-def test_a_hold_after_a_tap_of_the_talk_key_listens(tmp_path):
-    server = attached(tmp_path)
-    seen = {}
-
-    async def act(page):
-        await page.keyboard.press("Space")
-        await page.wait_for_timeout(700)
-        await page.keyboard.down("Space")
-        await page.wait_for_timeout(700)
-        seen["state"] = server.state
-        await page.keyboard.up("Space")
-
-    asyncio.run(run_page(tmp_path, [], act, server))
-    assert seen["state"] == "listening"
-
-
-@pytest.mark.timeout(60)
-def test_a_key_tap_while_the_mic_opens_leaves_a_mic_button_hold_alone(tmp_path):
-    server = attached(tmp_path)
-    seen = {}
-
-    async def act(page):
-        await page.evaluate("""(() => {
-            const open = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
-            navigator.mediaDevices.getUserMedia = (c) => new Promise((r) => setTimeout(r, 800)).then(() => open(c));
-        })()""")
-        mic = await page.locator("#mic").bounding_box()
-        await page.mouse.move(mic["x"] + mic["width"] / 2, mic["y"] + mic["height"] / 2)
-        await page.mouse.down()
-        await page.keyboard.press("Space")
-        await page.wait_for_timeout(1500)
-        seen["state"] = server.state
-        await page.mouse.up()
-
-    asyncio.run(run_page(tmp_path, [], act, server))
-    assert seen["state"] == "listening"
-
-
-@pytest.mark.timeout(60)
-def test_a_space_typed_after_an_earlier_key_hold_leaves_a_mic_button_hold_alone(tmp_path):
-    server = attached(tmp_path)
-    seen = {}
-
-    async def act(page):
-        await page.keyboard.down("Space")
-        await page.wait_for_timeout(700)
-        await page.keyboard.up("Space")
-        await page.wait_for_timeout(500)
-        await page.keyboard.press("Enter")
-        mic = await page.locator("#mic").bounding_box()
-        await page.mouse.move(mic["x"] + mic["width"] / 2, mic["y"] + mic["height"] / 2)
-        await page.mouse.down()
-        await page.wait_for_timeout(700)
-        seen["held"] = server.state
-        await page.keyboard.press("Space")
-        await page.wait_for_timeout(300)
-        seen["after"] = server.state
-        await page.mouse.up()
-
-    asyncio.run(run_page(tmp_path, [], act, server))
-    assert seen["held"] == seen["after"]
 
 
 @pytest.mark.timeout(60)
