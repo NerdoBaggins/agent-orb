@@ -167,6 +167,25 @@ def test_a_recorded_port_an_open_web_server_now_holds_is_given_up_whatever_the_r
         squatter.shutdown()
 
 
+def test_a_recorded_port_another_repos_door_now_holds_is_given_up(tmp_path):
+    other = tmp_path / "other" / "copilot-channel.json"
+    other.parent.mkdir()
+    holder = Door(other, session="other-repo")
+    try:
+        held = json.loads(other.read_text(encoding="utf-8"))["port"]
+        record = tmp_path / "copilot-channel.json"
+        record.write_text(json.dumps({"port": held, "secret": "old", "pid": os.getpid(), "sessionId": "gone"}),
+                          encoding="utf-8")
+        opened = Door(record)
+        try:
+            moved = read_door(record)
+            assert moved is not None and moved.port != held
+        finally:
+            opened.close()
+    finally:
+        holder.close()
+
+
 def test_the_extension_and_the_orb_name_the_same_record(tmp_path):
     script = f"import {{ RECORD_NAME }} from {json.dumps((HERE / 'routes.mjs').as_uri())};" \
              "process.stdout.write(RECORD_NAME);"
