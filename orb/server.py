@@ -1068,9 +1068,10 @@ class OrbServer:
             await self.notify("info", "nothing to send: the text was empty", ref)
 
     async def typed(self, text: str) -> None:
-        """Queues what the user typed in the orb's own box, unmarked: only that box sends this message."""
         text = text.strip()
         if text:
+            if self.waker:
+                self.waker.follow_up.close()
             await self.submit(Request(text, from_user=True))
 
     def blocked(self) -> bool:
