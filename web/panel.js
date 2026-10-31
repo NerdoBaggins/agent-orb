@@ -29,7 +29,6 @@ if (typeof window !== "undefined") {
     onKey: (fn) => root.addEventListener("keydown", fn),
   });
 })(typeof window !== "undefined" ? window : globalThis, function () {
-  const ACTS_ON_ENTER = ["A", "BUTTON", "SELECT", "SUMMARY"];
   return function createOrbApi({ post, isActive, listen, onKey }) {
     const pending = new Map();
     const listeners = { state: new Set(), data: new Set() };
@@ -58,16 +57,15 @@ if (typeof window !== "undefined") {
       }
     });
 
-    // Focus inside a panel's frame keeps keys from the orb page, so Escape (back to the split view, or stop) and
-    // Enter (the orb's text box) are handed over unless the panel used the key itself or the user is typing.
+    // Focus inside a panel's frame keeps keys from the orb page, so Escape (back to the split view, or stop) is
+    // handed over unless the panel used it itself or the user is typing.
     if (onKey) onKey((ev) => {
       const t = ev.target;
       const typing = t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
-      const enter = ev.key === "Enter" && !ev.shiftKey && !ev.metaKey && !ev.ctrlKey && !ev.altKey && !ACTS_ON_ENTER.includes(t && t.tagName);
-      if ((ev.code !== "Escape" && !enter) || typing) return;
+      if (ev.code !== "Escape" || typing) return;
       // This listener is added before the panel's own, so whether the panel used the key is known only once the
       // event has been dispatched.
-      setTimeout(() => { if (!ev.defaultPrevented) post({ orb: "key", code: enter ? "Enter" : "Escape" }); }, 0);
+      setTimeout(() => { if (!ev.defaultPrevented) post({ orb: "key", code: "Escape" }); }, 0);
     });
 
     return {
