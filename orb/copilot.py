@@ -1,79 +1,31 @@
-"""The Copilot link: attaches to a `copilot --ui-server` window through the SDK inside Copilot's own install, via
-the Node helper. Locating that install is a platform adapter; a request's reply is
+"""The Copilot link: reaches the session through the door the plugin's Copilot extension opens in it
+(extensions/orb/extension.mjs), found by the record it writes in the repo's state folder. A request's reply is
 followed in the session's own event log under ~/.copilot."""
 import json
 import os
-import platform
-import re
-import shutil
-import socket
-import subprocess
-import sys
 import time
+import urllib.error
+import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 
-from orb import PLUGIN_ROOT, agents
+from orb import agents
 from orb.background import copilot_running_tasks
 from orb.feed import ORB_TAG, aborted_since, copilot_busy, copilot_feed, task_summary, turn_since
 from orb.state import read_turn
 
-HELPER = PLUGIN_ROOT / "copilot" / "copilot_helper.mjs"
-NODE_ARCH = {"amd64": "x64", "x86_64": "x64", "arm64": "arm64", "aarch64": "arm64"}
 SEND_TIMEOUT_S = 30
 POLL_S = 1
 CONTEXT_BYTES = 300_000  # how far before a send to look for the tool call it is waiting behind
 REPLY_LIMIT_S = 1800
 ACTIVITY_MAX_BYTES = 16_000_000
 ACTIVITY_BYTES = 600_000  # the tail of the event log the feed and the busy check read
+DOOR_ROUTES = {"foreground": ("GET", "/health"), "send": ("POST", "/prompt"), "abort": ("POST", "/abort"),
+               "tasks": ("GET", "/tasks")}
 
 
-def start_command(port: int) -> str:
-    return f"copilot --ui-server --port {port}"
-
-
-# ---- locating the SDK Copilot ships inside its own package ----
-
-def installed_version(version_output: str) -> str | None:
-    match = re.search(r"\b(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]*[0-9A-Za-z])?)\b", version_output)
-    return match.group(1) if match else None
-
-
-def pkg_roots(env, sys_platform: str, home: Path) -> list[Path]:
-    """The package directories Copilot's own loader searches, in its order."""
-    xdg_cache = Path(env.get("XDG_CACHE_HOME") or home / ".cache")
-    if sys_platform == "darwin":
-        cache = home / "Library" / "Caches" / "copilot"
-    elif sys_platform == "win32":
-        cache = Path(env.get("LOCALAPPDATA") or home / ".cache") / "copilot"
-    else:
-        cache = xdg_cache / "copilot"
-    roots = [Path(env[var]) / "pkg" for var in ("COPILOT_PKG_CACHE_HOME", "COPILOT_CACHE_HOME") if env.get(var)]
-    roots += [cache / "pkg", xdg_cache / "copilot" / "pkg"]
-    if env.get("COPILOT_HOME"):
-        roots.append(Path(env["COPILOT_HOME"]) / "pkg")
-    roots.append(home / ".copilot" / "pkg")
-    return list(dict.fromkeys(roots))
-
-
-def sdk_candidates(env, sys_platform: str, machine: str, home: Path, version: str) -> list[Path]:
-    tag = f"{sys_platform}-{NODE_ARCH.get(machine.lower(), machine.lower())}"
-    return [root / tag / version / "copilot-sdk" / "index.js" for root in pkg_roots(env, sys_platform, home)]
-
-
-def resolve_sdk(env=None, home: Path | None = None) -> Path:
-    env, home = os.environ if env is None else env, home or Path.home()
-    exe = shutil.which("copilot")
-    if not exe:
-        raise agents.LinkError("Copilot CLI not installed (no `copilot` on PATH)")
-    out = subprocess.run([exe, "--version"], capture_output=True, text=True, timeout=15).stdout
-    version = installed_version(out)
-    if not version:
-        raise agents.LinkError(f"could not read a version from `copilot --version`: {out.strip()!r}")
-    candidates = sdk_candidates(env, sys.platform, platform.machine(), home, version)
-    for path in candidates:
-        if path.exists():
-            return path
-    raise agents.LinkError(f"no copilot-sdk for Copilot {version}; looked in {[str(p) for p in candidates]}")
+def start_command(selector: int | None) -> str:
+    return f"copilot, from a shell with ORB_COPILOT_PORT={selector}" if selector else "copilot"
 
 
 # ---- Copilot's own session state ----
@@ -229,44 +181,60 @@ def request_running(events: list[dict], message_id: str) -> bool:
 
 # ---- the link ----
 
-def port_open(port: int) -> bool:
-    with socket.socket() as s:
-        s.settimeout(0.5)
-        return s.connect_ex(("127.0.0.1", port)) == 0
+@dataclass
+class Door:
+    port: int
+    secret: str
+
+
+def read_door(record: Path) -> Door | None:
+    """The door the extension holds open, while the process that wrote its record is alive."""
+    found = agents.live_record(record, ("port", "secret", "pid", "sessionId"))
+    return Door(int(found["port"]), str(found["secret"])) if found else None
+
+
+def call_door(door: Door, method: str, route: str, body: dict | None, timeout_s: float) -> dict:
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    request = urllib.request.Request(f"http://127.0.0.1:{door.port}{route}", data, method=method,
+                                     headers={"X-Orb-Secret": door.secret, "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(request, timeout=timeout_s) as r:
+            return json.loads(r.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        raise agents.LinkError(f"Copilot's door refused {route} ({e.code}): {e.read().decode('utf-8', 'replace')}")
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        raise agents.LinkError(f"Copilot's door on port {door.port} did not answer {route}: {e}")
 
 
 class CopilotLink:
     name = "Copilot"
 
-    def __init__(self, port: int, home: Path | None = None, run=None, turns: Path | None = None):
-        """`turns` is the orb's state folder for the repo, where the plugin's hooks record Copilot's turns."""
-        self.port = port
+    def __init__(self, record: Path, selector: int | None = None, home: Path | None = None, run=None,
+                 turns: Path | None = None):
+        """`record` is the door record the extension writes; `selector` the ORB_COPILOT_PORT it was started with.
+        `turns` is the orb's state folder for the repo, where the plugin's hooks record Copilot's turns."""
+        self.record = record
+        self.selector = selector
         self.home = home or copilot_home()
         self.turns = turns
         self.session_id: str | None = None
-        self.sdk: Path | None = None
         self.orb_messages: set[str] = set()  # ids of the messages the orb sent, so the feed can mark them
         self.let_go: set[str] = set()  # those Stop stopped waiting for: their replies are spoken like any other
         self.answer_ids: dict[str, str] = {}  # orb message id -> the id its replies carry
         self.pending: dict | None = None  # the request in flight: its log, offset, message id, whether aborted
-        self._run = run or self._run_node
+        self._run = run or self._call_door
 
-    def _run_node(self, mode: str, timeout_s: float, prompt: str = "") -> dict:
-        self.sdk = self.sdk or resolve_sdk()
-        try:
-            r = subprocess.run(["node", str(HELPER), self.sdk.as_uri(), str(self.port), mode, str(int(timeout_s * 1000)),
-                                self.session_id or ""], input=prompt, capture_output=True, text=True, encoding="utf-8",
-                               timeout=timeout_s + 30)
-        except FileNotFoundError:
-            raise agents.LinkError("node is not on PATH")
-        except subprocess.TimeoutExpired:
-            raise agents.LinkError(f"Copilot helper gave no answer within {timeout_s + 30:g}s")
-        if r.returncode != 0:
-            raise agents.LinkError(r.stderr.strip() or f"copilot helper exited {r.returncode}")
-        return json.loads(r.stdout)
+    def _call_door(self, mode: str, timeout_s: float, prompt: str = "") -> dict:
+        """Reads the record on every call: Copilot restarts the extension on /clear, with a new secret."""
+        door = read_door(self.record)
+        if not door:
+            raise agents.LinkError(self.describe(False))
+        method, route = DOOR_ROUTES[mode]
+        return call_door(door, method, route, {"text": prompt} if mode == "send" else {} if method == "POST" else None,
+                         timeout_s)
 
     def probe(self) -> bool:
-        if not port_open(self.port):
+        if not read_door(self.record):
             self.session_id = None
             return False
         try:
@@ -279,7 +247,7 @@ class CopilotLink:
         if attached and self.session_id:
             name = session_name(self.home, self.session_id)
             return f"Attached: Copilot · {name}" if name else f"Attached: Copilot ({self.session_id[:8]})"
-        return "Not attached: start Copilot in this repo with " + start_command(self.port)
+        return "Not attached: start Copilot in this repo with the agent-orb plugin: " + start_command(self.selector)
 
     def send(self, text: str, request_id: str) -> str | None:
         """Blocks until Copilot has answered this request, following it in the session's event log, so background

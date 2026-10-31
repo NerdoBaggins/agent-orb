@@ -8,21 +8,10 @@ import pytest
 from orb import agents
 from orb.agents import Stopped
 from orb.feed import ORB_TAG
-from orb.copilot import (CopilotLink, cancelled, start_command, installed_version, open_work, read_events, reply_to,
-                         request_running, sdk_candidates, session_name, waiting_on)
+from orb.copilot import (CopilotLink, cancelled, open_work, read_events, reply_to, request_running, session_name,
+                         start_command, waiting_on)
 
-
-def test_installed_version_reads_the_cli_output():
-    assert installed_version("GitHub Copilot CLI 1.0.94.\n") == "1.0.94"
-    assert installed_version("nothing here") is None
-
-
-def test_sdk_candidates_follow_the_platform_cache_layout():
-    home = Path("/home/u")
-    win = sdk_candidates({"LOCALAPPDATA": r"C:\LA"}, "win32", "AMD64", home, "1.0.94")
-    assert win[0] == Path(r"C:\LA") / "copilot" / "pkg" / "win32-x64" / "1.0.94" / "copilot-sdk" / "index.js"
-    mac = sdk_candidates({}, "darwin", "arm64", home, "1.0.94")
-    assert mac[0] == home / "Library" / "Caches" / "copilot" / "pkg" / "darwin-arm64" / "1.0.94" / "copilot-sdk" / "index.js"
+DOOR = Path("copilot-channel.json")
 
 
 # Event shapes as Copilot 1.0.95 writes them; the ids are what tie a reply to the message that asked for it.
@@ -101,9 +90,9 @@ def link_with_log(tmp_path, monkeypatch, events_after_send, calls):
             return {"sessionId": "abc", "messageId": "m1"}
         return {"sessionId": "abc", "aborted": True}
 
-    monkeypatch.setattr("orb.copilot.port_open", lambda port: True)
+    monkeypatch.setattr("orb.copilot.read_door", lambda record: object())
     monkeypatch.setattr("orb.copilot.POLL_S", 0)
-    link = CopilotLink(4399, home=tmp_path, run=run)
+    link = CopilotLink(DOOR, home=tmp_path, run=run)
     link.probe()
     return link, log
 
@@ -163,7 +152,7 @@ def test_a_released_wait_never_takes_the_next_requests_reply(tmp_path, monkeypat
             append(log, [user("m2"), START, said("m2", "Second answer."), END])
         return {"sessionId": "abc", "messageId": message_id}
 
-    link = CopilotLink(4399, home=tmp_path, run=run)
+    link = CopilotLink(DOOR, home=tmp_path, run=run)
     link.session_id = "abc"
     monkeypatch.setattr("orb.copilot.POLL_S", 0.01)
     first = {}
@@ -187,8 +176,8 @@ def test_session_name_is_the_workspace_name_line(tmp_path):
 
 
 def test_describe_shows_the_session_name_when_copilot_has_one(tmp_path, monkeypatch):
-    link = CopilotLink(4399, home=tmp_path, run=lambda mode, timeout_s, prompt="": {"sessionId": "abc"})
-    monkeypatch.setattr("orb.copilot.port_open", lambda port: True)
+    link = CopilotLink(DOOR, home=tmp_path, run=lambda mode, timeout_s, prompt="": {"sessionId": "abc"})
+    monkeypatch.setattr("orb.copilot.read_door", lambda record: object())
     assert link.probe()
     assert link.describe(True) == "Attached: Copilot (abc)"
     ws = tmp_path / "session-state" / "abc"
@@ -206,17 +195,17 @@ def test_send_hands_copilot_the_request_as_spoken_behind_the_orb_tag_and_nothing
     assert prompts[-1] == f"{ORB_TAG} What time is it?"
 
 
-def test_probe_is_false_when_the_port_is_closed(monkeypatch):
-    link = CopilotLink(4399, run=lambda *a, **k: {"sessionId": "abc"})
-    monkeypatch.setattr("orb.copilot.port_open", lambda port: False)
+def test_probe_is_false_when_no_door_is_recorded(monkeypatch):
+    link = CopilotLink(DOOR, run=lambda *a, **k: {"sessionId": "abc"})
+    monkeypatch.setattr("orb.copilot.read_door", lambda record: None)
     assert link.probe() is False
-    assert "--ui-server --port 4399" in link.describe(False)
+    assert link.describe(False).endswith(": copilot")
 
 
 def test_helper_failure_surfaces_as_a_link_error():
     def run(mode, timeout, prompt=""):
-        raise agents.LinkError("the Copilot window on port 4399 shows xyz, not abc; nothing sent")
-    link = CopilotLink(4399, run=run)
+        raise agents.LinkError("Copilot's door refused /prompt (403): missing or wrong secret; nothing sent")
+    link = CopilotLink(DOOR, run=run)
     link.session_id = "abc"
     with pytest.raises(agents.LinkError, match="nothing sent"):
         link.send("hi", "r1")
@@ -275,7 +264,7 @@ def activity_replies(tmp_path, events, orb_messages, let_go=()):
     log = tmp_path / "session-state" / "s1" / "events.jsonl"
     log.parent.mkdir(parents=True, exist_ok=True)
     log.write_text("".join(json.dumps(e) + "\n" for e in events), encoding="utf-8")
-    link = CopilotLink(4399, home=tmp_path)
+    link = CopilotLink(DOOR, home=tmp_path)
     link.session_id, link.orb_messages, link.let_go = "s1", set(orb_messages), set(let_go)
     return [(i["text"], i["orb"]) for i in link.activity()["feed"] if i["kind"] == "reply"]
 
@@ -316,7 +305,7 @@ def test_a_steered_reply_stays_the_orbs_after_the_steer_leaves_the_log_tail(tmp_
     answer = [START, said("other", "Moved it to the background."), END]
     log = tmp_path / "session-state" / "s1" / "events.jsonl"
     log.parent.mkdir(parents=True)
-    link = CopilotLink(4399, home=tmp_path)
+    link = CopilotLink(DOOR, home=tmp_path)
     link.session_id, link.orb_messages = "s1", {"m1"}
     log.write_text("".join(json.dumps(e) + "\n" for e in steer + answer), encoding="utf-8")
     link.activity()
@@ -342,7 +331,7 @@ def copilot_link(tmp_path, turn=None):
     if turn:
         record_turn({"hook_event_name": turn, "session_id": "abc"}, repo, home, datetime.now(timezone.utc),
                     "copilot")
-    link = CopilotLink(4399, home=tmp_path, run=lambda *a, **k: {}, turns=state_dir(home, repo))
+    link = CopilotLink(DOOR, home=tmp_path, run=lambda *a, **k: {}, turns=state_dir(home, repo))
     link.session_id = "abc"
     return link
 
@@ -368,5 +357,6 @@ def test_a_copilot_session_the_hooks_never_reached_is_judged_from_its_log(tmp_pa
     assert copilot_link(tmp_path).busy(TURN_RUNNING)
 
 
-def test_the_start_hint_is_exactly_copilot_ui_server_on_the_port():
-    assert start_command(4400) == "copilot --ui-server --port 4400"
+def test_the_start_hint_is_plain_copilot_and_names_the_selector_when_there_is_one():
+    assert start_command(None) == "copilot"
+    assert start_command(4400) == "copilot, from a shell with ORB_COPILOT_PORT=4400"

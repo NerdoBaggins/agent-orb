@@ -59,6 +59,11 @@ def channel_file(state: Path) -> Path:
     return state / "channel.json"
 
 
+def copilot_channel_file(state: Path, selector: int | None) -> Path:
+    """Where the Copilot extension records its door: one per ORB_COPILOT_PORT, so each Copilot keeps its own orb."""
+    return state / (f"copilot-channel-{selector}.json" if selector else "copilot-channel.json")
+
+
 def session_file(state: Path) -> Path:
     """Where the Claude Code session's transcript is, written by the plugin's hooks; the server reads the session's
     name from it. Two sessions in one repo overwrite each other here, and the last hook to fire wins."""
