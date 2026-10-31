@@ -10,7 +10,7 @@ from orb import pages
 from orb.config import ConfigError, panel_dirs_for
 from orb.pages import PageError, collect_files, scoped_dirs, settled, signature
 
-BUILTIN = ("transcript",)
+BUILTIN = ("transcript", "releases")
 MAX_TITLE_CHARS = 200
 
 
