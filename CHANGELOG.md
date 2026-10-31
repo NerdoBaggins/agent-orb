@@ -15,9 +15,10 @@ that has one adds it under Unreleased.
 ### Changed
 
 - The orb reaches Copilot through the plugin's own Copilot extension, behind a per-start secret like the Claude Code
-  channel's, instead of through `copilot --ui-server`, whose port takes no credential. Start Copilot plainly with
-  `copilot`. The `copilot_port` setting is gone; `ORB_COPILOT_PORT` now only tells apart two Copilots in one repo
-  ([#111](https://github.com/NerdoBaggins/agent-orb/issues/111)).
+  channel's, instead of through `copilot --ui-server`, whose port takes no credential. Start Copilot with
+  `copilot --experimental`, or run `/experimental on` in Copilot once: Copilot loads extensions only in experimental
+  mode. The `copilot_port` setting and `ORB_COPILOT_PORT` are gone: drop them, and `--ui-server`, from any shell
+  function that starts Copilot for the orb ([#111](https://github.com/NerdoBaggins/agent-orb/issues/111)).
 
 ## 0.4.0 — 2026-10-30
 
