@@ -182,7 +182,7 @@ They work while the orb window has focus and you are not typing in a text field.
 | `Space` (hold) | push to talk | `ptt_key` |
 | `M` | mute or unmute | `mute_key` |
 | `T` | show or hide the transcript | — |
-| `Enter` | open the box to type a request in, unless a button, link or menu has focus | — |
+| `Enter` | open the box to type a request in, unless a control or a panel has focus | — |
 | `B` | next skin | `skin_key` |
 | `P` | hide the open panels, and bring them back as they were | `panels_key` |
 | `Escape` | close the box you are typing in; otherwise restore the orb and panels split; otherwise stop the speech or the agent's turn | — |

@@ -1479,7 +1479,7 @@ class OrbServer:
             raise
         finally:
             if self.state == "speaking":
-                if follow_up and self.waker is not None and self.resume_state() == "idle":
+                if follow_up and self.waker is not None and self.resume_state() == "idle" and not any(r.from_user for r in self.queue):
                     self.waker.follow_up.open(time.monotonic())
                     self.spawn(self.send_queued_after(self.waker.follow_up.seconds))
                 await self.set_state(self.resume_state())
