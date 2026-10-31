@@ -99,12 +99,13 @@ The agent runs the skill's script: `orb open [--agent claude|copilot]`.
 ## Typing
 
 The bar's `type` button, or `Enter` while no field or control has focus, opens a text box under the caption. A panel or
-widget keeps its own `Enter`, since a panel able to move the focus could carry what the user types into the box. `Enter` sends,
+widget keeps its own `Enter`. `Enter` sends,
 `Shift+Enter` starts a new line, and `Escape` closes the box and keeps the draft. The box stays open after a send. It
 sends the page's own `typed` message, which a panel cannot produce, so what is typed reaches the agent unmarked, as the
 user's words, and from there is treated like speech: it ends the wake word's follow-up window, is held while the agent
 is busy, joins the words queued beside it, and is answered aloud. While the orb is not attached the draft stays in the
-box and a notice says it was not sent. While a panel fills the window the box is out of sight with the rest of the orb.
+box and a notice says it was not sent. Text the agent never received comes back to the box, and the draft survives a
+reload of the page. While a panel fills the window the box is out of sight with the rest of the orb.
 
 ## Talking (push-to-talk)
 
@@ -228,8 +229,8 @@ Mic and ask buttons stay disabled until the link is verified.
 - **Trust and answer style.** Claude Code wraps channel messages as untrusted. The channel server's MCP
   `instructions` (always in the session's context, unlike skill text, which loads on demand) tell the agent that
   `orb-channel` messages are the user's own voice or typed requests and clicks from the local orb, and how to answer: do what
-  was asked, then reply in plain spoken language, no markdown, names and keys read naturally, no preamble. With that
-  text alone, ten varied requests got ten plain spoken replies (test 0.4). The skill repeats the same text for
+  was asked, then reply in plain spoken language, no markdown, names and keys read naturally, no preamble. With an
+  earlier wording of that text alone, ten varied requests got ten plain spoken replies (test 0.4). The skill repeats the same text for
   reference.
 - **Slash commands are text.** A request is always delivered as text, never run as a command. Through the channel,
   a built-in such as `/compact` is answered ("I can't run that"), while a skill's slash name is recognised by the

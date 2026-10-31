@@ -1067,12 +1067,12 @@ class OrbServer:
         elif ref is not None:
             await self.notify("info", "nothing to send: the text was empty", ref)
 
-    async def typed(self, text: str) -> None:
+    async def typed(self, text: str, ref) -> None:
         text = text.strip()
         if text:
             if self.waker:
                 self.waker.follow_up.close()
-            await self.submit(Request(text, from_user=True))
+            await self.submit(Request(text, ref=ref, from_user=True))
 
     def blocked(self) -> bool:
         return self.busy or self.session["busy"]
@@ -1101,7 +1101,7 @@ class OrbServer:
         await self.send_queued()
 
     async def send_queued(self) -> None:
-        """While the agent and the orb are free and a window is open, sends the oldest request, speech queued in a row
+        """While the agent and the orb are free and a window is open, sends the oldest request, the user's words queued in a row
         going as one. From the check that the way is clear to the request counting as under way nothing yields, so
         however many callers run this at once, requests go one at a time, in the order they were queued."""
         while self.ready():
@@ -1449,7 +1449,8 @@ class OrbServer:
 
     async def speak(self, text: str, follow_up: bool = False, said: str | None = None) -> None:
         """`follow_up` opens the wake word's follow-up window after the reply: only for an answer to a request made
-        by the wake word, never after the button (the user holds it again) or a turn typed in the terminal."""
+        by the wake word, never after the button (the user holds it again), a turn typed in the terminal, or with the
+        user's words queued behind it."""
         if not self.voice:
             await self.set_state(self.resume_state())
             return
@@ -1588,7 +1589,7 @@ class OrbServer:
             self.spawn(self.ask(str(message.get("text", "")), speak=bool(message.get("speak", True)), ref=message.get("ref"),
                                 sender=page_sender(message)))
         elif kind == "typed":
-            self.spawn(self.typed(str(message.get("text", ""))))
+            self.spawn(self.typed(str(message.get("text", "")), message.get("ref")))
         elif kind == "stop":
             await self.stop()
         elif kind == "seen":
