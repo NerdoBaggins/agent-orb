@@ -98,8 +98,8 @@ The agent runs the skill's script: `orb open [--agent claude|copilot]`.
 
 ## Typing
 
-The bar's `type` button, or `Enter` while no field or control has focus, opens a text box under the caption. A panel
-keeps its own `Enter`, since a panel able to move the focus could carry what the user types into the box. `Enter` sends,
+The bar's `type` button, or `Enter` while no field or control has focus, opens a text box under the caption. A panel or
+widget keeps its own `Enter`, since a panel able to move the focus could carry what the user types into the box. `Enter` sends,
 `Shift+Enter` starts a new line, and `Escape` closes the box and keeps the draft. The box stays open after a send. It
 sends the page's own `typed` message, which a panel cannot produce, so what is typed reaches the agent unmarked, as the
 user's words, and from there is treated like speech: it ends the wake word's follow-up window, is held while the agent
