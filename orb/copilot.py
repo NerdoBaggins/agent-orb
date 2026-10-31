@@ -1,6 +1,6 @@
-"""The Copilot link: reaches the session through the door the plugin's Copilot extension opens in it
-(extensions/orb/extension.mjs), found by the record it writes in the repo's state folder. A request's reply is
-followed in the session's own event log under ~/.copilot."""
+"""The Copilot link: reaches the session through the door the plugin's Copilot extension opens in it, found by the
+record it writes in the repo's state folder. A request's reply is followed in the session's own event log under
+~/.copilot."""
 import json
 import os
 import time
@@ -24,8 +24,8 @@ DOOR_ROUTES = {"foreground": ("GET", "/health"), "send": ("POST", "/prompt"), "a
                "tasks": ("GET", "/tasks")}
 
 
-def start_command(selector: int | None) -> str:
-    return f"copilot, from a shell with ORB_COPILOT_PORT={selector}" if selector else "copilot"
+def start_command() -> str:
+    return "copilot --experimental"
 
 
 # ---- Copilot's own session state ----
@@ -33,6 +33,13 @@ def start_command(selector: int | None) -> str:
 def copilot_home(env=None) -> Path:
     env = os.environ if env is None else env
     return Path(env.get("COPILOT_HOME") or Path.home() / ".copilot")
+
+
+def experimental_on(home: Path) -> bool:
+    try:
+        return json.loads((home / "settings.json").read_text(encoding="utf-8")).get("experimental") is True
+    except (OSError, ValueError, AttributeError):
+        return False
 
 
 def session_name(home: Path, session_id: str) -> str | None:
@@ -181,16 +188,20 @@ def request_running(events: list[dict], message_id: str) -> bool:
 
 # ---- the link ----
 
+class SessionMoved(agents.LinkError):
+    pass
+
+
 @dataclass
 class Door:
     port: int
     secret: str
+    session_id: str
 
 
 def read_door(record: Path) -> Door | None:
-    """The door the extension holds open, while the process that wrote its record is alive."""
     found = agents.live_record(record, ("port", "secret", "pid", "sessionId"))
-    return Door(int(found["port"]), str(found["secret"])) if found else None
+    return Door(int(found["port"]), str(found["secret"]), str(found["sessionId"])) if found else None
 
 
 def call_door(door: Door, method: str, route: str, body: dict | None, timeout_s: float) -> dict:
@@ -201,7 +212,8 @@ def call_door(door: Door, method: str, route: str, body: dict | None, timeout_s:
         with urllib.request.urlopen(request, timeout=timeout_s) as r:
             return json.loads(r.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
-        raise agents.LinkError(f"Copilot's door refused {route} ({e.code}): {e.read().decode('utf-8', 'replace')}")
+        refusal = f"Copilot's door refused {route} ({e.code}): {e.read().decode('utf-8', 'replace')}"
+        raise (SessionMoved if e.code == 409 else agents.LinkError)(refusal)
     except (urllib.error.URLError, OSError, ValueError) as e:
         raise agents.LinkError(f"Copilot's door on port {door.port} did not answer {route}: {e}")
 
@@ -209,12 +221,9 @@ def call_door(door: Door, method: str, route: str, body: dict | None, timeout_s:
 class CopilotLink:
     name = "Copilot"
 
-    def __init__(self, record: Path, selector: int | None = None, home: Path | None = None, run=None,
-                 turns: Path | None = None):
-        """`record` is the door record the extension writes; `selector` the ORB_COPILOT_PORT it was started with.
-        `turns` is the orb's state folder for the repo, where the plugin's hooks record Copilot's turns."""
-        self.record = record
-        self.selector = selector
+    def __init__(self, door_record: Path, home: Path | None = None, run=None, turns: Path | None = None):
+        """`turns` is the orb's state folder for the repo, where the plugin's hooks record Copilot's turns."""
+        self.record = door_record
         self.home = home or copilot_home()
         self.turns = turns
         self.session_id: str | None = None
@@ -225,13 +234,12 @@ class CopilotLink:
         self._run = run or self._call_door
 
     def _call_door(self, mode: str, timeout_s: float, prompt: str = "") -> dict:
-        """Reads the record on every call: Copilot restarts the extension on /clear, with a new secret."""
         door = read_door(self.record)
         if not door:
             raise agents.LinkError(self.describe(False))
         method, route = DOOR_ROUTES[mode]
-        return call_door(door, method, route, {"text": prompt} if mode == "send" else {} if method == "POST" else None,
-                         timeout_s)
+        body = {"session": self.session_id, "text": prompt} if method == "POST" else None
+        return call_door(door, method, route, body, timeout_s)
 
     def probe(self) -> bool:
         if not read_door(self.record):
@@ -247,15 +255,24 @@ class CopilotLink:
         if attached and self.session_id:
             name = session_name(self.home, self.session_id)
             return f"Attached: Copilot · {name}" if name else f"Attached: Copilot ({self.session_id[:8]})"
-        return "Not attached: start Copilot in this repo with the agent-orb plugin: " + start_command(self.selector)
+        return "Not attached: start Copilot in this repo with the agent-orb plugin: " + start_command()
 
     def send(self, text: str, request_id: str) -> str | None:
         """Blocks until Copilot has answered this request, following it in the session's event log, so background
         work Copilot carries on with afterwards does not hold the orb. None once Stop has let go of it; RequestEnded
-        when it was cancelled in Copilot's own window."""
+        when it was cancelled in Copilot's own window or its session was cleared before it answered."""
         if not self.session_id and not self.probe():
             raise agents.LinkError(self.describe(False))
-        log = events_path(self.home, self.session_id)
+        try:
+            return self._send_and_follow(text)
+        except SessionMoved:
+            if not self.probe():
+                raise agents.LinkError(self.describe(False))
+            return self._send_and_follow(text)
+
+    def _send_and_follow(self, text: str) -> str | None:
+        session = self.session_id
+        log = events_path(self.home, session)
         offset = log_size(log)
         waiting = {"log": log, "offset": offset, "context": max(0, offset - CONTEXT_BYTES), "message_id": None,
                    "released": False}
@@ -273,6 +290,9 @@ class CopilotLink:
                 return reply
             if cancelled(events, message_id):
                 raise agents.RequestEnded("cancelled in Copilot's own window")
+            door = read_door(self.record)
+            if door and door.session_id != session:
+                raise agents.RequestEnded("Copilot's session was cleared before it answered")
             time.sleep(POLL_S)
         raise agents.LinkError("Copilot has not answered after 30 minutes; it is still working in its own window")
 
@@ -330,6 +350,9 @@ class CopilotLink:
         running = waiting["message_id"] and request_running(read_events(waiting["log"], waiting["offset"]),
                                                             waiting["message_id"])
         waiting["released"] = True
-        if running and self._run("abort", 10).get("aborted"):
-            return agents.Stopped.ABORTED
+        try:
+            if running and self._run("abort", 10).get("aborted"):
+                return agents.Stopped.ABORTED
+        except SessionMoved:
+            pass
         return agents.Stopped.RELEASED

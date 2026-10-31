@@ -30,7 +30,7 @@ from orb import PLUGIN_ROOT, actions, agents, engines, feeds, logs, pages, panel
 from orb import interrupt as interrupt_adapter
 from orb.audio import SAMPLE_RATE, TAP_S, speakable, split_sentences
 from orb.side import side_intent, status_sentence
-from orb.config import (WIDGET_PANE_KEYS, WIDGET_PLACE_KEYS, ConfigError, WidgetEntry, clamp_size, clamp_speed, copilot_selector, engine_settings, expand_dirs, load_for,
+from orb.config import (WIDGET_PANE_KEYS, WIDGET_PLACE_KEYS, ConfigError, WidgetEntry, clamp_size, clamp_speed, engine_settings, expand_dirs, load_for,
                         overlay, save_for_repo, save_skin_size, save_speed, save_widget, size_for, speed_for, tts_settings_for, validate_widget_entry,
                         widgets_on)
 from orb import waking
@@ -1731,8 +1731,7 @@ def make_link(agent: str, state: Path, config):
     if agent == "claude":
         return ClaudeLink(state)
     from orb.copilot import CopilotLink
-    selector = copilot_selector(os.environ)
-    return CopilotLink(copilot_channel_file(state, selector), selector, turns=state)
+    return CopilotLink(copilot_channel_file(state), turns=state)
 
 
 def page_sender(message: dict) -> str:

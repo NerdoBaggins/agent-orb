@@ -59,9 +59,8 @@ def channel_file(state: Path) -> Path:
     return state / "channel.json"
 
 
-def copilot_channel_file(state: Path, selector: int | None) -> Path:
-    """Where the Copilot extension records its door: one per ORB_COPILOT_PORT, so each Copilot keeps its own orb."""
-    return state / (f"copilot-channel-{selector}.json" if selector else "copilot-channel.json")
+def copilot_channel_file(state: Path) -> Path:
+    return state / "copilot-channel.json"
 
 
 def session_file(state: Path) -> Path:
