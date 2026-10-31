@@ -212,3 +212,18 @@ def test_the_panel_still_lists_the_releases_when_the_browser_will_not_store_the_
 
     _, size = asyncio.run(releases_page(tmp_path, open_and_enlarge, prepare=block))
     assert size == "18px"
+
+
+@pytest.mark.timeout(60)
+@pytest.mark.parametrize("stored, shown", [("99", "28px"), ("5", "12px"), ("abc", "16px"), ("0", "16px")])
+def test_a_stored_text_size_out_of_range_or_unreadable_is_brought_in_when_the_panel_opens(tmp_path, stored, shown):
+    async def seed(page):
+        await page.add_init_script(f"localStorage.setItem('orb.releasesTextSize', '{stored}')")
+
+    async def open_panel(page, base):
+        await page.keyboard.press("r")
+        await page.wait_for_selector("#builtin-releases .rn-entry")
+        return await page.evaluate(ENTRY_SIZE)
+
+    _, size = asyncio.run(releases_page(tmp_path, open_panel, prepare=seed))
+    assert size == shown
