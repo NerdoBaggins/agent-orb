@@ -9,7 +9,12 @@ from orb.test_server import make
 FIELD = "#typed"
 PANEL = """<!doctype html><body tabindex="0"><button id="b">b</button></body>"""
 FOCUS_PULLER = """<!doctype html><body><input id="i" onkeydown="parent.focus()"></body>"""
-FOCUS_STEALER = """<!doctype html><body><input id="i"><script>setInterval(() => document.getElementById("i").focus(), 100);</script></body>"""
+FOCUS_TAKEN_ONCE = """<!doctype html><body><input id="i"><script>setTimeout(() => document.getElementById("i").focus(), 2600);</script></body>"""
+FOCUS_LOOP = """<!doctype html><body><input id="i"><script>
+const channel = new MessageChannel();
+channel.port1.onmessage = () => { document.getElementById("i").focus(); channel.port2.postMessage(0); };
+channel.port2.postMessage(0);
+</script></body>"""
 KEY_POSTER = """<!doctype html><body><script>setInterval(() => parent.postMessage({ orb: "key", code: "Enter" }, "*"), 100);</script></body>"""
 
 
@@ -629,7 +634,7 @@ def test_a_click_on_the_orb_side_lets_enter_open_the_box_again(tmp_path):
 
 
 @pytest.mark.timeout(60)
-def test_a_panels_script_cannot_take_the_focus_from_the_box(tmp_path):
+def test_a_focus_taken_once_comes_back_and_the_panel_stays(tmp_path):
     words = "the quick brown fox"
     seen = {}
 
@@ -639,11 +644,59 @@ def test_a_panels_script_cannot_take_the_focus_from_the_box(tmp_path):
         for letter in words:
             await page.keyboard.type(letter)
             await page.wait_for_timeout(40)
+            if letter == " ":
+                await page.wait_for_timeout(600)
+        await page.wait_for_timeout(1000)
         seen["box"] = await page.locator(FIELD).input_value()
+        seen["panels"] = await page.locator("iframe.panel-body").count()
         seen["panel"] = await page.frame_locator("iframe.panel-body").locator("#i").input_value()
 
-    asyncio.run(run_page(tmp_path, [("stealer", FOCUS_STEALER)], act, attached(tmp_path)))
-    assert seen == {"box": words, "panel": ""}
+    asyncio.run(run_page(tmp_path, [("once", FOCUS_TAKEN_ONCE)], act, attached(tmp_path)))
+    assert seen == {"box": words, "panels": 1, "panel": ""}
+
+
+@pytest.mark.timeout(60)
+def test_a_panel_that_keeps_taking_the_focus_is_closed_with_a_notice(tmp_path):
+    words = "the quick brown fox"
+    seen = {}
+
+    async def act(page):
+        await page.evaluate("document.getElementById('type-toggle').click()")
+        await page.wait_for_timeout(300)
+        seen["notice"] = await page.locator("#notice").inner_text()
+        seen["panels"] = await page.locator("iframe.panel-body").count()
+        for letter in words:
+            await page.keyboard.type(letter)
+            await page.wait_for_timeout(40)
+        seen["box"] = await page.locator(FIELD).input_value()
+
+    server = attached(tmp_path)
+    asyncio.run(run_page(tmp_path, [("thief", FOCUS_LOOP)], act, server))
+    assert seen["panels"] == 0
+    assert "thief" in seen["notice"]
+    assert seen["box"] == words
+    assert "thief" not in server.open_pages()["panel"]
+
+
+@pytest.mark.timeout(60)
+def test_a_widget_that_keeps_taking_the_focus_is_turned_off(tmp_path):
+    server = attached(tmp_path)
+    folder = tmp_path / "home" / ".config" / "orb" / "widgets" / "thief"
+    folder.mkdir(parents=True)
+    (folder / "widget.json").write_text('{"version": "1", "description": "steals", "size": {"width": 160, "height": 48}, "corner": "top-left"}')
+    (folder / "index.html").write_text(FOCUS_LOOP)
+    seen = {}
+
+    async def act(page):
+        await server.widget_on("thief")
+        await page.wait_for_timeout(1000)
+        seen["shown"] = await page.locator(".widget iframe").count()
+        await page.evaluate("document.getElementById('type-toggle').click()")
+        await page.wait_for_timeout(500)
+        seen["left"] = await page.locator(".widget iframe").count()
+
+    asyncio.run(run_page(tmp_path, [], act, server))
+    assert seen == {"shown": 1, "left": 0}
 
 
 @pytest.mark.timeout(60)
