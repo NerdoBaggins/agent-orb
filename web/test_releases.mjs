@@ -21,7 +21,7 @@ test("a change that is not released yet says so instead of giving a date", () =>
 
 test("a request to explain a release lists every change with its heading", () => {
   const text = explainRelease(released);
-  for (const part of ["Changed: The orb opens only in Chrome (#97).", "Fixed: A widget can be moved by any edge (#93).", "Fixed: A 2D skin is no longer stretched (#91)."]) assert.ok(text.includes(part), part);
+  for (const part of ["0.4.0, released 2026-10-30", "Changed: The orb opens only in Chrome (#97). Fixed: A widget can be moved by any edge (#93). Fixed: A 2D skin is no longer stretched (#91)."]) assert.ok(text.includes(part), part);
 });
 
 test("a change under no heading is explained without a heading and a release with only such changes lists them bare", () => {
