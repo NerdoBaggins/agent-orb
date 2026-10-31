@@ -106,7 +106,7 @@ Working on the orb itself? Load it from a checkout instead: see [Developing](#de
 ### Several Copilots at once
 
 Copilots in different repos need nothing: each repo has its own state folder, so each orb finds its own Copilot.
-One orb per agent per repo, so two Copilots in the same repo share one orb.
+One orb per agent per repo: of two Copilots in the same repo, only the first started is reachable, until it exits.
 
 Coming from 0.4.0? A shell function that starts `copilot --ui-server --port …` or sets `ORB_COPILOT_PORT`, as the
 0.4.0 README suggested, is no longer needed: drop both, or the uncredentialed UI server keeps running beside the orb.
