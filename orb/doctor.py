@@ -9,8 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from orb import actions, agents, browser, pages, skins, themes, widgets
-from orb.config import ConfigError, copilot_selector, engine_settings, expand_dirs, load_for, tts_settings_for, widgets_on
-from orb.copilot import call_door, read_door, start_command
+from orb.config import ConfigError, engine_settings, expand_dirs, load_for, tts_settings_for, widgets_on
+from orb.copilot import call_door, copilot_home, experimental_on, read_door, start_command
 from orb import engines, wake, waking
 from orb.engines import EngineError
 from orb.state import copilot_channel_file, state_dir
@@ -50,11 +50,14 @@ def check_channel(repo: Path, home: Path) -> Check:
     return Check("claude channel", True, f"bound on port {info.port}, session pid {info.session_pid}")
 
 
-def check_copilot(repo: Path, home: Path, selector: int | None) -> Check:
-    door = read_door(copilot_channel_file(state_dir(home, repo), selector))
+def check_copilot(repo: Path, home: Path, copilot: Path) -> Check:
+    door = read_door(copilot_channel_file(state_dir(home, repo)))
+    if not door and not experimental_on(copilot):
+        return Check("copilot door", False, "Copilot's experimental mode is off, and Copilot loads the orb's extension "
+                     "only with it on; start " + start_command())
     if not door:
         return Check("copilot door", False, "no live Copilot door for this repo; with the agent-orb plugin installed, "
-                     "start " + start_command(selector))
+                     "start " + start_command())
     try:
         session = call_door(door, "GET", "/health", None, agents.PROBE_TIMEOUT_S)["sessionId"]
     except (agents.LinkError, KeyError) as e:
@@ -116,7 +119,6 @@ def run(repo: Path, home: Path, engines: bool = True) -> list[Check]:
     checks = [check_tool("uv", ["--version"]), check_tool("node", ["--version"]), check_browser()]
     try:
         config = load_for(repo, home)
-        selector = copilot_selector(os.environ)
     except ConfigError as e:
         return checks + [Check("config", False, str(e))]
     checks.append(Check("config", True, "; ".join(config.warnings) or "config loads"))
@@ -129,7 +131,7 @@ def run(repo: Path, home: Path, engines: bool = True) -> list[Check]:
     checks.append(check_actions(repo, home))
     checks.append(check_widgets(repo, home, config))
     checks.append(check_channel(repo, home))
-    checks.append(check_copilot(repo, home, selector))
+    checks.append(check_copilot(repo, home, copilot_home()))
     if engines:
         checks.append(check_engine("stt", engine_settings(config["stt"]), home))
         checks.append(check_engine("tts", tts_settings_for(config["tts"], "claude"), home))
