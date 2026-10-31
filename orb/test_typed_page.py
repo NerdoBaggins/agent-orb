@@ -226,6 +226,45 @@ def test_releasing_the_talk_key_after_enter_opened_the_box_stops_listening(tmp_p
 
 
 @pytest.mark.timeout(60)
+def test_a_space_typed_in_the_box_leaves_a_mic_button_hold_alone(tmp_path):
+    server = attached(tmp_path)
+    seen = {}
+
+    async def act(page):
+        await page.keyboard.press("Enter")
+        mic = await page.locator("#mic").bounding_box()
+        await page.mouse.move(mic["x"] + mic["width"] / 2, mic["y"] + mic["height"] / 2)
+        await page.mouse.down()
+        await page.wait_for_timeout(700)
+        await page.keyboard.press("Space")
+        await page.wait_for_timeout(300)
+        seen["state"] = server.state
+        seen["value"] = await page.locator(FIELD).input_value()
+        await page.mouse.up()
+
+    asyncio.run(run_page(tmp_path, [], act, server))
+    assert seen == {"state": "listening", "value": " "}
+
+
+@pytest.mark.timeout(60)
+def test_text_sent_while_the_socket_is_closing_stays_in_the_box_with_a_notice(tmp_path):
+    server = attached(tmp_path)
+    seen = {}
+
+    async def act(page):
+        await page.keyboard.press("Enter")
+        await page.keyboard.type("keep me")
+        await page.evaluate("Object.defineProperty(WebSocket.prototype, 'readyState', { get: () => WebSocket.CLOSING })")
+        await page.keyboard.press("Enter")
+        seen["value"] = await page.locator(FIELD).input_value()
+        seen["notice"] = await page.locator("#notice").inner_text()
+
+    asyncio.run(run_page(tmp_path, [], act, server))
+    assert seen["value"] == "keep me"
+    assert "not sent" in seen["notice"]
+
+
+@pytest.mark.timeout(60)
 def test_holding_enter_to_reopen_a_draft_does_not_send_it(tmp_path):
     seen = {}
 
