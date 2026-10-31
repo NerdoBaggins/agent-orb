@@ -1062,10 +1062,9 @@
       for (const button of document.querySelectorAll("#builtin-releases .rn-explain")) this.show(button);
     },
     toggle(id, request) {
-      if (this.explaining && this.explaining.id === id) {
-        stopNow();
-        this.explaining = null;
-      } else {
+      const stopping = !!this.explaining && this.explaining.id === id;
+      if (this.explaining) stopNow();
+      if (!stopping) {
         this.explaining = { id, ref: `releases:${++this.seq}`, replied: false };
         send({
           type: "ask", text: request, speak: true, ref: this.explaining.ref, kind: "panel", page: "releases",
