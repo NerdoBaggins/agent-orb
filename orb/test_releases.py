@@ -98,3 +98,8 @@ def test_an_indented_line_before_any_change_is_ignored_rather_than_joined_to_not
 
 def test_a_blank_indented_line_after_a_change_adds_nothing_to_it():
     assert parse("## 1.0.0\n\n### Added\n\n- a\n  \n")[0]["sections"][0]["entries"] == ["a"]
+
+
+def test_a_release_heading_with_trailing_spaces_still_has_its_version_and_date():
+    assert parse("## 0.2.0 — 2026-01-02   \n\n### Added\n\n- x\n")[0] == {
+        "version": "0.2.0", "date": "2026-01-02", "sections": [{"heading": "Added", "entries": ["x"]}]}

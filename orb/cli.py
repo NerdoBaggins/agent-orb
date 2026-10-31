@@ -344,7 +344,7 @@ def main(argv=None) -> int:
     common(sub.add_parser("stop", help="stop this repo's orb server and close its window"))
     p_panel = sub.add_parser("panel", help="show or close a panel in the open orb")
     panel_sub = p_panel.add_subparsers(dest="panel_cmd", required=True)
-    p_show = panel_sub.add_parser("show", help="show an HTML file, a saved panel by name, or a built-in (transcript, releases)")
+    p_show = panel_sub.add_parser("show", help=f"show an HTML file, a saved panel by name, or a built-in ({', '.join(panels.BUILTIN)})")
     p_show.add_argument("target")
     p_show.add_argument("--title")
     p_show.add_argument("--name", help="tab name; showing a name already open replaces it")
