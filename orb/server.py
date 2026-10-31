@@ -169,14 +169,14 @@ def audio_frame(samples: np.ndarray, rate: int) -> bytes:
 
 @dataclass(frozen=True)
 class Request:
-    """One request for the agent: speech (`spoken`, which the window is told it heard and which is joined with the
-    speech queued next to it), or a panel's `orb.send` (`ref` and `sender`)."""
+    """One request for the agent: the user's own words, spoken or typed (`from_user`, which the window is told it
+    heard and which is joined with the words queued next to it), or a panel's `orb.send` (`ref` and `sender`)."""
     text: str
     speak: bool = True
     ref: object = None
     woken: bool = False
     sender: str | None = None
-    spoken: bool = False
+    from_user: bool = False
 
     def joined(self, later: "Request") -> "Request":
         return replace(self, text=f"{self.text}\n{later.text}", woken=self.woken or later.woken)
@@ -1069,6 +1069,12 @@ class OrbServer:
         elif ref is not None:
             await self.notify("info", "nothing to send: the text was empty", ref)
 
+    async def typed(self, text: str) -> None:
+        """Queues what the user typed in the orb's own box, unmarked: only that box sends this message."""
+        text = text.strip()
+        if text:
+            await self.submit(Request(text, from_user=True))
+
     def blocked(self) -> bool:
         return self.busy or self.session["busy"]
 
@@ -1108,8 +1114,8 @@ class OrbServer:
                 self.attached = True
                 continue
             request, taken = self.queue[0], 1
-            if request.spoken:
-                while taken < len(self.queue) and self.queue[taken].spoken:
+            if request.from_user:
+                while taken < len(self.queue) and self.queue[taken].from_user:
                     request, taken = request.joined(self.queue[taken]), taken + 1
             del self.queue[:taken]
             await self.dispatch(request)
@@ -1122,7 +1128,7 @@ class OrbServer:
         self.pending[request_id] = {"text": text}
         log.info("state %s -> thinking", self.state)
         self.state = "thinking"
-        if request.spoken:
+        if request.from_user:
             await self.broadcast({"type": "heard", "text": text})
             if request_id not in self.pending:
                 return
@@ -1310,7 +1316,7 @@ class OrbServer:
             await self.side_question(text, intent)
             return
         waits = self.must_wait()
-        await self.submit(Request(text, woken=strip is not None, spoken=True))
+        await self.submit(Request(text, woken=strip is not None, from_user=True))
         if waits and self.state in ("idle", "thinking"):
             await self.set_state(self.state)
         elif not waits and self.state == "idle":
@@ -1583,6 +1589,8 @@ class OrbServer:
                 return
             self.spawn(self.ask(str(message.get("text", "")), speak=bool(message.get("speak", True)), ref=message.get("ref"),
                                 sender=page_sender(message)))
+        elif kind == "typed":
+            self.spawn(self.typed(str(message.get("text", ""))))
         elif kind == "stop":
             await self.stop()
         elif kind == "seen":
