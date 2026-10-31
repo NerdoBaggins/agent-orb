@@ -438,7 +438,7 @@ or `Origin` check. It is reference only and is rewritten to this spec in the bui
 Where the build departed from the text above, and why. Each is reversible.
 
 1. **No npm dependency anywhere.** The channel speaks initialize, initialized, ping and tools/list raw over stdio,
-   as the test 0.1 spike already did; the Copilot helper uses Copilot's own SDK. The "first run installs the
+   as the test 0.1 spike already did; the Copilot extension uses Copilot's own SDK. The "first run installs the
    channel's npm dependency" step and the skill's `setup` step are gone. One fewer failure mode on a fresh machine.
 2. **`channel.json` also records `sessionPid`**, the process that spawned the channel, i.e. the Claude Code session
    for this repo. The interrupt adapter confirms that pid still names a Claude Code image and sends Escape there and
