@@ -10,7 +10,7 @@ from pathlib import Path
 
 from orb import actions, agents, browser, pages, skins, themes, widgets
 from orb.config import ConfigError, engine_settings, expand_dirs, load_for, tts_settings_for, widgets_on
-from orb.copilot import call_door, copilot_home, experimental_on, read_door, start_command
+from orb.copilot import call_door, read_door
 from orb import engines, wake, waking
 from orb.engines import EngineError
 from orb.state import copilot_channel_file, state_dir
@@ -50,14 +50,12 @@ def check_channel(repo: Path, home: Path) -> Check:
     return Check("claude channel", True, f"bound on port {info.port}, session pid {info.session_pid}")
 
 
-def check_copilot(repo: Path, home: Path, copilot: Path) -> Check:
+def check_copilot(repo: Path, home: Path) -> Check:
     door = read_door(copilot_channel_file(state_dir(home, repo)))
-    if not door and not experimental_on(copilot):
-        return Check("copilot door", False, "Copilot's experimental mode is off, and Copilot loads the orb's extension "
-                     "only with it on; start " + start_command())
     if not door:
-        return Check("copilot door", False, "no live Copilot door for this repo; with the agent-orb plugin installed, "
-                     "start " + start_command())
+        return Check("copilot door", False, "no live Copilot door for this repo; a default Copilot loads the orb's "
+                     "extension only in experimental mode, so with the agent-orb plugin installed, start "
+                     + agents.COPILOT_START)
     try:
         session = call_door(door, "GET", "/health", None, agents.PROBE_TIMEOUT_S)["sessionId"]
     except (agents.LinkError, KeyError) as e:
@@ -131,7 +129,7 @@ def run(repo: Path, home: Path, engines: bool = True) -> list[Check]:
     checks.append(check_actions(repo, home))
     checks.append(check_widgets(repo, home, config))
     checks.append(check_channel(repo, home))
-    checks.append(check_copilot(repo, home, copilot_home()))
+    checks.append(check_copilot(repo, home))
     if engines:
         checks.append(check_engine("stt", engine_settings(config["stt"]), home))
         checks.append(check_engine("tts", tts_settings_for(config["tts"], "claude"), home))
@@ -167,6 +165,7 @@ def report(checks: list[Check]) -> int:
     hard = [c for c in checks if not c.ok and c.name not in ("claude channel", "copilot door")]
     links = [c for c in checks if c.name in ("claude channel", "copilot door")]
     if links and not any(c.ok for c in links):
-        print("no agent answers: start Claude Code with the channel flag or Copilot with the agent-orb plugin")
+        print("no agent answers: start Claude Code with the channel flag or Copilot with the agent-orb plugin (" +
+              agents.COPILOT_START + ")")
         return 1
     return 1 if hard else 0
