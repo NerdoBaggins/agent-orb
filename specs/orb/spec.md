@@ -27,7 +27,7 @@ it next, but setup docs for others, a release, and the espeak-ng licence check a
    speech-to-text and text-to-speech, shows panels, relays requests to the agent.
 3. **Orb page**, opened as a Chrome `--app` window (Edge `--app` where Chrome is absent).
 4. **Agent link**, one per agent (below). The only Node code: the channel server and the Copilot helper.
-5. **Panels**: any HTML the agent writes, one-off or saved. One built-in: the transcript.
+5. **Panels**: any HTML the agent writes, one-off or saved. Two built-ins: the transcript and the release notes.
 6. **Orb skins**: drop-in folders. Built-in default: `pulse`.
 
 Node is allowed for the two agent bridges only, because each must speak a JavaScript-only API. Everything else is
