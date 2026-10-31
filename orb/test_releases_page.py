@@ -82,7 +82,7 @@ def test_every_release_and_change_has_an_explain_button_and_a_heading_has_none(t
         await page.keyboard.press("r")
         await page.wait_for_selector("#builtin-releases h3")
         return await page.evaluate("""() => [...document.querySelectorAll('#builtin-releases > div')].map(
-          row => [row.className, row.querySelectorAll('.rn-explain').length])""")
+          row => [row.classList[0], row.querySelectorAll('.rn-explain').length])""")
 
     _, rows = asyncio.run(releases_page(tmp_path, count))
     assert rows and {kind: n for kind, n in rows if kind not in ("rn-section", "rn-zoom")} == {"rn-release": 1, "rn-entry": 1}
@@ -227,3 +227,17 @@ def test_a_stored_text_size_out_of_range_or_unreadable_is_brought_in_when_the_pa
 
     _, size = asyncio.run(releases_page(tmp_path, open_panel, prepare=seed))
     assert size == shown
+
+
+@pytest.mark.timeout(60)
+def test_every_other_change_in_a_section_is_shaded_so_the_rows_can_be_told_apart(tmp_path, monkeypatch):
+    monkeypatch.setattr(releases, "load", lambda path: [
+        {"version": "1.0.0", "date": "2026-01-02", "sections": [{"heading": "Fixed", "entries": ["one", "two", "three"]}]}])
+
+    async def shades(page, base):
+        await page.keyboard.press("r")
+        await page.wait_for_selector("#builtin-releases .rn-entry")
+        return await page.evaluate("() => [...document.querySelectorAll('#builtin-releases .rn-entry')].map(r => getComputedStyle(r).backgroundColor)")
+
+    _, (first, second, third) = asyncio.run(releases_page(tmp_path, shades))
+    assert first == third != second
