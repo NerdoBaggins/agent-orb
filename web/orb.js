@@ -334,7 +334,7 @@
         break;
       case "notice":
         notice(m.text, m.level === "error" ? "error" : "info", true);
-        if (m.ref) { panelsBridge.reject(m.ref, m.text); releasesUi.ended(m.ref); }
+        if (m.ref) { panelsBridge.reject(m.ref, m.text); releasesUi.ended(m.ref); typedBox.restore(m.ref); }
         break;
       case "speak_start":
         player.start();
@@ -566,6 +566,7 @@
     return !ev.repeat && !ev.metaKey && !ev.ctrlKey && !ev.altKey && !inTextField(ev.target);
   }
   addEventListener("keydown", (ev) => {
+    if (ev.code === orb.pttKey && ptt.keyDown) ev.preventDefault();
     if (ev.code !== orb.pttKey || ev.repeat || inTextField(ev.target)) return;
     ev.preventDefault();
     ptt.keyDown = true;
@@ -1134,9 +1135,12 @@
     ev.preventDefault();
     send({ type: "voice", on: !orb.speak });
   });
+  const DRAFT_KEY = "orb-draft";
   const typedBox = {
     field: $("typed"),
     toggle: $("type-toggle"),
+    sent: new Map(),
+    nextRef: 0,
     show() {
       this.field.hidden = false;
       this.toggle.classList.add("on");
@@ -1151,17 +1155,34 @@
       if (!text) return;
       const refusal = !connected() ? "not connected" : !orb.attached ? orb.attachMessage || "not attached to an agent session" : null;
       if (refusal) { notice(`not sent: ${refusal}`, "error"); return; }
-      send({ type: "typed", text });
+      const ref = `typed:${++this.nextRef}`;
+      this.sent.set(ref, text);
+      send({ type: "typed", text, ref });
       this.field.value = "";
+      this.remember();
+    },
+    restore(ref) {
+      if (!this.sent.has(ref)) return;
+      this.field.value = [this.sent.get(ref), this.field.value].filter(Boolean).join("\n");
+      this.sent.delete(ref);
+      this.remember();
+    },
+    remember() {
+      try { sessionStorage.setItem(DRAFT_KEY, this.field.value); } catch { return; }
+    },
+    recall() {
+      try { this.field.value = sessionStorage.getItem(DRAFT_KEY) || ""; } catch { return; }
     },
   };
+  typedBox.recall();
+  typedBox.field.addEventListener("input", () => typedBox.remember());
   typedBox.toggle.addEventListener("click", () => (typedBox.field.hidden ? typedBox.show() : typedBox.hide()));
   typedBox.field.addEventListener("keydown", (ev) => {
-    if (ev.key === "Escape") typedBox.hide();
+    if (ev.key === "Escape" && !ev.isComposing) typedBox.hide();
     else if (ev.key === "Enter" && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); if (!ev.repeat) typedBox.submit(); }
   });
   addEventListener("keydown", (ev) => {
-    if (ev.key !== "Enter" || !isShortcut(ev) || ACTS_ON_ENTER.includes(ev.target.tagName)) return;
+    if (ev.key !== "Enter" || ev.code === orb.pttKey || !isShortcut(ev) || ACTS_ON_ENTER.includes(ev.target.tagName)) return;
     ev.preventDefault();
     typedBox.show();
   });

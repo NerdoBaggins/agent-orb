@@ -463,6 +463,139 @@ def test_a_panel_cannot_open_the_box_by_posting_a_key(tmp_path):
 
 
 @pytest.mark.timeout(60)
+def test_text_the_agent_never_received_comes_back_to_the_box(tmp_path):
+    server = attached(tmp_path, fail=True)
+    seen = {}
+
+    async def act(page):
+        await page.keyboard.press("Enter")
+        await page.keyboard.type("keep me")
+        await page.keyboard.press("Enter")
+        await page.wait_for_timeout(500)
+        seen["value"] = await page.locator(FIELD).input_value()
+
+    asyncio.run(run_page(tmp_path, [], act, server))
+    assert seen["value"] == "keep me"
+
+
+@pytest.mark.timeout(60)
+def test_text_dropped_because_the_page_was_behind_comes_back_to_the_box(tmp_path):
+    server = attached(tmp_path, bound=False)
+    seen = {}
+
+    async def act(page):
+        server.attached = False
+        await page.keyboard.press("Enter")
+        await page.keyboard.type("keep me")
+        await page.keyboard.press("Enter")
+        await page.wait_for_timeout(500)
+        seen["value"] = await page.locator(FIELD).input_value()
+
+    asyncio.run(run_page(tmp_path, [], act, server))
+    assert seen["value"] == "keep me"
+
+
+@pytest.mark.timeout(60)
+def test_text_dropped_from_the_queue_comes_back_above_the_new_draft(tmp_path):
+    server = attached(tmp_path)
+    seen = {}
+
+    async def act(page):
+        await page.keyboard.press("Enter")
+        await page.keyboard.type("first")
+        await page.keyboard.press("Enter")
+        await page.wait_for_timeout(300)
+        await page.keyboard.type("second")
+        await page.keyboard.press("Enter")
+        await page.wait_for_timeout(300)
+        await page.keyboard.type("draft")
+        await server.drop_queue("Stop ended the turn it was waiting on")
+        await page.wait_for_timeout(300)
+        seen["value"] = await page.locator(FIELD).input_value()
+
+    asyncio.run(run_page(tmp_path, [], act, server))
+    assert seen["value"] == "second\ndraft"
+
+
+@pytest.mark.timeout(60)
+def test_a_reload_keeps_the_draft(tmp_path):
+    seen = {}
+
+    async def act(page):
+        await page.keyboard.press("Enter")
+        await page.keyboard.type("half a thought")
+        await page.reload()
+        await page.wait_for_timeout(1000)
+        seen["value"] = await page.locator(FIELD).input_value()
+
+    asyncio.run(run_page(tmp_path, [], act, attached(tmp_path)))
+    assert seen["value"] == "half a thought"
+
+
+@pytest.mark.timeout(60)
+def test_a_reload_after_sending_leaves_the_box_empty(tmp_path):
+    seen = {}
+
+    async def act(page):
+        await page.keyboard.press("Enter")
+        await page.keyboard.type("sent")
+        await page.keyboard.press("Enter")
+        await page.wait_for_timeout(300)
+        await page.reload()
+        await page.wait_for_timeout(1000)
+        seen["value"] = await page.locator(FIELD).input_value()
+
+    asyncio.run(run_page(tmp_path, [], act, attached(tmp_path)))
+    assert seen["value"] == ""
+
+
+@pytest.mark.timeout(60)
+def test_a_held_talk_key_does_not_type_into_the_box(tmp_path):
+    seen = {}
+
+    async def act(page):
+        await page.keyboard.down("Space")
+        await page.wait_for_timeout(500)
+        await page.keyboard.press("Enter")
+        await page.keyboard.down("Space")
+        await page.keyboard.down("Space")
+        seen["value"] = await page.locator(FIELD).input_value()
+        await page.keyboard.up("Space")
+
+    asyncio.run(run_page(tmp_path, [], act, attached(tmp_path)))
+    assert seen["value"] == ""
+
+
+@pytest.mark.timeout(60)
+def test_enter_as_the_talk_key_does_not_open_the_box(tmp_path):
+    config = tmp_path / "repo" / ".orb" / "config.json"
+    config.parent.mkdir(parents=True)
+    config.write_text('{"ptt_key": "Enter"}')
+    seen = {}
+
+    async def act(page):
+        await page.keyboard.press("Enter")
+        seen["open"] = await visible(page)
+
+    asyncio.run(run_page(tmp_path, [], act, attached(tmp_path)))
+    assert seen["open"] is False
+
+
+@pytest.mark.timeout(60)
+def test_escape_cancelling_a_composition_leaves_the_box_open(tmp_path):
+    seen = {}
+
+    async def act(page):
+        await page.keyboard.press("Enter")
+        await page.evaluate("""document.getElementById('typed').dispatchEvent(
+            new KeyboardEvent('keydown', { key: 'Escape', isComposing: true, bubbles: true, cancelable: true }))""")
+        seen["open"] = await visible(page)
+
+    asyncio.run(run_page(tmp_path, [], act, attached(tmp_path)))
+    assert seen["open"] is True
+
+
+@pytest.mark.timeout(60)
 def test_what_was_typed_appears_in_the_transcript(tmp_path):
     seen = {}
 
