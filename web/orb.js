@@ -860,12 +860,14 @@
       if (this.mode === "orb" && !restoring) this.setMode("split");
       this.activate(p.name);
       transcriptUi.render();
+      releasesUi.render();
     },
     data(name, data, at) {
       const p = orb.panels.get(name);
       if (!p) return;
       Object.assign(p, { data, data_at: at });
       this.post(name);
+      if (name === "releases") releasesUi.render();
     },
     post(name) {
       postData(orb.panels.get(name));
@@ -974,20 +976,67 @@
 
   // The transcript is a built-in panel the server registers like any other, so it survives a reload and shows
   // in every window of this orb; the toggle only asks for it or closes it.
-  async function toggleTranscript() {
-    if (orb.panels.has("transcript")) {
-      send({ type: "panel_close", name: "transcript" });
-      panelsUi.close("transcript");
+  async function toggleBuiltin(name, title) {
+    if (orb.panels.has(name)) {
+      send({ type: "panel_close", name });
+      panelsUi.close(name);
       return;
     }
     const r = await fetch("/panel", {
       method: "POST",
       headers: { "X-Orb-Token": token, "Content-Type": "application/json" },
-      body: JSON.stringify({ name: "transcript", title: "Transcript" }),
+      body: JSON.stringify({ name, title }),
     });
-    if (!r.ok) notice(`transcript: ${await r.text()}`, "error");
+    if (!r.ok) notice(`${name}: ${await r.text()}`, "error");
   }
+  const toggleTranscript = () => toggleBuiltin("transcript", "Transcript");
+  const toggleReleases = () => toggleBuiltin("releases", "Release notes");
   $("transcript-toggle").addEventListener("click", toggleTranscript);
+  $("releases-toggle").addEventListener("click", toggleReleases);
+
+  const releasesUi = {
+    render() {
+      const box = $("builtin-releases"), p = orb.panels.get("releases");
+      if (!box || !p) return;
+      const releases = Array.isArray(p.data) ? p.data : [];
+      box.replaceChildren();
+      if (!releases.length) { box.textContent = "No release notes were found."; return; }
+      for (const release of releases) {
+        const head = document.createElement("div");
+        head.className = "rn-release";
+        const title = document.createElement("h3");
+        title.textContent = release.date ? `${release.version} — ${release.date}` : release.version;
+        head.append(title, this.explainButton(explainRelease(release), `Explain release ${release.version}`));
+        box.appendChild(head);
+        for (const section of release.sections) {
+          const heading = document.createElement("div");
+          heading.className = "rn-section";
+          heading.textContent = section.heading;
+          box.appendChild(heading);
+          for (const entry of section.entries) {
+            const row = document.createElement("div");
+            row.className = "rn-entry";
+            const text = document.createElement("span");
+            text.textContent = entry;
+            row.append(text, this.explainButton(explainChange(release, section, entry), "Explain this change"));
+            box.appendChild(row);
+          }
+        }
+      }
+    },
+    explainButton(request, label) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "rn-explain";
+      button.textContent = "explain";
+      button.setAttribute("aria-label", label);
+      button.addEventListener("click", () => send({
+        type: "ask", text: request, speak: true, kind: "page", page: "releases",
+        active: !!(navigator.userActivation && navigator.userActivation.isActive),
+      }));
+      return button;
+    },
+  };
 
   const wakeUi = {
     async apply(info) {
@@ -1027,6 +1076,11 @@
     if (ev.code !== "KeyT" || ev.repeat || ev.metaKey || ev.ctrlKey || ev.altKey || inTextField(ev.target)) return;
     ev.preventDefault();
     toggleTranscript();
+  });
+  addEventListener("keydown", (ev) => {
+    if (ev.code !== "KeyR" || ev.repeat || ev.metaKey || ev.ctrlKey || ev.altKey || inTextField(ev.target)) return;
+    ev.preventDefault();
+    toggleReleases();
   });
   addEventListener("keydown", (ev) => {
     if (ev.code !== orb.panelsKey || ev.repeat || ev.metaKey || ev.ctrlKey || ev.altKey || inTextField(ev.target)) return;
