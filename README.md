@@ -160,6 +160,7 @@ background. Hover it to open the rest:
 |---|---|
 | Session name | the session the orb is attached to (Claude Code's `/rename` name, Copilot's session name), following a rename within a few seconds |
 | Transcript | shows or hides the transcript (`T`) |
+| Type | shows or hides the box to type a request in (`Enter` opens it) |
 | Voice | mutes or unmutes speech (`M`) |
 | Speed | the voice speed, from 0.7 to 1.6 |
 | Size | the orb's size, marked at normal; each skin keeps its own |
@@ -181,9 +182,10 @@ They work while the orb window has focus and you are not typing in a text field.
 | `Space` (hold) | push to talk | `ptt_key` |
 | `M` | mute or unmute | `mute_key` |
 | `T` | show or hide the transcript | — |
+| `Enter` | open the box to type a request in, unless a control, panel or widget has focus | — |
 | `B` | next skin | `skin_key` |
 | `P` | hide the open panels, and bring them back as they were | `panels_key` |
-| `Escape` | restore the orb and panels split; otherwise stop the speech or the agent's turn | — |
+| `Escape` | close the box you are typing in; otherwise restore the orb and panels split; otherwise stop the speech or the agent's turn | — |
 
 A skin can add keys of its own for its options.
 
@@ -454,7 +456,7 @@ picked afterwards stays. When they cannot be used, the current voice keeps speak
 `orb doctor` flags a theme naming an engine that is not installed. `default` is the original look, names `pulse` and
 speaks in the built-in `kokoro`, with whichever voice was last picked for it.
 
-**What an `orb.css` can name:** `.bar` (the corner pill) with `.bar-title`, `.bar-btn`, `.bar-options` and
+**What an `orb.css` can name:** `#typed` (the box to type in), `.bar` (the corner pill) with `.bar-title`, `.bar-btn`, `.bar-options` and
 `#bar-state` (its state dot); `#mic`, `#stop`, `#caption`, `#hint` and `#notice` under the orb; `#panels`, `#tabs`,
 `.tab` and `.tab.active`, and `#divider` beside it; `#tasks-list`; and `body[data-state="listening"]` and the other
 states.
@@ -520,7 +522,7 @@ shows it), and the orb listens for the phrase while idle:
   dropped in every state but idle, so the orb's own reply cannot wake it. Push-to-talk keeps working and takes
   precedence.
 - For `follow_up_s` after the reply to something asked by the wake word, speech needs no wake word. A reply to the
-  button, or to a turn typed in the terminal, opens no follow-up.
+  button, or to a turn typed in the terminal, opens no follow-up, nor does a reply with your own words queued behind it.
 - `voice_auth: true` answers only the enrolled voice. Enroll with the orb open: `orb voice enroll` shows five
   phrases to read while holding the button. With it on and nothing enrolled, the wake word stays off and the orb
   says so.

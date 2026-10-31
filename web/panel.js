@@ -62,7 +62,7 @@ if (typeof window !== "undefined") {
     if (onKey) onKey((ev) => {
       const t = ev.target;
       const typing = t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable);
-      if (ev.code !== "Escape" || typing) return;
+      if (ev.code !== "Escape" || ev.repeat || typing) return;
       // This listener is added before the panel's own, so whether the panel used the key is known only once the
       // event has been dispatched.
       setTimeout(() => { if (!ev.defaultPrevented) post({ orb: "key", code: "Escape" }); }, 0);

@@ -3,6 +3,15 @@
 Every change a user of agent-orb can notice; a pull request no user would notice has no entry. Each pull request
 that has one adds it under Unreleased.
 
+## Unreleased
+
+### Added
+
+- Type a request without leaving the orb: `Enter` or the bar's `type` button opens a box under the caption. `Enter`
+  sends, `Shift+Enter` starts a new line, and `Escape` closes it and keeps the draft. What you type reaches the agent
+  as your own words, waits its turn like speech, and is answered aloud
+  ([#120](https://github.com/NerdoBaggins/agent-orb/issues/120)).
+
 ## 0.4.0 — 2026-10-30
 
 ### Changed

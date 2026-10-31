@@ -312,7 +312,8 @@ wake word on names the model they installed. The other keys default as shown.
 5. From here it is push-to-talk's path: transcribing, the request, thinking, speaking.
 6. **Follow-up window.** When the reply to a request made by the wake word (or by a follow-up) finishes playing,
    for `follow_up_s` the orb listens without the wake word: speech the `vad` engine detects starts step 3 directly.
-   A reply to the button or to a turn typed in the terminal opens no window. `0` turns it off.
+   A reply to the button or to a turn typed in the terminal opens no window, nor does a reply with the user's own
+   words queued behind it. `0` turns it off.
 
 Push-to-talk keeps working throughout and takes precedence: pressing it cancels a wake recording in progress.
 One request in flight still holds: a busy orb ignores the wake word.

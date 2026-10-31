@@ -96,10 +96,21 @@ The agent runs the skill's script: `orb open [--agent claude|copilot]`.
 - A panel closes by its close button or by voice ("close that panel").
 - The header shows the repo, the agent link state, and the speech engines in use.
 
+## Typing
+
+The bar's `type` button, or `Enter` while no field or control has focus, opens a text box under the caption. A panel or
+widget keeps its own `Enter`, since a panel able to move the focus could carry what the user types into the box. `Enter` sends,
+`Shift+Enter` starts a new line, and `Escape` closes the box and keeps the draft. The box stays open after a send. It
+sends the page's own `typed` message, which a panel cannot produce, so what is typed reaches the agent unmarked, as the
+user's words, and from there is treated like speech: it ends the wake word's follow-up window, is held while the agent
+is busy, joins the words queued beside it, and is answered aloud. While the orb is not attached the draft stays in the
+box and a notice says it was not sent. While a panel fills the window the box is out of sight with the rest of the orb.
+
 ## Talking (push-to-talk)
 
 1. The user holds the mic button, or holds the push-to-talk key (config `ptt_key`, default Space) while the window has
-   focus. The key is ignored while focus is in a text field.
+   focus. A press is ignored while focus is in a text field; the release of a press the orb took counts wherever focus
+   has moved.
 2. The page records with `getUserMedia`, resamples to 16 kHz mono in an AudioWorklet, and streams frames over the
    WebSocket while held. The orb shows **listening**, driven by the mic level.
 3. On release the server takes the clip. A clip under about 0.3 s is dropped as a tap; there is no upper limit, and a long clip is transcribed in pieces of at most 20 s cut at quiet points.
@@ -216,7 +227,7 @@ Mic and ask buttons stay disabled until the link is verified.
   when `COPILOT_CLI=1`, so it never binds a port or writes `channel.json` for a Copilot session.
 - **Trust and answer style.** Claude Code wraps channel messages as untrusted. The channel server's MCP
   `instructions` (always in the session's context, unlike skill text, which loads on demand) tell the agent that
-  `orb-channel` messages are the user's own voice requests and clicks from the local orb, and how to answer: do what
+  `orb-channel` messages are the user's own voice or typed requests and clicks from the local orb, and how to answer: do what
   was asked, then reply in plain spoken language, no markdown, names and keys read naturally, no preamble. With that
   text alone, ten varied requests got ten plain spoken replies (test 0.4). The skill repeats the same text for
   reference.
