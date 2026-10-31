@@ -88,7 +88,5 @@ const routes = {
 };
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  // sessionPid is the process that spawned this server: the Claude Code session itself. The interrupt adapter
-  // sends Escape to that console and to no other.
   openDoor({ recordFile: CHANNEL_FILE, record: { sessionPid: process.ppid, repoRoot: REPO_ROOT }, routes, log });
 }
