@@ -868,7 +868,6 @@
       if (!p) return;
       Object.assign(p, { data, data_at: at });
       this.post(name);
-      if (name === "releases") releasesUi.render();
     },
     post(name) {
       postData(orb.panels.get(name));
@@ -976,8 +975,8 @@
     divider.addEventListener("pointerup", up);
   });
 
-  // The transcript is a built-in panel the server registers like any other, so it survives a reload and shows
-  // in every window of this orb; the toggle only asks for it or closes it.
+  // The transcript and the release notes are built-in panels the server registers like any other, so they survive a
+  // reload and show in every window of this orb; a toggle only asks for one or closes it.
   async function toggleBuiltin(name, title) {
     if (orb.panels.has(name)) {
       send({ type: "panel_close", name });
@@ -1000,7 +999,7 @@
     render() {
       const box = $("builtin-releases"), p = orb.panels.get("releases");
       if (!box || !p) return;
-      const rows = releaseRows(Array.isArray(p.data) ? p.data : []);
+      const rows = releaseRows(p.data);
       box.replaceChildren();
       if (!rows.length) { box.textContent = "No release notes were found."; return; }
       for (const row of rows) box.appendChild(this.row(row));
