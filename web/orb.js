@@ -446,6 +446,7 @@
     stream: null,
     node: null,
     holding: false,
+    keyDown: false,
     micLevel: 0,
     live() {
       const track = this.stream && this.stream.getAudioTracks()[0];
@@ -564,15 +565,17 @@
   addEventListener("keydown", (ev) => {
     if (ev.code !== orb.pttKey || ev.repeat || inTextField(ev.target)) return;
     ev.preventDefault();
+    ptt.keyDown = true;
     if (orb.state === "idle" || orb.state === "thinking") ptt.hold();
     else if (orb.state !== "listening") stopNow();
   });
   addEventListener("keyup", (ev) => {
-    if (ev.code !== orb.pttKey || inTextField(ev.target)) return;
+    if (ev.code !== orb.pttKey || !ptt.keyDown) return;
     ev.preventDefault();
+    ptt.keyDown = false;
     ptt.release();
   });
-  addEventListener("blur", () => ptt.release());
+  addEventListener("blur", () => { ptt.keyDown = false; ptt.release(); });
 
   // ---- panels ----
 
@@ -1034,7 +1037,6 @@
     field: $("typed"),
     toggle: $("type-toggle"),
     show() {
-      if (ptt.holding) return;
       this.field.hidden = false;
       this.toggle.classList.add("on");
       this.field.focus();
