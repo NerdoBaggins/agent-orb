@@ -1056,15 +1056,16 @@
     show(button) {
       const mine = !!this.explaining && this.explaining.id === button.dataset.id;
       button.classList.toggle("stop", mine);
+      button.disabled = !!this.explaining && !mine;
       button.setAttribute("aria-label", mine ? "Stop explaining" : "Explain this aloud");
     },
     syncButtons() {
       for (const button of document.querySelectorAll("#builtin-releases .rn-explain")) this.show(button);
     },
     toggle(id, request) {
-      const stopping = !!this.explaining && this.explaining.id === id;
-      if (this.explaining) stopNow();
-      if (!stopping) {
+      if (this.explaining) {
+        stopNow();
+      } else {
         this.explaining = { id, ref: `releases:${++this.seq}`, replied: false };
         send({
           type: "ask", text: request, speak: true, ref: this.explaining.ref, kind: "panel", page: "releases",
