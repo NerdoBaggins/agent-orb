@@ -1081,7 +1081,7 @@ class OrbServer:
         return self.blocked() or bool(self.queue)
 
     def ready(self) -> bool:
-        """The follow-up window after a woken reply is the user's to speak in; what is queued goes after it."""
+        """The follow-up window after a woken reply is the user's to speak in; what a page queued goes after it."""
         follow_up = self.waker is not None and self.waker.follow_up.is_open(time.monotonic())
         return bool(self.queue) and not self.blocked() and bool(self.sockets) and not follow_up
 

@@ -182,7 +182,7 @@ They work while the orb window has focus and you are not typing in a text field.
 | `Space` (hold) | push to talk | `ptt_key` |
 | `M` | mute or unmute | `mute_key` |
 | `T` | show or hide the transcript | — |
-| `Enter` | open the box to type a request in, unless a control or a panel has focus | — |
+| `Enter` | open the box to type a request in, unless a control, panel or widget has focus | — |
 | `B` | next skin | `skin_key` |
 | `P` | hide the open panels, and bring them back as they were | `panels_key` |
 | `Escape` | close the box you are typing in; otherwise restore the orb and panels split; otherwise stop the speech or the agent's turn | — |
@@ -522,7 +522,7 @@ shows it), and the orb listens for the phrase while idle:
   dropped in every state but idle, so the orb's own reply cannot wake it. Push-to-talk keeps working and takes
   precedence.
 - For `follow_up_s` after the reply to something asked by the wake word, speech needs no wake word. A reply to the
-  button, or to a turn typed in the terminal, opens no follow-up.
+  button, or to a turn typed in the terminal, opens no follow-up, nor does a reply with your own words queued behind it.
 - `voice_auth: true` answers only the enrolled voice. Enroll with the orb open: `orb voice enroll` shows five
   phrases to read while holding the button. With it on and nothing enrolled, the wake word stays off and the orb
   says so.

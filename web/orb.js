@@ -447,6 +447,7 @@
     node: null,
     holding: false,
     heldByKey: false,
+    releasedEarly: false,
     micLevel: 0,
     live() {
       const track = this.stream && this.stream.getAudioTracks()[0];
@@ -517,14 +518,16 @@
         : !orb.attached && !orb.enrolling ? orb.attachMessage || "not attached to an agent session"
         : orb.state !== "idle" && orb.state !== "thinking" ? `busy: ${orb.state}` : null;
       if (refusal) { notice(`can't listen: ${refusal}`, "error"); return; }
+      this.releasedEarly = false;
       if (!(await this.ensure())) return;
       if (this.ctx.state === "suspended") await this.ctx.resume();
+      if (this.releasedEarly) return;
       this.holding = true;
       send({ type: "ptt_start" });
     },
     release() {
       this.heldByKey = false;
-      if (!this.holding) return;
+      if (!this.holding) { this.releasedEarly = true; return; }
       this.holding = false;
       this.micLevel = 0;
       send({ type: "ptt_stop" });
