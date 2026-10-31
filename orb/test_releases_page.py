@@ -1,4 +1,5 @@
 import asyncio
+import base64
 
 import pytest
 from aiohttp import ClientSession, web
@@ -241,3 +242,36 @@ def test_every_other_change_in_a_section_is_shaded_so_the_rows_can_be_told_apart
 
     _, (first, second, third) = asyncio.run(releases_page(tmp_path, shades))
     assert first == third != second
+
+
+@pytest.mark.timeout(60)
+def test_the_shading_is_strong_enough_to_see_against_the_panel(tmp_path, monkeypatch):
+    monkeypatch.setattr(releases, "load", lambda path: [
+        {"version": "1.0.0", "date": "2026-01-02", "sections": [{"heading": "Fixed", "entries": ["one", "two"]}]}])
+
+    async def pixels(page, base):
+        await page.keyboard.press("r")
+        await page.wait_for_selector("#builtin-releases .rn-stripe")
+        await page.wait_for_function("""() => new Promise(resolve => {
+          const place = () => { const r = document.querySelector('#builtin-releases .rn-entry').getBoundingClientRect(); return r.x + ',' + r.width; };
+          const before = place();
+          setTimeout(() => resolve(place() === before), 300);
+        })""")
+        points = []
+        for row in await page.query_selector_all("#builtin-releases .rn-entry"):
+            box = await row.bounding_box()
+            points.append((int(box["x"]) + 3, int(box["y"] + box["height"] / 2)))
+        shot = base64.b64encode(await page.screenshot()).decode()
+        return await page.evaluate("""async ([shot, points]) => {
+          const image = new Image();
+          image.src = 'data:image/png;base64,' + shot;
+          await image.decode();
+          const canvas = document.createElement('canvas');
+          canvas.width = image.width; canvas.height = image.height;
+          const context = canvas.getContext('2d');
+          context.drawImage(image, 0, 0);
+          return points.map(([x, y]) => [...context.getImageData(x, y, 1, 1).data].slice(0, 3));
+        }""", [shot, points])
+
+    _, (plain, striped) = asyncio.run(releases_page(tmp_path, pixels))
+    assert max(abs(a - b) for a, b in zip(plain, striped)) >= 20
