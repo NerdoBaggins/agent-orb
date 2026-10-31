@@ -160,6 +160,7 @@ background. Hover it to open the rest:
 |---|---|
 | Session name | the session the orb is attached to (Claude Code's `/rename` name, Copilot's session name), following a rename within a few seconds |
 | Transcript | shows or hides the transcript (`T`) |
+| Release notes | shows or hides what changed in each release, with an explain button on every change (`R`) |
 | Voice | mutes or unmutes speech (`M`) |
 | Speed | the voice speed, from 0.7 to 1.6 |
 | Size | the orb's size, marked at normal; each skin keeps its own |
@@ -181,6 +182,7 @@ They work while the orb window has focus and you are not typing in a text field.
 | `Space` (hold) | push to talk | `ptt_key` |
 | `M` | mute or unmute | `mute_key` |
 | `T` | show or hide the transcript | — |
+| `R` | show or hide the release notes | — |
 | `B` | next skin | `skin_key` |
 | `P` | hide the open panels, and bring them back as they were | `panels_key` |
 | `Escape` | restore the orb and panels split; otherwise stop the speech or the agent's turn | — |
@@ -224,7 +226,7 @@ plugin's folder (the skill tells the agent where that is).
 |---|---|
 | `orb open [--agent claude\|copilot]` | start this session's orb server and window (one per agent per repo), on the same port every time |
 | `orb stop [--agent claude\|copilot]` | stop this repo's orb and close its window at once |
-| `orb panel show <file.html\|name\|transcript> [--title] [--name]` | show a panel |
+| `orb panel show <file.html\|name\|transcript\|releases> [--title] [--name]` | show a panel |
 | `orb panel close <name>` | close one |
 | `orb panels list` | saved panels |
 | `orb widgets list` | installed widgets, with their scope, which are on, and which names are also panels |
@@ -246,7 +248,7 @@ optional extra folders you name in your config, for example a synced folder shar
 
 | What | This repo only | Every repo | Extra folders you name | Built in |
 |---|---|---|---|---|
-| Saved panels | `~/.config/orb/repos/<repo id>/panels/<name>/` | `~/.config/orb/panels/<name>/` | `panel_dirs` | `transcript` |
+| Saved panels | `~/.config/orb/repos/<repo id>/panels/<name>/` | `~/.config/orb/panels/<name>/` | `panel_dirs` | `transcript`, `releases` |
 | Widgets | `~/.config/orb/repos/<repo id>/widgets/<name>/` | `~/.config/orb/widgets/<name>/` | `widget_dirs` | — |
 | Feeds | `~/.config/orb/repos/<repo id>/feeds/<name>/` | `~/.config/orb/feeds/<name>/` | — | — |
 | Actions | `~/.config/orb/repos/<repo id>/actions/<name>/` | `~/.config/orb/actions/<name>/` | — | — |
