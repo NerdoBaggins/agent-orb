@@ -7,8 +7,8 @@ that has one adds it under Unreleased.
 
 ### Added
 
-- A release notes panel: press `R` or use the bar's `release notes` button to see what changed in each release, newest
-  first, with an explain button on every change and on each release that has the agent say it aloud
+- A release notes panel: press `R` or use the bar's `release notes` button to see what changed in each release, with
+  an explain button on every change and on each release that has the agent say it aloud
   ([#114](https://github.com/NerdoBaggins/agent-orb/issues/114)).
 
 ## 0.4.0 — 2026-10-30

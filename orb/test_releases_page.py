@@ -59,12 +59,12 @@ def test_pressing_r_again_closes_the_panel_and_puts_the_bar_button_out(tmp_path)
         await page.wait_for_selector("#builtin-releases", state="detached")
         return await page.evaluate(f"() => [{OPEN}, document.querySelectorAll('#tabs .tab').length]")
 
-    _, (lit, tabs) = asyncio.run(releases_page(tmp_path, press_twice))
-    assert lit is False and tabs == 0
+    server, (lit, tabs) = asyncio.run(releases_page(tmp_path, press_twice))
+    assert lit is False and tabs == 0 and "releases" not in server.panels
 
 
 @pytest.mark.timeout(60)
-def test_the_release_notes_button_opens_the_panel_beside_the_transcript_toggle(tmp_path):
+def test_the_release_notes_button_opens_the_release_notes_panel(tmp_path):
     async def click_button(page, base):
         await page.evaluate("() => document.getElementById('releases-toggle').click()")
         await page.wait_for_selector("#builtin-releases h3")
@@ -131,6 +131,20 @@ def test_showing_the_panel_again_redraws_it_from_the_data_it_was_sent(tmp_path, 
 
     _, (first, second) = asyncio.run(releases_page(tmp_path, show_twice))
     assert first == ["1.0.0 — 2026-01-02"] and second == ["2.0.0"]
+
+
+@pytest.mark.timeout(60)
+def test_r_opens_nothing_with_alt_or_meta_held_or_while_typing_in_a_text_field(tmp_path):
+    async def press(page, base):
+        await page.keyboard.press("Alt+r")
+        await page.keyboard.press("Meta+r")
+        await page.evaluate("() => { const box = document.createElement('input'); box.id = 'typing'; document.body.appendChild(box); box.focus(); }")
+        await page.keyboard.press("r")
+        await page.wait_for_timeout(500)
+        return await page.evaluate("() => [document.querySelectorAll('#tabs .tab').length, document.getElementById('typing').value]")
+
+    _, (tabs, typed) = asyncio.run(releases_page(tmp_path, press))
+    assert tabs == 0 and typed == "r"
 
 
 @pytest.mark.timeout(60)

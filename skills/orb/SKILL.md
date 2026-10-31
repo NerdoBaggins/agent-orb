@@ -61,7 +61,7 @@ uv run --project "<ORB_ROOT>" orb panel show <file.html> [--title "<title>"] [--
 uv run --project "<ORB_ROOT>" orb panel close <name>
 uv run --project "<ORB_ROOT>" orb panels list
 uv run --project "<ORB_ROOT>" orb panel show transcript      # the built-in transcript panel
-uv run --project "<ORB_ROOT>" orb panel show releases        # the built-in release notes panel
+uv run --project "<ORB_ROOT>" orb panel show releases
 ```
 
 - **Before writing a new panel, run `orb panels list`.** A saved panel with a matching description is reused:
