@@ -1192,8 +1192,8 @@
   };
   typedBox.recall();
   addEventListener("pointerdown", (ev) => {
-    typedBox.orbSideChosen = true;
-    if (ev.target.closest("#panels, #widgets")) typedBox.release();
+    if (ev.target.closest("#orb-pane") && !ev.target.closest("#widgets")) typedBox.orbSideChosen = true;
+    if (ev.target.closest("#panels, #widgets") && !ev.defaultPrevented) typedBox.release();
   });
   addEventListener("blur", () => {
     if (document.activeElement.tagName !== "IFRAME") return;
@@ -1201,6 +1201,9 @@
     else typedBox.orbSideChosen = false;
   });
   typedBox.field.addEventListener("focus", () => typedBox.hold());
+  typedBox.field.addEventListener("blur", () => setTimeout(() => {
+    if (document.activeElement !== typedBox.field && document.activeElement.tagName !== "IFRAME") typedBox.release();
+  }, 0));
   typedBox.field.addEventListener("input", () => typedBox.remember());
   typedBox.toggle.addEventListener("click", () => (typedBox.field.hidden ? typedBox.show() : typedBox.hide()));
   typedBox.field.addEventListener("keydown", (ev) => {
