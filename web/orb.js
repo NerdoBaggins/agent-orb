@@ -831,6 +831,7 @@
         this.stale(p.name, p.feed_error);
         if (existing.iframe) existing.iframe.src = `${p.url}?v=${Date.now()}`;
         if (!p.in_place) this.activate(p.name);
+        releasesUi.render();
         return;
       }
       const tab = document.createElement("button");
@@ -907,6 +908,7 @@
     layout() {
       const any = orb.panels.size > 0;
       $("transcript-toggle").classList.toggle("on", orb.panels.has("transcript"));
+      $("releases-toggle").classList.toggle("on", orb.panels.has("releases"));
       $("panels").hidden = !any;
       const stage = $("stage");
       stage.classList.toggle("has-panels", any);
@@ -998,40 +1000,28 @@
     render() {
       const box = $("builtin-releases"), p = orb.panels.get("releases");
       if (!box || !p) return;
-      const releases = Array.isArray(p.data) ? p.data : [];
+      const rows = releaseRows(Array.isArray(p.data) ? p.data : []);
       box.replaceChildren();
-      if (!releases.length) { box.textContent = "No release notes were found."; return; }
-      for (const release of releases) {
-        const head = document.createElement("div");
-        head.className = "rn-release";
-        const title = document.createElement("h3");
-        title.textContent = release.date ? `${release.version} — ${release.date}` : release.version;
-        head.append(title, this.explainButton(explainRelease(release), `Explain release ${release.version}`));
-        box.appendChild(head);
-        for (const section of release.sections) {
-          const heading = document.createElement("div");
-          heading.className = "rn-section";
-          heading.textContent = section.heading;
-          box.appendChild(heading);
-          for (const entry of section.entries) {
-            const row = document.createElement("div");
-            row.className = "rn-entry";
-            const text = document.createElement("span");
-            text.textContent = entry;
-            row.append(text, this.explainButton(explainChange(release, section, entry), "Explain this change"));
-            box.appendChild(row);
-          }
-        }
-      }
+      if (!rows.length) { box.textContent = "No release notes were found."; return; }
+      for (const row of rows) box.appendChild(this.row(row));
     },
-    explainButton(request, label) {
+    row({ kind, text, request }) {
+      const element = document.createElement("div");
+      element.className = `rn-${kind}`;
+      const label = document.createElement(kind === "release" ? "h3" : "span");
+      label.textContent = text;
+      element.appendChild(label);
+      if (request) element.appendChild(this.explainButton(request));
+      return element;
+    },
+    explainButton(request) {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "rn-explain";
       button.textContent = "explain";
-      button.setAttribute("aria-label", label);
+      button.setAttribute("aria-label", "Explain this aloud");
       button.addEventListener("click", () => send({
-        type: "ask", text: request, speak: true, kind: "page", page: "releases",
+        type: "ask", text: request, speak: true, kind: "panel", page: "releases",
         active: !!(navigator.userActivation && navigator.userActivation.isActive),
       }));
       return button;

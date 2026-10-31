@@ -3,7 +3,7 @@ import re
 from pathlib import Path
 
 HEADING = re.compile(r"^## (.+?)(?: [—-] (\d{4}-\d{2}-\d{2}))?\s*$")
-LINK = re.compile(r"\[([^\]]+)\]\([^)]*\)")
+LINK = re.compile(r"!?\[([^\]]+)\]\((?:[^()]|\([^()]*\))*\)")
 
 
 def parse(text: str) -> list[dict]:
@@ -18,7 +18,10 @@ def parse(text: str) -> list[dict]:
         elif line.startswith("### "):
             section = {"heading": line[4:].strip(), "entries": []}
             release["sections"].append(section)
-        elif section is not None and line.startswith("- "):
+        elif line.startswith("- "):
+            if section is None:
+                section = {"heading": "", "entries": []}
+                release["sections"].append(section)
             section["entries"].append(line[2:].strip())
         elif section is not None and section["entries"] and line.startswith("  ") and line.strip():
             section["entries"][-1] += " " + line.strip()
