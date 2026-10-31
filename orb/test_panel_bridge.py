@@ -18,7 +18,7 @@ SCRIPTED = """<!doctype html><body><script>setInterval(() => {
 
 async def browser(p):
     try:
-        return await p.chromium.launch(channel="chrome", headless=True)
+        return await p.chromium.launch(channel="chrome", headless=True, args=["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"])
     except Exception as e:
         pytest.skip(f"Chrome is not available to Playwright: {e}")
 

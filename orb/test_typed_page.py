@@ -8,6 +8,13 @@ from orb.test_server import make
 
 FIELD = "#typed"
 PANEL = """<!doctype html><body tabindex="0"><button id="b">b</button></body>"""
+KEY_POSTER = """<!doctype html><body><script>setInterval(() => parent.postMessage({ orb: "key", code: "Enter" }, "*"), 100);</script></body>"""
+
+
+def attached(tmp_path, **link):
+    server = make(tmp_path, voice=True, **link)
+    server.attached = True
+    return server
 
 
 def visible(page):
@@ -28,7 +35,7 @@ def test_the_box_is_hidden_until_enter_opens_it_with_the_focus_in_it(tmp_path):
         seen["after"] = await visible(page)
         seen["focused"] = await page.evaluate("document.activeElement.id")
 
-    asyncio.run(run_page(tmp_path, [], act))
+    asyncio.run(run_page(tmp_path, [], act, attached(tmp_path)))
     assert seen == {"before": False, "after": True, "focused": "typed"}
 
 
@@ -44,7 +51,7 @@ def test_enter_in_the_box_sends_and_leaves_it_open_and_empty(tmp_path):
         seen["open"] = await visible(page)
         seen["value"] = await page.locator(FIELD).input_value()
 
-    server = asyncio.run(run_page(tmp_path, [], act))
+    server = asyncio.run(run_page(tmp_path, [], act, attached(tmp_path)))
     assert seen == {"open": True, "value": ""}
     assert sent(server) == ["rename the file"]
 
@@ -60,7 +67,7 @@ def test_shift_enter_starts_a_new_line_and_sends_nothing(tmp_path):
         await page.keyboard.type("two")
         seen["value"] = await page.locator(FIELD).input_value()
 
-    server = asyncio.run(run_page(tmp_path, [], act))
+    server = asyncio.run(run_page(tmp_path, [], act, attached(tmp_path)))
     assert seen["value"] == "one\ntwo"
     assert sent(server) == []
 
@@ -76,7 +83,7 @@ def test_the_box_grows_with_the_lines_in_it(tmp_path):
         await page.keyboard.press("Shift+Enter")
         seen["three"] = await page.evaluate("document.getElementById('typed').offsetHeight")
 
-    asyncio.run(run_page(tmp_path, [], act))
+    asyncio.run(run_page(tmp_path, [], act, attached(tmp_path)))
     assert seen["three"] > seen["one"]
 
 
@@ -88,7 +95,7 @@ def test_enter_that_confirms_an_accent_being_composed_sends_nothing(tmp_path):
         await page.evaluate("""document.getElementById('typed').dispatchEvent(
             new KeyboardEvent('keydown', { key: 'Enter', isComposing: true, bubbles: true, cancelable: true }))""")
 
-    server = asyncio.run(run_page(tmp_path, [], act))
+    server = asyncio.run(run_page(tmp_path, [], act, attached(tmp_path)))
     assert sent(server) == []
 
 
@@ -104,7 +111,7 @@ def test_escape_closes_the_box_and_enter_brings_the_draft_back(tmp_path):
         await page.keyboard.press("Enter")
         seen["value"] = await page.locator(FIELD).input_value()
 
-    server = asyncio.run(run_page(tmp_path, [], act))
+    server = asyncio.run(run_page(tmp_path, [], act, attached(tmp_path)))
     assert seen == {"closed": True, "value": "half a thought"}
     assert sent(server) == []
 
@@ -122,7 +129,7 @@ def test_a_shortcut_letter_typed_in_the_box_is_only_a_letter(tmp_path):
         seen["transcript"] = await page.locator("#transcript-toggle").get_attribute("class")
         seen["value"] = await page.locator(FIELD).input_value()
 
-    asyncio.run(run_page(tmp_path, [], act))
+    asyncio.run(run_page(tmp_path, [], act, attached(tmp_path)))
     assert seen["muted"] == seen["after"]
     assert "on" not in seen["transcript"].split()
     assert seen["value"] == "mt "
@@ -138,7 +145,7 @@ def test_the_bar_button_opens_and_closes_the_box(tmp_path):
         await page.evaluate("document.getElementById('type-toggle').click()")
         seen["closed"] = not await visible(page)
 
-    asyncio.run(run_page(tmp_path, [], act))
+    asyncio.run(run_page(tmp_path, [], act, attached(tmp_path)))
     assert seen == {"opened": True, "closed": True}
 
 
@@ -148,18 +155,21 @@ def test_enter_on_a_focused_bar_button_presses_it_without_opening_the_box(tmp_pa
 
     async def act(page):
         await open_bar(page)
+        before = await page.locator("#voice-toggle").get_attribute("class")
         await page.evaluate("document.getElementById('voice-toggle').focus()")
         seen["focused"] = await page.evaluate("document.activeElement.id")
         await page.keyboard.press("Enter")
+        await page.wait_for_timeout(500)
+        seen["pressed"] = await page.locator("#voice-toggle").get_attribute("class") != before
         seen["open"] = await visible(page)
 
-    asyncio.run(run_page(tmp_path, [], act))
-    assert seen == {"focused": "voice-toggle", "open": False}
+    asyncio.run(run_page(tmp_path, [], act, attached(tmp_path)))
+    assert seen == {"focused": "voice-toggle", "pressed": True, "open": False}
 
 
 @pytest.mark.timeout(60)
-def test_text_sent_with_no_connection_stays_in_the_box(tmp_path):
-    server = make(tmp_path, voice=True)
+def test_text_sent_with_no_connection_stays_in_the_box_with_a_notice(tmp_path):
+    server = attached(tmp_path)
     seen = {}
 
     async def act(page):
@@ -170,25 +180,130 @@ def test_text_sent_with_no_connection_stays_in_the_box(tmp_path):
         await page.wait_for_timeout(200)
         await page.keyboard.press("Enter")
         seen["value"] = await page.locator(FIELD).input_value()
+        seen["notice"] = await page.locator("#notice").inner_text()
 
     asyncio.run(run_page(tmp_path, [], act, server))
     assert seen["value"] == "keep me"
+    assert "not sent" in seen["notice"]
     assert sent(server) == []
 
 
 @pytest.mark.timeout(60)
-def test_enter_with_a_panel_focused_moves_the_focus_to_the_box(tmp_path):
+def test_text_sent_with_no_agent_attached_stays_in_the_box_with_a_notice(tmp_path):
+    server = make(tmp_path, voice=True, bound=False)
     seen = {}
 
     async def act(page):
-        frame = page.frame_locator("iframe.panel-body")
-        await frame.locator("body").click(position={"x": 200, "y": 200})
+        await page.keyboard.press("Enter")
+        await page.keyboard.type("keep me")
+        await page.keyboard.press("Enter")
+        await page.wait_for_timeout(500)
+        seen["value"] = await page.locator(FIELD).input_value()
+        seen["notice"] = await page.locator("#notice").inner_text()
+
+    asyncio.run(run_page(tmp_path, [], act, server))
+    assert seen["value"] == "keep me"
+    assert "not sent" in seen["notice"]
+
+
+@pytest.mark.timeout(60)
+def test_releasing_the_talk_key_after_enter_opened_the_box_stops_listening(tmp_path):
+    server = attached(tmp_path)
+    seen = {}
+
+    async def act(page):
+        await page.keyboard.down("Space")
+        await page.wait_for_timeout(700)
+        seen["held"] = server.state
+        await page.keyboard.press("Enter")
+        await page.keyboard.up("Space")
+        await page.wait_for_timeout(500)
+        seen["released"] = server.state
+
+    asyncio.run(run_page(tmp_path, [], act, server))
+    assert seen["held"] == "listening"
+    assert seen["released"] != "listening"
+
+
+@pytest.mark.timeout(60)
+def test_holding_enter_to_reopen_a_draft_does_not_send_it(tmp_path):
+    seen = {}
+
+    async def act(page):
+        await page.keyboard.press("Enter")
+        await page.keyboard.type("half a thought")
+        await page.keyboard.press("Escape")
+        await page.keyboard.down("Enter")
+        await page.keyboard.down("Enter")
+        await page.keyboard.up("Enter")
+        await page.wait_for_timeout(300)
+        seen["value"] = await page.locator(FIELD).input_value()
+
+    server = asyncio.run(run_page(tmp_path, [], act, attached(tmp_path)))
+    assert seen["value"] == "half a thought"
+    assert sent(server) == []
+
+
+@pytest.mark.timeout(60)
+def test_holding_escape_to_close_the_box_does_not_stop_the_turn(tmp_path):
+    server = attached(tmp_path)
+    stops = []
+    server.stop = lambda: stops.append(1) or asyncio.sleep(0)
+
+    async def act(page):
+        await page.keyboard.press("Enter")
+        await page.keyboard.type("rename the file")
         await page.keyboard.press("Enter")
         await page.wait_for_timeout(300)
-        seen["focused"] = await page.evaluate("document.activeElement.id")
+        await page.keyboard.down("Escape")
+        await page.keyboard.down("Escape")
+        await page.keyboard.up("Escape")
+        await page.wait_for_timeout(500)
 
-    asyncio.run(run_page(tmp_path, [("plan", PANEL)], act))
-    assert seen["focused"] == "typed"
+    asyncio.run(run_page(tmp_path, [], act, server))
+    assert stops == []
+
+
+@pytest.mark.timeout(60)
+def test_the_box_fits_inside_the_orb_pane_beside_a_panel(tmp_path):
+    seen = {}
+
+    async def act(page):
+        await page.set_viewport_size({"width": 1000, "height": 800})
+        await page.wait_for_timeout(300)
+        await page.keyboard.press("Enter")
+        seen["box"] = await page.evaluate("(() => { const r = document.getElementById('typed').getBoundingClientRect(); return [r.left, r.right]; })()")
+        seen["pane"] = await page.evaluate("(() => { const r = document.getElementById('orb-pane').getBoundingClientRect(); return [r.left, r.right]; })()")
+
+    asyncio.run(run_page(tmp_path, [("plan", PANEL)], act, attached(tmp_path)))
+    assert seen["box"][0] >= seen["pane"][0] and seen["box"][1] <= seen["pane"][1]
+
+
+@pytest.mark.timeout(60)
+def test_enter_in_a_panel_stays_in_the_panel(tmp_path):
+    seen = {}
+
+    async def act(page):
+        await page.frame_locator("iframe.panel-body").locator("body").click(position={"x": 200, "y": 200})
+        await page.keyboard.press("Enter")
+        await page.wait_for_timeout(300)
+        seen["focused"] = await page.evaluate("document.activeElement.tagName")
+        seen["open"] = await visible(page)
+
+    asyncio.run(run_page(tmp_path, [("plan", PANEL)], act, attached(tmp_path)))
+    assert seen == {"focused": "IFRAME", "open": False}
+
+
+@pytest.mark.timeout(60)
+def test_a_panel_cannot_open_the_box_by_posting_a_key(tmp_path):
+    seen = {}
+
+    async def act(page):
+        await page.wait_for_timeout(300)
+        seen["open"] = await visible(page)
+
+    asyncio.run(run_page(tmp_path, [("poster", KEY_POSTER)], act, attached(tmp_path)))
+    assert seen["open"] is False
 
 
 @pytest.mark.timeout(60)
@@ -204,5 +319,5 @@ def test_what_was_typed_appears_in_the_transcript(tmp_path):
         await page.wait_for_timeout(500)
         seen["text"] = await page.inner_text("#panels")
 
-    asyncio.run(run_page(tmp_path, [], act))
+    asyncio.run(run_page(tmp_path, [], act, attached(tmp_path)))
     assert "rename the file" in seen["text"]

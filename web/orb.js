@@ -371,11 +371,8 @@
     }
   }
 
-  function connected() {
-    return !!orb.ws && orb.ws.readyState === WebSocket.OPEN;
-  }
   function send(message) {
-    if (connected()) orb.ws.send(JSON.stringify(message));
+    if (orb.ws && orb.ws.readyState === WebSocket.OPEN) orb.ws.send(JSON.stringify(message));
   }
 
   // ---- playback ----
@@ -571,7 +568,7 @@
     else if (orb.state !== "listening") stopNow();
   });
   addEventListener("keyup", (ev) => {
-    if (ev.code !== orb.pttKey || inTextField(ev.target)) return;
+    if (ev.code !== orb.pttKey || !ptt.holding) return;
     ev.preventDefault();
     ptt.release();
   });
@@ -596,11 +593,7 @@
       const frame = this.frameOf(ev.source);
       if (!frame) return;
       if (m.orb === "stop") { stopNow(); return; }
-      if (m.orb === "key") {
-        if (m.code === "Escape") escapeKey();
-        else if (m.code === "Enter") typedBox.show();
-        return;
-      }
+      if (m.orb === "key") { if (m.code === "Escape") escapeKey(); return; }
       const active = !!(navigator.userActivation && navigator.userActivation.isActive) && document.activeElement === frame.iframe;
       if (m.orb === "action") {
         const ref = `action:${this.window}:${++this.seq}`;
@@ -951,7 +944,7 @@
     return false;
   }
   addEventListener("keydown", (ev) => {
-    if (ev.code !== "Escape" || inTextField(ev.target)) return;
+    if (ev.code !== "Escape" || ev.repeat || inTextField(ev.target)) return;
     if (escapeKey()) ev.preventDefault();
   });
   const divider = $("divider");
@@ -1150,7 +1143,7 @@
     submit() {
       const text = this.field.value.trim();
       if (!text) return;
-      if (!connected()) { notice("not connected, so that was not sent", "error"); return; }
+      if (!orb.attached) { notice(`not sent: ${orb.attachMessage || "not attached to an agent session"}`, "error"); return; }
       send({ type: "typed", text });
       this.field.value = "";
     },
@@ -1158,7 +1151,7 @@
   typedBox.toggle.addEventListener("click", () => (typedBox.field.hidden ? typedBox.show() : typedBox.hide()));
   typedBox.field.addEventListener("keydown", (ev) => {
     if (ev.key === "Escape") typedBox.hide();
-    else if (ev.key === "Enter" && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); typedBox.submit(); }
+    else if (ev.key === "Enter" && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); if (!ev.repeat) typedBox.submit(); }
   });
   addEventListener("keydown", (ev) => {
     if (ev.key !== "Enter" || !isShortcut(ev) || ACTS_ON_ENTER.includes(ev.target.tagName)) return;

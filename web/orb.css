@@ -75,6 +75,7 @@ body {
 .bar-link.bad { color: var(--orb-warn); }
 #stage { position: absolute; inset: 0; display: flex; }
 #orb-pane {
+  container-type: inline-size;
   position: relative; flex: 1 1 100%; min-width: 220px;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   transition: flex-basis 320ms ease;
@@ -99,7 +100,7 @@ body[data-state="speaking"] #bar-state { background: var(--orb-warn); box-shadow
 #controls { position: absolute; bottom: 18px; display: flex; flex-direction: column; align-items: center; gap: 6px; }
 #controls .row { display: flex; align-items: center; gap: 10px; }
 #typed {
-  field-sizing: content; box-sizing: border-box; width: min(60vw, 480px); max-height: 30vh; padding: 6px 10px; resize: none;
+  field-sizing: content; box-sizing: border-box; width: min(90cqw, 480px); max-height: 30vh; padding: 6px 10px; resize: none;
   color: var(--orb-fg); background: var(--orb-surface); border: 1px solid var(--orb-line); border-radius: 8px;
   font: 13px/1.4 var(--orb-font); outline: none;
 }
