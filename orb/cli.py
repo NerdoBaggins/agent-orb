@@ -14,7 +14,7 @@ import urllib.request
 from pathlib import Path
 
 from orb import PLUGIN_ROOT, agents, browser, logs, pages, panels, widgets
-from orb.config import ConfigError, copilot_selector, load_for, panel_dirs_for, private_config_path, save_for_repo, save_widget, widget_dirs_for, widgets_on
+from orb.config import ConfigError, load_for, panel_dirs_for, private_config_path, save_for_repo, save_widget, widget_dirs_for, widgets_on
 from orb.copilot import read_door
 from orb.state import copilot_channel_file, port_file, private_root, read_json, running_server, server_file, session_project, state_dir, user_only
 
@@ -115,7 +115,6 @@ def cmd_open(args) -> int:
     repo, home = repo_and_home(args, os.environ)
     try:
         config = load_for(repo, home)
-        selector = copilot_selector(os.environ)
     except ConfigError as e:
         print(f"orb: {e}", file=sys.stderr)
         return 2
@@ -126,7 +125,7 @@ def cmd_open(args) -> int:
     channel = agents.read_channel(state)
     try:
         agent = agents.select_agent(args.agent, agents.channel_bound(channel),
-                                   read_door(copilot_channel_file(state, selector)) is not None)
+                                   read_door(copilot_channel_file(state)) is not None)
     except agents.LinkError as e:
         print(f"orb: {e}", file=sys.stderr)
         return 1

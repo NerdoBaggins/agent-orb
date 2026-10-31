@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from orb.config import (DEFAULTS, REPO_KEYS, SIZE_MAX, SIZE_MIN, SIZE_NORMAL, ConfigError, copilot_selector, credential_keys, engine_settings,
+from orb.config import (DEFAULTS, REPO_KEYS, SIZE_MAX, SIZE_MIN, SIZE_NORMAL, ConfigError, credential_keys, engine_settings,
                         load, load_for, private_config_path, repo_config_path, save_skin_size, save_speed, save_widget,
                         size_for, speed_for, tts_settings_for, user_config_path)
 
@@ -379,13 +379,3 @@ def test_the_size_sliders_range_is_the_range_sizes_are_kept_in():
     assert (attribute("min"), attribute("max"), attribute("value")) == (SIZE_MIN, SIZE_MAX, SIZE_NORMAL)
 
 
-def test_the_copilot_selector_is_orb_copilot_port_when_set_and_none_otherwise():
-    assert copilot_selector({"ORB_COPILOT_PORT": "4399"}) == 4399
-    assert copilot_selector({"ORB_COPILOT_PORT": ""}) is None
-    assert copilot_selector({}) is None
-
-
-@pytest.mark.parametrize("raw", ["abc", "0", "65536", "-1", "43 21"])
-def test_the_copilot_selector_from_the_environment_must_be_a_port_number(raw):
-    with pytest.raises(ConfigError, match="ORB_COPILOT_PORT"):
-        copilot_selector({"ORB_COPILOT_PORT": raw})

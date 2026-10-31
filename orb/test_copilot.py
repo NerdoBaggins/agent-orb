@@ -1,4 +1,5 @@
 import json
+import os
 import threading
 import time
 from pathlib import Path
@@ -9,7 +10,8 @@ from orb import agents
 from orb.agents import Stopped
 from orb.feed import ORB_TAG
 from orb.copilot import (CopilotLink, cancelled, open_work, read_events, reply_to, request_running, session_name,
-                         start_command, waiting_on)
+                         SessionMoved, start_command, waiting_on)
+from orb.copilot import Door
 
 DOOR = Path("copilot-channel.json")
 
@@ -90,7 +92,7 @@ def link_with_log(tmp_path, monkeypatch, events_after_send, calls):
             return {"sessionId": "abc", "messageId": "m1"}
         return {"sessionId": "abc", "aborted": True}
 
-    monkeypatch.setattr("orb.copilot.read_door", lambda record: object())
+    monkeypatch.setattr("orb.copilot.read_door", lambda record: Door(1, "s", "abc"))
     monkeypatch.setattr("orb.copilot.POLL_S", 0)
     link = CopilotLink(DOOR, home=tmp_path, run=run)
     link.probe()
@@ -177,7 +179,7 @@ def test_session_name_is_the_workspace_name_line(tmp_path):
 
 def test_describe_shows_the_session_name_when_copilot_has_one(tmp_path, monkeypatch):
     link = CopilotLink(DOOR, home=tmp_path, run=lambda mode, timeout_s, prompt="": {"sessionId": "abc"})
-    monkeypatch.setattr("orb.copilot.read_door", lambda record: object())
+    monkeypatch.setattr("orb.copilot.read_door", lambda record: Door(1, "s", "abc"))
     assert link.probe()
     assert link.describe(True) == "Attached: Copilot (abc)"
     ws = tmp_path / "session-state" / "abc"
@@ -199,10 +201,10 @@ def test_probe_is_false_when_no_door_is_recorded(monkeypatch):
     link = CopilotLink(DOOR, run=lambda *a, **k: {"sessionId": "abc"})
     monkeypatch.setattr("orb.copilot.read_door", lambda record: None)
     assert link.probe() is False
-    assert link.describe(False).endswith(": copilot")
+    assert link.describe(False).endswith(": copilot --experimental")
 
 
-def test_helper_failure_surfaces_as_a_link_error():
+def test_a_refused_door_call_surfaces_as_a_link_error():
     def run(mode, timeout, prompt=""):
         raise agents.LinkError("Copilot's door refused /prompt (403): missing or wrong secret; nothing sent")
     link = CopilotLink(DOOR, run=run)
@@ -357,6 +359,57 @@ def test_a_copilot_session_the_hooks_never_reached_is_judged_from_its_log(tmp_pa
     assert copilot_link(tmp_path).busy(TURN_RUNNING)
 
 
-def test_the_start_hint_is_plain_copilot_and_names_the_selector_when_there_is_one():
-    assert start_command(None) == "copilot"
-    assert start_command(4400) == "copilot, from a shell with ORB_COPILOT_PORT=4400"
+def test_the_start_hint_turns_on_the_experimental_mode_copilot_loads_extensions_in():
+    assert start_command() == "copilot --experimental"
+
+
+def test_a_send_refused_because_copilot_cleared_the_session_goes_to_the_new_session(tmp_path, monkeypatch):
+    sessions = iter(["before-clear", "after-clear"])
+    sent_to = []
+    log = tmp_path / "session-state" / "after-clear" / "events.jsonl"
+    log.parent.mkdir(parents=True)
+    log.write_text("", encoding="utf-8")
+
+    def run(mode, timeout, prompt=""):
+        if mode == "foreground":
+            return {"sessionId": next(sessions)}
+        sent_to.append(link.session_id)
+        if link.session_id == "before-clear":
+            raise SessionMoved("Copilot's door refused /prompt (409)")
+        append(log, [user("m1"), START, said("m1", "Answered after the clear."), END])
+        return {"messageId": "m1"}
+
+    monkeypatch.setattr("orb.copilot.read_door", lambda record: Door(1, "s", link.session_id))
+    monkeypatch.setattr("orb.copilot.POLL_S", 0)
+    link = CopilotLink(DOOR, home=tmp_path, run=run)
+    link.probe()
+    assert link.send("hi", "r1") == "Answered after the clear."
+    assert sent_to == ["before-clear", "after-clear"]
+
+
+def test_a_request_still_waiting_when_copilot_clears_its_session_ends_instead_of_waiting_half_an_hour(tmp_path, monkeypatch):
+    record = tmp_path / "copilot-channel.json"
+    door = {"port": 1, "secret": "s", "pid": os.getpid(), "sessionId": "before-clear"}
+    record.write_text(json.dumps(door), encoding="utf-8")
+    (tmp_path / "session-state" / "before-clear").mkdir(parents=True)
+
+    def run(mode, timeout, prompt=""):
+        record.write_text(json.dumps({**door, "sessionId": "after-clear"}), encoding="utf-8")
+        return {"messageId": "m1"}
+
+    monkeypatch.setattr("orb.copilot.POLL_S", 0)
+    monkeypatch.setattr("orb.copilot.REPLY_LIMIT_S", 2)
+    link = CopilotLink(record, home=tmp_path, run=run)
+    link.session_id = "before-clear"
+    with pytest.raises(agents.RequestEnded, match="cleared"):
+        link.send("hi", "r1")
+
+
+def test_stop_after_copilot_cleared_the_session_lets_go_without_aborting_the_new_one(tmp_path, monkeypatch):
+    def run(mode, timeout, prompt=""):
+        raise SessionMoved("Copilot's door refused /abort (409)")
+    link, log = link_with_log(tmp_path, monkeypatch, [], [])
+    link._run = run
+    append(log, [user("m1"), START, said("m1", "", tools=1)])
+    link.pending = {"log": log, "offset": 0, "message_id": "m1", "released": False}
+    assert link.interrupt() is Stopped.RELEASED

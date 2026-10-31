@@ -1,8 +1,7 @@
-"""The Copilot extension's door, driven through the orb's own link, with a stand-in for the joined session. Needs
-node on PATH; hermetic otherwise."""
 import json
 import os
 import shutil
+import socket
 import subprocess
 import time
 from pathlib import Path
@@ -10,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from orb import agents
-from orb.copilot import CopilotLink, read_door
+from orb.copilot import CopilotLink, SessionMoved, read_door
 from orb.state import copilot_channel_file
 
 pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
@@ -42,6 +41,7 @@ class Door:
             if record.exists() and json.loads(record.read_text(encoding="utf-8"))["pid"] == self.proc.pid:
                 return
             time.sleep(0.05)
+        self.close()
         raise AssertionError(f"no door record; stderr: {self.proc.stderr.read()}")
 
     def said(self) -> dict:
@@ -59,27 +59,47 @@ def door(tmp_path):
     opened.close()
 
 
+def linked(tmp_path, session="s1") -> CopilotLink:
+    link = CopilotLink(tmp_path / "copilot-channel.json", home=tmp_path)
+    link.session_id = session
+    return link
+
+
 def test_the_orb_finds_the_session_through_the_recorded_door(door, tmp_path):
     link = CopilotLink(tmp_path / "copilot-channel.json", home=tmp_path)
     assert link.probe() and link.session_id == "s1"
 
 
 def test_a_send_reaches_the_session_with_the_prompt_and_returns_its_message_id(door, tmp_path):
-    link = CopilotLink(tmp_path / "copilot-channel.json", home=tmp_path)
-    assert link._call_door("send", 5, "What time is it?") == {"messageId": "m1"}
+    assert linked(tmp_path)._call_door("send", 5, "What time is it?") == {"messageId": "m1"}
     assert door.said() == {"sent": "What time is it?"}
 
 
-def test_abort_and_tasks_reach_the_session(door, tmp_path):
-    link = CopilotLink(tmp_path / "copilot-channel.json", home=tmp_path)
-    assert link._call_door("abort", 5) == {"aborted": True} and door.said() == {"aborted": True}
-    assert link._call_door("tasks", 5) == {"tasks": [{"id": "shell-7"}]}
+def test_a_send_meant_for_a_session_the_door_no_longer_serves_never_reaches_it(door, tmp_path):
+    with pytest.raises(SessionMoved):
+        linked(tmp_path, session="before-clear")._call_door("send", 5, "hello")
+    linked(tmp_path)._call_door("send", 5, "the next one")
+    assert door.said() == {"sent": "the next one"}
 
 
 def test_a_blank_prompt_is_refused_before_it_reaches_the_session(door, tmp_path):
-    link = CopilotLink(tmp_path / "copilot-channel.json", home=tmp_path)
     with pytest.raises(agents.LinkError, match="400"):
-        link._call_door("send", 5, "   ")
+        linked(tmp_path)._call_door("send", 5, "   ")
+    linked(tmp_path)._call_door("send", 5, "the next one")
+    assert door.said() == {"sent": "the next one"}
+
+
+def test_abort_reaches_the_session(door, tmp_path):
+    assert linked(tmp_path)._call_door("abort", 5) == {"aborted": True} and door.said() == {"aborted": True}
+
+
+def test_an_abort_meant_for_a_session_the_door_no_longer_serves_is_refused(door, tmp_path):
+    with pytest.raises(SessionMoved):
+        linked(tmp_path, session="before-clear")._call_door("abort", 5)
+
+
+def test_the_background_tasks_come_from_the_session(door, tmp_path):
+    assert linked(tmp_path)._call_door("tasks", 5) == {"tasks": [{"id": "shell-7"}]}
 
 
 def test_the_link_follows_the_door_to_a_new_secret_after_copilot_restarts_the_extension(tmp_path):
@@ -104,9 +124,24 @@ def test_a_door_whose_extension_has_exited_is_not_live(tmp_path):
     assert read_door(record) is None
 
 
-@pytest.mark.parametrize("selector", [None, 4400])
-def test_the_extension_and_the_orb_name_the_same_record(tmp_path, selector):
-    script = f"import {{ recordName }} from {json.dumps((HERE / 'routes.mjs').as_uri())};" \
-             f"process.stdout.write(recordName({json.dumps(str(selector) if selector else None)}));"
+def test_a_recorded_port_another_program_now_holds_is_given_up_when_its_door_is_gone(tmp_path):
+    record = tmp_path / "copilot-channel.json"
+    with socket.socket() as squatter:
+        squatter.bind(("127.0.0.1", 0))
+        squatter.listen()
+        held = squatter.getsockname()[1]
+        record.write_text(json.dumps({"port": held, "secret": "old", "pid": 2 ** 22 + 1, "sessionId": "gone"}),
+                          encoding="utf-8")
+        opened = Door(record)
+        try:
+            moved = read_door(record)
+            assert moved is not None and moved.port != held
+        finally:
+            opened.close()
+
+
+def test_the_extension_and_the_orb_name_the_same_record(tmp_path):
+    script = f"import {{ RECORD_NAME }} from {json.dumps((HERE / 'routes.mjs').as_uri())};" \
+             "process.stdout.write(RECORD_NAME);"
     named = subprocess.run(["node", "--input-type=module", "-e", script], capture_output=True, text=True, check=True).stdout
-    assert named == copilot_channel_file(tmp_path, selector).name
+    assert named == copilot_channel_file(tmp_path).name
