@@ -1,4 +1,3 @@
-"""The release notes panel's data: CHANGELOG.md read into releases, in the order the file lists them."""
 import re
 from pathlib import Path
 

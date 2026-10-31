@@ -90,3 +90,11 @@ def test_every_dated_release_in_the_plugins_own_changelog_is_listed():
     text = (PLUGIN_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     dated = re.findall(r"^## (\S+) [—-] \d{4}-\d{2}-\d{2}", text, re.M)
     assert [r["version"] for r in load(PLUGIN_ROOT / "CHANGELOG.md") if r["date"]] == dated
+
+
+def test_an_indented_line_before_any_change_is_ignored_rather_than_joined_to_nothing():
+    assert parse("## 1.0.0\n\n### Added\n\n  stray\n\n- a\n")[0]["sections"][0]["entries"] == ["a"]
+
+
+def test_a_blank_indented_line_after_a_change_adds_nothing_to_it():
+    assert parse("## 1.0.0\n\n### Added\n\n- a\n  \n")[0]["sections"][0]["entries"] == ["a"]
