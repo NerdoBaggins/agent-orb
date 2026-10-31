@@ -904,3 +904,20 @@ def test_typed_text_goes_at_once_during_the_follow_up_window(tmp_path):
             await wait_for(lambda: server.link.sent)
             assert server.link.sent[0][0] == "rename the file"
     run(go())
+
+
+def test_text_typed_during_a_woken_turn_goes_when_the_reply_ends(tmp_path):
+    async def go():
+        server = make(tmp_path, voice=True, waker=waker_for(follow_up_s=30.0))
+        async with await client_for(server) as c:
+            ws = await connect(c)
+            await server.submit(Request("what time is it", woken=True, from_user=True))
+            request_id = server.link.sent[0][1]
+            await ws.send_json({"type": "typed", "text": "rename the file"})
+            await wait_for(lambda: server.queue)
+            await c.post("/reply", params={"token": TOKEN}, json={"req": request_id, "text": "Half past one."})
+            await next_json(ws, of_type("speak_end"))
+            await ws.send_json({"type": "played"})
+            await wait_for(lambda: len(server.link.sent) == 2)
+            assert server.link.sent[1][0] == "rename the file"
+    run(go())

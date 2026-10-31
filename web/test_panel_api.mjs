@@ -106,6 +106,7 @@ console.log("panel api ok");
   h.key({ code: "Escape", target: { tagName: "DIV" }, defaultPrevented: true });
   h.key({ code: "Escape", target: { tagName: "INPUT" }, defaultPrevented: false });
   h.key({ code: "KeyA", target: { tagName: "DIV" }, defaultPrevented: false });
+  h.key({ code: "Escape", repeat: true, target: { tagName: "DIV" }, defaultPrevented: false });
   // the panel's own listener runs after this one and prevents the key during the same dispatch
   const used = { code: "Escape", target: { tagName: "DIV" }, defaultPrevented: false };
   h.key(used);

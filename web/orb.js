@@ -371,8 +371,11 @@
     }
   }
 
+  function connected() {
+    return !!orb.ws && orb.ws.readyState === WebSocket.OPEN;
+  }
   function send(message) {
-    if (orb.ws && orb.ws.readyState === WebSocket.OPEN) orb.ws.send(JSON.stringify(message));
+    if (connected()) orb.ws.send(JSON.stringify(message));
   }
 
   // ---- playback ----
@@ -446,6 +449,7 @@
     stream: null,
     node: null,
     holding: false,
+    heldByKey: false,
     micLevel: 0,
     live() {
       const track = this.stream && this.stream.getAudioTracks()[0];
@@ -522,6 +526,7 @@
       send({ type: "ptt_start" });
     },
     release() {
+      this.heldByKey = false;
       if (!this.holding) return;
       this.holding = false;
       this.micLevel = 0;
@@ -564,11 +569,11 @@
   addEventListener("keydown", (ev) => {
     if (ev.code !== orb.pttKey || ev.repeat || inTextField(ev.target)) return;
     ev.preventDefault();
-    if (orb.state === "idle" || orb.state === "thinking") ptt.hold();
+    if (orb.state === "idle" || orb.state === "thinking") { ptt.heldByKey = true; ptt.hold(); }
     else if (orb.state !== "listening") stopNow();
   });
   addEventListener("keyup", (ev) => {
-    if (ev.code !== orb.pttKey || !ptt.holding) return;
+    if (ev.code !== orb.pttKey || !ptt.heldByKey) return;
     ev.preventDefault();
     ptt.release();
   });
@@ -1143,7 +1148,8 @@
     submit() {
       const text = this.field.value.trim();
       if (!text) return;
-      if (!orb.attached) { notice(`not sent: ${orb.attachMessage || "not attached to an agent session"}`, "error"); return; }
+      const refusal = !connected() ? "not connected" : !orb.attached ? orb.attachMessage || "not attached to an agent session" : null;
+      if (refusal) { notice(`not sent: ${refusal}`, "error"); return; }
       send({ type: "typed", text });
       this.field.value = "";
     },
