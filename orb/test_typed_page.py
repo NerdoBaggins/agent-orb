@@ -8,6 +8,7 @@ from orb.test_server import make
 
 FIELD = "#typed"
 PANEL = """<!doctype html><body tabindex="0"><button id="b">b</button></body>"""
+FOCUS_PULLER = """<!doctype html><body><input id="i" onkeydown="parent.focus()"></body>"""
 KEY_POSTER = """<!doctype html><body><script>setInterval(() => parent.postMessage({ orb: "key", code: "Enter" }, "*"), 100);</script></body>"""
 
 
@@ -592,6 +593,37 @@ def test_escape_cancelling_a_composition_leaves_the_box_open(tmp_path):
         seen["open"] = await visible(page)
 
     asyncio.run(run_page(tmp_path, [], act, attached(tmp_path)))
+    assert seen["open"] is True
+
+
+@pytest.mark.timeout(60)
+def test_enter_after_a_panel_pulled_the_focus_to_the_page_leaves_the_box_closed(tmp_path):
+    seen = {}
+
+    async def act(page):
+        await page.frame_locator("iframe.panel-body").locator("#i").click()
+        await page.keyboard.press("x")
+        await page.wait_for_timeout(200)
+        seen["focused"] = await page.evaluate("document.activeElement.tagName")
+        await page.keyboard.press("Enter")
+        seen["open"] = await visible(page)
+
+    asyncio.run(run_page(tmp_path, [("puller", FOCUS_PULLER)], act, attached(tmp_path)))
+    assert seen == {"focused": "BODY", "open": False}
+
+
+@pytest.mark.timeout(60)
+def test_a_click_on_the_orb_side_lets_enter_open_the_box_again(tmp_path):
+    seen = {}
+
+    async def act(page):
+        await page.frame_locator("iframe.panel-body").locator("body").click(position={"x": 200, "y": 200})
+        pane = await page.locator("#orb-pane").bounding_box()
+        await page.mouse.click(pane["x"] + pane["width"] / 2, pane["y"] + 200)
+        await page.keyboard.press("Enter")
+        seen["open"] = await visible(page)
+
+    asyncio.run(run_page(tmp_path, [("plan", PANEL)], act, attached(tmp_path)))
     assert seen["open"] is True
 
 
