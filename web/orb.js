@@ -1139,6 +1139,7 @@
   const typedBox = {
     field: $("typed"),
     toggle: $("type-toggle"),
+    orbSideChosen: true,
     sent: new Map(),
     nextRef: 0,
     show() {
@@ -1175,6 +1176,8 @@
     },
   };
   typedBox.recall();
+  addEventListener("pointerdown", () => { typedBox.orbSideChosen = true; });
+  addEventListener("blur", () => { if (document.activeElement.tagName === "IFRAME") typedBox.orbSideChosen = false; });
   typedBox.field.addEventListener("input", () => typedBox.remember());
   typedBox.toggle.addEventListener("click", () => (typedBox.field.hidden ? typedBox.show() : typedBox.hide()));
   typedBox.field.addEventListener("keydown", (ev) => {
@@ -1182,7 +1185,7 @@
     else if (ev.key === "Enter" && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); if (!ev.repeat) typedBox.submit(); }
   });
   addEventListener("keydown", (ev) => {
-    if (ev.key !== "Enter" || ev.code === orb.pttKey || !isShortcut(ev) || ACTS_ON_ENTER.includes(ev.target.tagName)) return;
+    if (ev.key !== "Enter" || !typedBox.orbSideChosen || ev.code === orb.pttKey || !isShortcut(ev) || ACTS_ON_ENTER.includes(ev.target.tagName)) return;
     ev.preventDefault();
     typedBox.show();
   });
