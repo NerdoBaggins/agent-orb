@@ -26,7 +26,7 @@ from pathlib import Path
 import numpy as np
 from aiohttp import WSMsgType, web
 
-from orb import PLUGIN_ROOT, actions, agents, engines, feeds, logs, pages, panels, skins, themes, widgets
+from orb import PLUGIN_ROOT, actions, agents, engines, feeds, logs, pages, panels, releases, skins, themes, widgets
 from orb import interrupt as interrupt_adapter
 from orb.audio import SAMPLE_RATE, TAP_S, speakable, split_sentences
 from orb.side import side_intent, status_sentence
@@ -318,6 +318,8 @@ class OrbServer:
         title = str(body.get("title") or (source.title if source else name))
         self.drop_panel(name)
         self.panels[name] = self.page_entry(files, source) | {"title": title}
+        if name == "releases":
+            self.panels[name]["data"] = await asyncio.to_thread(releases.load, PLUGIN_ROOT / "CHANGELOG.md")
         await self.broadcast(self.panel_message(name))
         return web.json_response({"ok": True, "name": name, "url": self.panel_url(name)})
 

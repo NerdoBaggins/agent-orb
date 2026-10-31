@@ -5,7 +5,7 @@ import os
 
 import pytest
 
-from orb import cli, pages, panels
+from orb import PLUGIN_ROOT, cli, pages, panels, releases
 from orb import server as server_module
 from orb.test_server import TOKEN, client_for, make, run
 
@@ -32,6 +32,19 @@ def test_showing_a_panel_broadcasts_it_and_serves_it_without_the_token(tmp_path)
             assert "panel.js" in html and "panel.css" in html and TOKEN not in html
             assert (await c.get(url.replace("index.html", "missing.png"))).status == 404
             assert (await c.get(f"/p/not-the-secret/chart/index.html")).status == 403
+    run(go())
+
+
+def test_showing_the_releases_panel_sends_the_changelog_as_its_data(tmp_path):
+    async def go():
+        server = make(tmp_path)
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            r = await c.post("/panel", params={"token": TOKEN}, json={"name": "releases", "title": "Release notes"})
+            assert r.status == 200
+            msg = await ws.receive_json()
+            assert msg["builtin"] is True and msg["data"] == releases.load(PLUGIN_ROOT / "CHANGELOG.md") != []
     run(go())
 
 
