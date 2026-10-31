@@ -280,7 +280,7 @@ def test_a_request_made_while_others_wait_goes_behind_them(tmp_path):
         server = make(tmp_path, voice=True)
         async with await client_for(server) as c:
             ws = await connect(c)
-            server.queue.append(Request("said first", spoken=True))
+            server.queue.append(Request("said first", from_user=True))
             await server.ask("clicked after", ref="panel:1", sender="[panel]")
             assert (await next_json(ws, of_type("notice")))["text"] == "I'll send that next"
             await wait_for(lambda: server.link.sent)
@@ -432,7 +432,7 @@ def test_stop_that_leaves_the_agent_working_keeps_what_waits(tmp_path):
             server.link = BlockingLink(stopped=outcome)
             async with await client_for(server) as c:
                 ws = await after_one_answered_request(server, c)
-                server.queue.append(Request("rename the file", spoken=True))
+                server.queue.append(Request("rename the file", from_user=True))
                 server.session = server.session | {"busy": True}
                 await ws.send_json({"type": "stop"})
                 await wait_for(lambda: server.link.interrupted or outcome is agents.Stopped.STILL_WAITING)
@@ -467,7 +467,7 @@ def test_a_request_that_finds_the_way_blocked_after_the_attach_check_waits_first
             server.attached = False
 
             def probe_while_the_mic_opens():
-                server.queue.append(Request("said meanwhile", spoken=True))
+                server.queue.append(Request("said meanwhile", from_user=True))
                 server.state = "listening"
                 return True
             server.link.probe = probe_while_the_mic_opens
@@ -600,7 +600,7 @@ def test_a_queued_request_leaves_the_follow_up_window_of_a_woken_reply_to_the_us
         server = make(tmp_path, voice=True, stt_text="and the weather", waker=waker_for(follow_up_s=2.0))
         async with await client_for(server) as c:
             ws = await connect(c)
-            await server.submit(Request("what time is it", woken=True, spoken=True))
+            await server.submit(Request("what time is it", woken=True, from_user=True))
             request_id = server.link.sent[0][1]
             await server.ask("Explain the chart", ref="panel:w:1", sender="[panel]")
             await c.post("/reply", params={"token": TOKEN}, json={"req": request_id, "text": "Half past one."})
@@ -656,7 +656,7 @@ def test_a_request_queued_behind_a_woken_reply_goes_once_its_follow_up_window_cl
         server = make(tmp_path, voice=True, waker=waker_for(follow_up_s=0.3))
         async with await client_for(server) as c:
             ws = await connect(c)
-            await server.submit(Request("what time is it", woken=True, spoken=True))
+            await server.submit(Request("what time is it", woken=True, from_user=True))
             await server.ask("Explain the chart", ref="panel:w:1", sender="[panel]")
             await c.post("/reply", params={"token": TOKEN}, json={"req": server.link.sent[0][1], "text": "Half past one."})
             await next_json(ws, of_type("speak_end"))
@@ -673,7 +673,7 @@ def test_a_queued_request_is_sent_even_when_the_sender_wakes_before_the_follow_u
             await connect(c)
             server.waker.follow_up.open(time.monotonic())
             closes = server.waker.follow_up.until
-            server.queue.append(Request("what time is it", spoken=True))
+            server.queue.append(Request("what time is it", from_user=True))
             await server.send_queued_after(0)
             assert len(server.link.sent) == 1
             assert time.monotonic() >= closes
@@ -686,7 +686,7 @@ def test_a_queued_request_is_sent_when_the_wake_engine_is_gone_by_the_time_the_s
         async with await client_for(server) as c:
             await connect(c)
             server.waker.follow_up.open(time.monotonic())
-            server.queue.append(Request("what time is it", spoken=True))
+            server.queue.append(Request("what time is it", from_user=True))
             sender = asyncio.create_task(server.send_queued_after(0.05))
             await asyncio.sleep(0)
             server.waker = None
@@ -857,4 +857,38 @@ def test_queued_speech_leaves_a_reply_that_started_speaking_meanwhile_marked_as_
             await speech[0]
             server.speaking.cancel()
             assert states[-1] == {"type": "state", "state": "speaking", "said": "f1"}
+    run(go())
+
+
+def test_typed_text_reaches_the_agent_as_exactly_what_was_typed(tmp_path):
+    async def go():
+        server = make(tmp_path)
+        async with await client_for(server) as c:
+            ws = await connect(c)
+            await ws.send_json({"type": "typed", "text": "  rename the file  "})
+            await wait_for(lambda: server.link.sent)
+            assert server.link.sent[0][0] == "rename the file"
+    run(go())
+
+
+def test_typed_text_is_shown_to_the_window_as_heard(tmp_path):
+    async def go():
+        server = make(tmp_path)
+        async with await client_for(server) as c:
+            ws = await connect(c)
+            await ws.send_json({"type": "typed", "text": "rename the file"})
+            heard = await next_json(ws, of_type("heard"))
+            assert heard["text"] == "rename the file"
+    run(go())
+
+
+def test_blank_typed_text_sends_nothing(tmp_path):
+    async def go():
+        server = make(tmp_path)
+        async with await client_for(server) as c:
+            ws = await connect(c)
+            await ws.send_json({"type": "typed", "text": "   "})
+            await ws.send_json({"type": "typed", "text": "real"})
+            await wait_for(lambda: server.link.sent)
+            assert [text for text, _ in server.link.sent] == ["real"]
     run(go())
