@@ -54,7 +54,6 @@ Weakest to strongest; each layer overlays the one before it.
 | `stt` | `{"engine": <name>, <name>: {settings}, ...}` | `moonshine` |
 | `tts` | `{"engine": <name>, "speed": <n or per agent>, <name>: {settings}, ...}` | `kokoro`, voice as today |
 | `wake` | wake-word settings (Wake word); absent means push-to-talk only | absent |
-| `copilot_port` | Copilot `--ui-server` port | `4321` |
 | `panel_dirs` | folders holding saved panels, absolute or `~/`; ignored with a warning in layer 3 | `[]` |
 | `theme_dirs` | folders holding themes, absolute or `~/`; ignored with a warning in layer 3 | `[]` |
 | `skin_dirs` | folders holding skins, absolute or `~/`; ignored with a warning in layer 3 | `[]` |
