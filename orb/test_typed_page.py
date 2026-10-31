@@ -9,6 +9,7 @@ from orb.test_server import make
 FIELD = "#typed"
 PANEL = """<!doctype html><body tabindex="0"><button id="b">b</button></body>"""
 FOCUS_PULLER = """<!doctype html><body><input id="i" onkeydown="parent.focus()"></body>"""
+FOCUS_STEALER = """<!doctype html><body><input id="i"><script>setInterval(() => document.getElementById("i").focus(), 100);</script></body>"""
 KEY_POSTER = """<!doctype html><body><script>setInterval(() => parent.postMessage({ orb: "key", code: "Enter" }, "*"), 100);</script></body>"""
 
 
@@ -625,6 +626,87 @@ def test_a_click_on_the_orb_side_lets_enter_open_the_box_again(tmp_path):
 
     asyncio.run(run_page(tmp_path, [("plan", PANEL)], act, attached(tmp_path)))
     assert seen["open"] is True
+
+
+@pytest.mark.timeout(60)
+def test_a_panels_script_cannot_take_the_focus_from_the_box(tmp_path):
+    words = "the quick brown fox"
+    seen = {}
+
+    async def act(page):
+        await page.evaluate("document.getElementById('type-toggle').click()")
+        await page.wait_for_timeout(300)
+        for letter in words:
+            await page.keyboard.type(letter)
+            await page.wait_for_timeout(40)
+        seen["box"] = await page.locator(FIELD).input_value()
+        seen["panel"] = await page.frame_locator("iframe.panel-body").locator("#i").input_value()
+
+    asyncio.run(run_page(tmp_path, [("stealer", FOCUS_STEALER)], act, attached(tmp_path)))
+    assert seen == {"box": words, "panel": ""}
+
+
+@pytest.mark.timeout(60)
+def test_a_click_on_a_panel_leaves_the_box_and_the_next_click_reaches_the_panel(tmp_path):
+    seen = {}
+
+    async def act(page):
+        await page.keyboard.press("Enter")
+        box = await page.locator("iframe.panel-body").bounding_box()
+        await page.mouse.click(box["x"] + 200, box["y"] + 200)
+        await page.wait_for_timeout(200)
+        seen["after_first"] = await page.evaluate("document.activeElement.id")
+        await page.mouse.click(box["x"] + 200, box["y"] + 200)
+        await page.wait_for_timeout(200)
+        seen["after_second"] = await page.evaluate("document.activeElement.tagName")
+
+    asyncio.run(run_page(tmp_path, [("plan", PANEL)], act, attached(tmp_path)))
+    assert seen["after_first"] != "typed"
+    assert seen["after_second"] == "IFRAME"
+
+
+@pytest.mark.timeout(60)
+def test_tab_can_leave_the_box_for_a_panel(tmp_path):
+    seen = {}
+
+    async def act(page):
+        await page.keyboard.press("Enter")
+        await page.keyboard.press("Tab")
+        await page.wait_for_timeout(100)
+        await page.keyboard.press("Tab")
+        await page.keyboard.press("Tab")
+        await page.wait_for_timeout(200)
+        seen["focused"] = await page.evaluate("document.activeElement.tagName")
+
+    asyncio.run(run_page(tmp_path, [("plan", PANEL)], act, attached(tmp_path)))
+    assert seen["focused"] != "TEXTAREA"
+
+
+@pytest.mark.timeout(60)
+def test_a_failure_in_one_window_leaves_delivered_text_out_of_the_other(tmp_path):
+    server = attached(tmp_path)
+    seen = {}
+
+    async def act(page):
+        await page.keyboard.press("Enter")
+        await page.keyboard.type("delivered")
+        await page.keyboard.press("Enter")
+        await page.wait_for_timeout(300)
+        server.pending.clear()
+        await server.set_state("idle")
+        server.link.fail = True
+        other = await page.context.browser.new_page()
+        await other.goto(page.url)
+        await other.wait_for_timeout(800)
+        await other.keyboard.press("Enter")
+        await other.keyboard.type("failed")
+        await other.keyboard.press("Enter")
+        await other.wait_for_timeout(500)
+        seen["first_window"] = await page.locator(FIELD).input_value()
+        seen["second_window"] = await other.locator(FIELD).input_value()
+
+    asyncio.run(run_page(tmp_path, [], act, server))
+    assert seen == {"first_window": "", "second_window": "failed"}
 
 
 @pytest.mark.timeout(60)
