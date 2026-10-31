@@ -170,13 +170,17 @@ def audio_frame(samples: np.ndarray, rate: int) -> bytes:
 @dataclass(frozen=True)
 class Request:
     """One request for the agent: the user's own words, spoken or typed (`from_user`, which the window is told it
-    heard and which is joined with the words queued next to it), or a panel's `orb.send` (`ref` and `sender`)."""
+    heard), or a panel's `orb.send` (`sender`). `ref` is the page's own id for it, echoed on its reply or refusal."""
     text: str
     speak: bool = True
     ref: object = None
     woken: bool = False
     sender: str | None = None
     from_user: bool = False
+
+    @property
+    def joins(self) -> bool:
+        return self.from_user and self.ref is None
 
     def joined(self, later: "Request") -> "Request":
         return replace(self, text=f"{self.text}\n{later.text}", woken=self.woken or later.woken)
@@ -1114,8 +1118,8 @@ class OrbServer:
                 self.attached = True
                 continue
             request, taken = self.queue[0], 1
-            if request.from_user:
-                while taken < len(self.queue) and self.queue[taken].from_user:
+            if request.joins:
+                while taken < len(self.queue) and self.queue[taken].joins:
                     request, taken = request.joined(self.queue[taken]), taken + 1
             del self.queue[:taken]
             await self.dispatch(request)
