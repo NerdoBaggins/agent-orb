@@ -103,7 +103,7 @@ widget keeps its own `Enter`, and after one has had the focus `Enter` does nothi
 orb side, so a panel's script cannot move the focus and have `Enter` open the box. While the box holds the focus, panels and
 widgets receive no pointer events, so a click on one is seen by the page and leaves the box; any other move of the focus
 into a frame is a script's, and the box takes the focus back a moment later. A panel or widget that does it a third time
-while the box holds the focus is closed, with a notice naming it, since keystrokes can land in it before the box recovers. `Tab` may leave the box for a panel. `Enter` sends,
+within a second while the box holds the focus is closed, with a notice naming it, since keystrokes can land in it before the box recovers. `Tab` may leave the box for a panel. `Enter` sends,
 `Shift+Enter` starts a new line, and `Escape` closes the box and keeps the draft. The box stays open after a send. It
 sends the page's own `typed` message, which a panel cannot produce, so what is typed reaches the agent unmarked, as the
 user's words, and from there is treated like speech: it ends the wake word's follow-up window, is held while the agent
