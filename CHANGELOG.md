@@ -24,6 +24,11 @@ that has one adds it under Unreleased.
   mode. The `copilot_port` setting and `ORB_COPILOT_PORT` are gone: drop them, and `--ui-server`, from any shell
   function that starts Copilot for the orb ([#111](https://github.com/NerdoBaggins/agent-orb/issues/111)).
 
+### Fixed
+
+- A quick tap on the talk key or the mic button on the first use of a session no longer leaves the mic recording
+  ([#123](https://github.com/NerdoBaggins/agent-orb/issues/123)).
+
 ## 0.4.0 — 2026-10-30
 
 ### Changed
