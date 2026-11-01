@@ -3,6 +3,8 @@
 Every change a user of agent-orb can notice; a pull request no user would notice has no entry. Each pull request
 that has one adds it under Unreleased.
 
+## Unreleased
+
 ## 0.5.0 — 2026-10-31
 
 ### Added
@@ -28,6 +30,9 @@ that has one adds it under Unreleased.
 
 - A quick tap on the talk key or the mic button on the first use of a session no longer leaves the mic recording
   ([#123](https://github.com/NerdoBaggins/agent-orb/issues/123)).
+- An engine's warnings are now in the server log that `orb log` prints, as plain text, instead of raw in the output
+  file: ASCII text that an engine writes as UTF-16 or with colour codes, such as the Kokoro engine's GPU warnings,
+  no longer comes out garbled ([#66](https://github.com/NerdoBaggins/agent-orb/issues/66)).
 
 ## 0.4.0 — 2026-10-30
 
@@ -38,9 +43,6 @@ that has one adds it under Unreleased.
 
 ### Fixed
 
-- An engine's warnings are now in the server log that `orb log` prints, as plain text, instead of raw in the output
-  file: ASCII text that an engine writes as UTF-16 or with colour codes, such as the Kokoro engine's GPU warnings,
-  no longer comes out garbled ([#66](https://github.com/NerdoBaggins/agent-orb/issues/66)).
 - A widget can be moved by any of its edges, not only the top one, so one placed under the bar can be moved again;
   the side and bottom edges are invisible until hovered
   ([#93](https://github.com/NerdoBaggins/agent-orb/issues/93), [#95](https://github.com/NerdoBaggins/agent-orb/issues/95)).
