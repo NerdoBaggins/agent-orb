@@ -15,7 +15,8 @@ that has one adds it under Unreleased.
   ([#114](https://github.com/NerdoBaggins/agent-orb/issues/114)).
 - Type a request without leaving the orb: `Enter` or the bar's `type` button opens a box under the caption. `Enter`
   sends, `Shift+Enter` starts a new line, and `Escape` closes it and keeps the draft. What you type reaches the agent
-  as your own words, waits its turn, and is answered aloud
+  as your own words, waits its turn, and is answered aloud. While the box is open a panel can't take the focus from
+  it: one that keeps trying is closed with a notice, and a widget is turned off
   ([#120](https://github.com/NerdoBaggins/agent-orb/issues/120)).
 
 ### Changed
