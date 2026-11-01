@@ -5,6 +5,8 @@ that has one adds it under Unreleased.
 
 ## Unreleased
 
+## 0.5.0 — 2026-10-31
+
 ### Added
 
 - A release notes panel: press `R` or use the bar's `release notes` button to see what changed in each release. Click
