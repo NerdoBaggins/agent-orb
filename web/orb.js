@@ -516,7 +516,7 @@
       return true;
     },
     async hold() {
-      if (this.wanted) return;
+      if (this.holding) return;
       const refusal = !orb.voice ? "speech engines are not loaded"
         : !orb.attached && !orb.enrolling ? orb.attachMessage || "not attached to an agent session"
         : orb.state !== "idle" && orb.state !== "thinking" ? `busy: ${orb.state}` : null;
