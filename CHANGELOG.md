@@ -3,8 +3,6 @@
 Every change a user of agent-orb can notice; a pull request no user would notice has no entry. Each pull request
 that has one adds it under Unreleased.
 
-## Unreleased
-
 ## 0.5.0 — 2026-10-31
 
 ### Added
