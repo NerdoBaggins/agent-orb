@@ -1137,12 +1137,13 @@
   });
   const DRAFT_KEY = "orb-draft";
   const STEALS_ALLOWED = 2;
+  const STEAL_WINDOW_MS = 1000;
   const typedBox = {
     field: $("typed"),
     toggle: $("type-toggle"),
     orbSideChosen: true,
     holdsFocus: false,
-    steals: 0,
+    steals: new WeakMap(),
     sent: new Map(),
     nextRef: 0,
     show() {
@@ -1156,18 +1157,19 @@
     },
     release() {
       this.holdsFocus = false;
-      this.steals = 0;
       document.body.classList.remove("typing");
     },
     repel(iframe) {
       setTimeout(() => this.reclaim(), 0);
-      if (++this.steals > STEALS_ALLOWED) this.closeFrame(panelsBridge.frameOf(iframe.contentWindow));
+      const now = performance.now();
+      const recent = (this.steals.get(iframe) || []).filter((at) => now - at < STEAL_WINDOW_MS);
+      this.steals.set(iframe, [...recent, now]);
+      if (recent.length >= STEALS_ALLOWED) this.closeFrame(panelsBridge.frameOf(iframe.contentWindow));
     },
     closeFrame({ kind, name }) {
       if (kind === "widget") send({ type: "widget", name, on: false });
       else { send({ type: "panel_close", name }); panelsUi.close(name); }
       notice(`closed the ${kind} ${name}: it kept taking the focus from the box`, "error");
-      this.steals = 0;
     },
     reclaim() {
       this.field.blur();

@@ -1,10 +1,12 @@
 import asyncio
+import base64
 
 import pytest
+from aiohttp import ClientSession
 
 from orb.test_bar_page import open_bar
 from orb.test_panel_bridge import run_page
-from orb.test_server import make
+from orb.test_server import TOKEN, make
 
 FIELD = "#typed"
 PANEL = """<!doctype html><body tabindex="0"><button id="b">b</button></body>"""
@@ -15,6 +17,8 @@ const channel = new MessageChannel();
 channel.port1.onmessage = () => { document.getElementById("i").focus(); channel.port2.postMessage(0); };
 channel.port2.postMessage(0);
 </script></body>"""
+FOCUS_NOW_AND_THEN = """<!doctype html><body><input id="i"><script>setInterval(() => document.getElementById("i").focus(), 700);</script></body>"""
+FOCUS_SOON = """<!doctype html><body><input id="i"><script>setTimeout(() => document.getElementById("i").focus(), 300);</script></body>"""
 KEY_POSTER = """<!doctype html><body><script>setInterval(() => parent.postMessage({ orb: "key", code: "Enter" }, "*"), 100);</script></body>"""
 
 
@@ -653,6 +657,39 @@ def test_a_focus_taken_once_comes_back_and_the_panel_stays(tmp_path):
 
     asyncio.run(run_page(tmp_path, [("once", FOCUS_TAKEN_ONCE)], act, attached(tmp_path)))
     assert seen == {"box": words, "panels": 1, "panel": ""}
+
+
+@pytest.mark.timeout(60)
+def test_one_grab_each_from_three_panels_closes_none_of_them(tmp_path):
+    seen = {}
+
+    async def act(page):
+        await page.evaluate("document.getElementById('type-toggle').click()")
+        await page.wait_for_timeout(300)
+        origin = page.url.split("?")[0].rstrip("/")
+        async with ClientSession() as session:
+            for name in ("alpha", "beta", "gamma"):
+                files = {"index.html": base64.b64encode(FOCUS_SOON.encode()).decode()}
+                await session.post(f"{origin}/panel", params={"token": TOKEN}, json={"name": name, "title": name, "files": files})
+                await page.wait_for_timeout(350)
+        await page.wait_for_timeout(500)
+        seen["panels"] = await page.locator("#tabs .tab").count()
+
+    asyncio.run(run_page(tmp_path, [], act, attached(tmp_path)))
+    assert seen["panels"] == 3
+
+
+@pytest.mark.timeout(60)
+def test_a_panel_that_grabs_focus_now_and_then_stays(tmp_path):
+    seen = {}
+
+    async def act(page):
+        await page.evaluate("document.getElementById('type-toggle').click()")
+        await page.wait_for_timeout(4500)
+        seen["panels"] = await page.locator("iframe.panel-body").count()
+
+    asyncio.run(run_page(tmp_path, [("calm", FOCUS_NOW_AND_THEN)], act, attached(tmp_path)))
+    assert seen["panels"] == 1
 
 
 @pytest.mark.timeout(60)
