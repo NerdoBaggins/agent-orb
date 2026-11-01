@@ -522,7 +522,7 @@
         : orb.state !== "idle" && orb.state !== "thinking" ? `busy: ${orb.state}` : null;
       if (refusal) { notice(`can't listen: ${refusal}`, "error"); return; }
       this.wanted = true;
-      if (!(await this.ensure())) { this.wanted = false; return; }
+      if (!(await this.ensure())) return;
       if (this.ctx.state === "suspended") await this.ctx.resume();
       if (!this.wanted || this.holding) return;
       this.holding = true;
