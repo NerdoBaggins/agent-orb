@@ -510,7 +510,7 @@ shows it), and the orb listens for the phrase while idle:
 
 **Start with `orb doctor`**: ask the agent to run it, or run `uv run --project <agent-orb> orb doctor` yourself,
 where `<agent-orb>` is the plugin's folder. It checks, without changing anything: `uv` and `node`, the browser,
-your config, the skin and theme, panel actions, widgets, the Claude channel, the Copilot UI server, the speech
+your config, the skin and theme, panel actions, widgets, the Claude channel, the Copilot door, the speech
 engines, and the wake word when one is on. Each failing line says what to do. `--no-engines` skips loading the
 speech engines, which is faster.
 
@@ -587,7 +587,8 @@ list where the build departed from it.
 1. Pick the version: while the major version is 0, the minor version goes up when the release adds or changes
    behavior, the patch version when it only fixes.
 2. Set it in `pyproject.toml` and `.claude-plugin/plugin.json`, run `uv lock` so `uv.lock` carries it too, move
-   the changelog's Unreleased entries under `## <version> — <date>`, and merge that pull request.
+   the changelog's Unreleased entries under `## <version> — <date>`, keep an empty `## Unreleased` above it for the
+   next entry, and merge that pull request.
 3. Tag the commit the merge left on `main` and publish that version's changelog section as its notes:
    ```
    git fetch origin
