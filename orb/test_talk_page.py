@@ -5,6 +5,15 @@ import pytest
 from orb.test_panel_bridge import run_page
 from orb.test_typed_page import attached
 
+CONTROLLED_MIC = """(() => {
+  const devices = navigator.mediaDevices;
+  const open = devices.getUserMedia.bind(devices);
+  window.opens = [];
+  window.real = () => open({ audio: true });
+  window.tick = () => new Promise((done) => setTimeout(done, 50));
+  devices.getUserMedia = () => new Promise((resolve, reject) => window.opens.push({ resolve, reject }));
+})()"""
+
 
 def state_after(tmp_path, keys):
     server = attached(tmp_path)
@@ -51,3 +60,17 @@ def test_pressing_again_while_the_mic_opens_records_once(tmp_path):
         await page.keyboard.down("Space")
 
     assert state_after(tmp_path, tap_then_hold) == {"state": "listening", "recording": True, "starts": 1}
+
+
+@pytest.mark.timeout(60)
+def test_a_failed_open_from_an_earlier_press_does_not_cancel_a_held_key(tmp_path):
+    async def tap_then_hold_through_a_device_change(page):
+        await page.evaluate(CONTROLLED_MIC)
+        await page.keyboard.press("Space")
+        await page.wait_for_timeout(100)
+        await page.evaluate("navigator.mediaDevices.dispatchEvent(new Event('devicechange'))")
+        await page.keyboard.down("Space")
+        await page.wait_for_timeout(100)
+        await page.evaluate("(async () => { opens[0].reject(new Error('gone')); await tick(); opens[1].resolve(await real()); })()")
+
+    assert state_after(tmp_path, tap_then_hold_through_a_device_change) == {"state": "listening", "recording": True, "starts": 1}
