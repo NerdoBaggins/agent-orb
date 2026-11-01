@@ -74,3 +74,16 @@ def test_a_failed_open_from_an_earlier_press_does_not_cancel_a_held_key(tmp_path
         await page.evaluate("(async () => { opens[0].reject(new Error('gone')); await tick(); opens[1].resolve(await real()); })()")
 
     assert state_after(tmp_path, tap_then_hold_through_a_device_change) == {"state": "listening", "recording": True, "starts": 1}
+
+
+@pytest.mark.timeout(60)
+def test_the_mic_button_records_after_a_held_key_failed_to_open_the_mic(tmp_path):
+    async def hold_through_a_failed_open_then_press_the_mic(page):
+        await page.evaluate(CONTROLLED_MIC)
+        await page.keyboard.down("Space")
+        await page.wait_for_timeout(100)
+        await page.evaluate("(async () => { opens[0].reject(new Error('gone')); await tick(); navigator.mediaDevices.getUserMedia = real; })()")
+        await page.locator("#mic").hover()
+        await page.mouse.down()
+
+    assert state_after(tmp_path, hold_through_a_failed_open_then_press_the_mic) == {"state": "listening", "recording": True, "starts": 1}
