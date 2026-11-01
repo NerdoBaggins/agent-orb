@@ -449,6 +449,7 @@
     stream: null,
     node: null,
     holding: false,
+    wanted: false,
     keyDown: false,
     micLevel: 0,
     live() {
@@ -515,17 +516,20 @@
       return true;
     },
     async hold() {
-      if (this.holding) return;
+      if (this.wanted) return;
       const refusal = !orb.voice ? "speech engines are not loaded"
         : !orb.attached && !orb.enrolling ? orb.attachMessage || "not attached to an agent session"
         : orb.state !== "idle" && orb.state !== "thinking" ? `busy: ${orb.state}` : null;
       if (refusal) { notice(`can't listen: ${refusal}`, "error"); return; }
-      if (!(await this.ensure())) return;
+      this.wanted = true;
+      if (!(await this.ensure())) { this.wanted = false; return; }
       if (this.ctx.state === "suspended") await this.ctx.resume();
+      if (!this.wanted || this.holding) return;
       this.holding = true;
       send({ type: "ptt_start" });
     },
     release() {
+      this.wanted = false;
       if (!this.holding) return;
       this.holding = false;
       this.micLevel = 0;
