@@ -79,6 +79,7 @@
   addEventListener("click", (ev) => {
     if (!ev.target.closest(".bar-tasks-wrap")) $("tasks-list").hidden = true;
     if (!ev.target.closest(".bar-widgets-wrap")) $("widgets-list").hidden = true;
+    if (!ev.target.closest(".bar-panels-wrap")) $("panels-list").hidden = true;
   });
 
   function showSpeed(value) {
@@ -832,6 +833,142 @@
     },
   };
   $("bar-widgets").addEventListener("click", (ev) => { ev.stopPropagation(); $("widgets-list").hidden = !$("widgets-list").hidden; });
+
+  // The panels dropdown: what the server finds on disk each time it opens, so a folder added by hand shows at once.
+  const panelsMenu = {
+    data: null,
+    error: "",
+    async call(path, body) {
+      const r = await fetch(path, {
+        method: body ? "POST" : "GET",
+        headers: { "X-Orb-Token": token, "Content-Type": "application/json" },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      if (!r.ok) throw new Error((await r.text()) || `${path} failed`);
+      return r.json();
+    },
+    async refresh() {
+      try {
+        this.data = await this.call("/panels");
+        this.error = "";
+      } catch (e) {
+        this.error = String(e.message || e);
+      }
+      this.render();
+    },
+    async toggle() {
+      const list = $("panels-list");
+      list.hidden = !list.hidden;
+      if (list.hidden) return;
+      this.render();
+      await this.refresh();
+    },
+    async pick(entry) {
+      $("panels-list").hidden = true;
+      if (orb.panels.has(entry.name)) {
+        send({ type: "panel_close", name: entry.name });
+        panelsUi.close(entry.name);
+        return;
+      }
+      try {
+        await this.call("/panel", { name: entry.name, title: entry.title, ...(entry.path ? { saved: entry.name } : {}) });
+      } catch (e) {
+        notice(`${entry.name}: ${e.message}`, "error");
+      }
+    },
+    async dirs(body) {
+      try {
+        this.data = await this.call("/panels/dirs", body);
+        this.error = "";
+      } catch (e) {
+        this.error = String(e.message || e);
+      }
+      this.render();
+    },
+    async reveal(body) {
+      try {
+        await this.call("/panels/reveal", body);
+      } catch (e) {
+        notice(`panel folder: ${e.message}`, "error");
+      }
+    },
+    button(cls, text, title, onClick) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = cls;
+      b.textContent = text;
+      b.title = title;
+      b.addEventListener("click", (ev) => { ev.stopPropagation(); onClick(); });
+      return b;
+    },
+    text(cls, text, title) {
+      const span = document.createElement("span");
+      span.className = cls;
+      span.textContent = text;
+      if (title) span.title = title;
+      return span;
+    },
+    render() {
+      const nodes = [];
+      if (this.error) nodes.push(this.text("panel-menu-error", this.error));
+      const data = this.data;
+      if (data) {
+        for (const entry of data.panels) nodes.push(this.entryRow(entry));
+        for (const problem of data.problems) nodes.push(this.text("panel-menu-problem", problem));
+        nodes.push(this.text("panel-menu-head", "Folders searched for saved panels, besides yours"));
+        for (const dir of data.dirs) nodes.push(this.dirRow(dir));
+        nodes.push(this.adder());
+      }
+      $("panels-list").replaceChildren(...nodes);
+    },
+    entryRow(entry) {
+      const r = panelRow(entry, new Set(orb.panels.keys()));
+      const wrap = document.createElement("div");
+      wrap.className = `panel-menu-row${r.shadowed ? " shadowed" : ""}`;
+      const pick = document.createElement("button");
+      pick.type = "button";
+      pick.className = "panel-pick";
+      pick.title = r.tip;
+      pick.append(this.text("panel-tick", r.open ? "✓" : ""), this.text("panel-name", r.title), this.text("panel-scope", r.scope));
+      if (!r.shadowed) pick.addEventListener("click", (ev) => { ev.stopPropagation(); this.pick(entry); });
+      wrap.appendChild(pick);
+      if (r.path) wrap.appendChild(this.button("panel-folder", "open folder", r.path, () => this.reveal({ name: r.name })));
+      return wrap;
+    },
+    dirRow(dir) {
+      const d = panelDirRow(dir);
+      const wrap = document.createElement("div");
+      wrap.className = "panel-dir";
+      const path = this.text("panel-dir-path", d.path, d.resolved);
+      path.addEventListener("click", (ev) => { ev.stopPropagation(); if (dir.exists) this.reveal({ dir: d.path }); });
+      const tail = document.createElement("span");
+      if (d.note) tail.appendChild(this.text("panel-dir-note", d.note));
+      if (d.removable) tail.appendChild(this.button("panel-dir-remove", "remove", `Stop searching ${d.path}`, () => this.dirs({ remove: d.path })));
+      wrap.append(path, tail);
+      return wrap;
+    },
+    adder() {
+      const wrap = document.createElement("div");
+      wrap.className = "panel-dir-add";
+      const input = document.createElement("input");
+      input.type = "text";
+      input.placeholder = "Folder to add (full path, or ~/…)";
+      input.setAttribute("aria-label", "Folder to add");
+      const add = () => {
+        const typed = typedFolder(input.value);
+        if (typed.ok) this.dirs({ add: typed.folder });
+        else { this.error = typed.error; this.render(); }
+      };
+      input.addEventListener("click", (ev) => ev.stopPropagation());
+      input.addEventListener("keydown", (ev) => {
+        ev.stopPropagation();
+        if (ev.key === "Enter") add();
+      });
+      wrap.append(input, this.button("panel-dir-add-button", "add", "Add this folder to your panel_dirs for this repo", add));
+      return wrap;
+    },
+  };
+  $("bar-panels").addEventListener("click", (ev) => { ev.stopPropagation(); panelsMenu.toggle(); });
 
   const VIEW_KEY = "orb-view";
   function storedView() {
@@ -1659,6 +1796,6 @@
   }
   requestAnimationFrame(frame);
 
-  window.orbPage = { orb, send, player, ptt, panelsUi, widgetsUi };
+  window.orbPage = { orb, send, player, ptt, panelsUi, widgetsUi, panelsMenu };
   connect();
 })();
