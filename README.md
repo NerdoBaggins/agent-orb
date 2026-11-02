@@ -336,8 +336,8 @@ and every saved panel. Each row shows where it comes from (built in, yours for t
 show the panel, or to close it if it is open. A panel with the same name as one earlier in the search order is listed
 struck through: showing that name opens the earlier one. Under the list, the menu names the two folders always searched (yours for this repo and the global one), then the
 extra `panel_dirs` folders, and in your file for this repo (`~/.config/orb/repos/<repo id>/config.json`); a folder set in another
-of your config files is shown but can only be removed there. Type or paste the full path: a web page cannot learn the
-path from a folder picker. Only the orb's own window can change these folders, since they decide which code the orb
+of your config files is shown but can only be removed there. Type or paste the full path, or press `browse…` to choose it in the system's folder dialog (a web page cannot learn the
+path from a folder picker, so the orb's server opens the dialog on your machine and hands the path back). Only the orb's own window can change these folders, since they decide which code the orb
 loads: a panel's page holds no token for it.
 
 ### Feeds and actions
