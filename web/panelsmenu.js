@@ -21,24 +21,4 @@ function panelRow(entry, open) {
   };
 }
 
-// What the folder editor shows beside a folder, and whether it can be removed here.
-function panelDirRow(dir) {
-  const notes = [];
-  if (!dir.exists) notes.push("missing");
-  if (!dir.editable) notes.push("set in another config file");
-  return { path: dir.path, resolved: dir.resolved, note: notes.join(", "), removable: dir.editable };
-}
-
-// One of the two folders always searched, as the list shows it.
-function defaultDirRow(dir) {
-  const label = dir.scope === "mine" ? "Yours, this repo" : "Global";
-  return { label, path: dir.path, note: dir.exists ? "" : "not created yet", openable: dir.exists };
-}
-
-// A folder typed into the editor, trimmed; the server decides whether it is a good one.
-function typedFolder(text) {
-  const folder = String(text).trim();
-  return folder ? { ok: true, folder } : { ok: false, error: "give a folder" };
-}
-
-if (typeof module !== "undefined") module.exports = { scopeLabel, panelRow, panelDirRow, defaultDirRow, typedFolder };
+if (typeof module !== "undefined") module.exports = { scopeLabel, panelRow };

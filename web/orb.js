@@ -933,103 +933,259 @@
     },
   };
 
-  // The settings panel: what is set once rather than chosen quickly. It holds the panel folders for now.
+  // The settings panel: what is set once rather than chosen quickly. It holds one collapsible section per kind of
+  // folder for now. The frames are built once and only the lists inside them are redrawn, so focus, typed text and
+  // which sections are open survive each action; a message belongs to the section whose action produced it.
+  const SETTINGS_OPEN_KEY = "orb-settings-open";
   const settingsUi = {
-    data: null,
+    states: null,
     error: "",
+    box: null,
+    sections: {},
+    open: new Set(),
+    messages: {},
+    removed: {},
+    stored() {
+      try { return JSON.parse(localStorage.getItem(SETTINGS_OPEN_KEY)); } catch (e) { return null; }
+    },
+    save() {
+      try { localStorage.setItem(SETTINGS_OPEN_KEY, JSON.stringify([...this.open])); } catch (e) { return; }
+    },
     async refresh() {
       try {
-        this.data = await orbCall("/panels");
+        this.states = await orbCall("/settings/folders");
         this.error = "";
       } catch (e) {
         this.error = String(e.message || e);
       }
       this.render();
-    },
-    async dirs(body) {
-      try {
-        this.data = await orbCall("/panels/dirs", body);
-        panelsMenu.data = null;  // the menu's list may name panels from a folder just removed, or miss ones just added
-        this.error = "";
-      } catch (e) {
-        this.error = String(e.message || e);
-      }
-      this.render();
-    },
-    async reveal(body) {
-      try {
-        await orbCall("/panels/reveal", body);
-      } catch (e) {
-        notice(`panel folder: ${e.message}`, "error");
-      }
     },
     render() {
       const box = $("builtin-settings");
       if (!box) return;
-      const nodes = [uiText("settings-title", "Settings"), uiText("settings-section", "Panel folders")];
-      if (this.error) nodes.push(uiText("panel-menu-error", this.error));
-      if (this.data) {
-        nodes.push(uiText("panel-menu-head", "Where saved panels are found"));
-        for (const dir of this.data.defaults) nodes.push(this.defaultRow(dir));
-        nodes.push(uiText("panel-menu-head", "Extra panel folders"));
-        nodes.push(uiText("panel-menu-hint", "Panels kept in another folder, such as OneDrive, show in the panels menu once you add that folder."));
-        for (const dir of this.data.dirs) nodes.push(this.dirRow(dir));
-        nodes.push(this.adder());
+      if (this.error && !this.states) {
+        box.replaceChildren(uiText("settings-error", this.error));
+        this.box = null;
+        return;
       }
-      box.replaceChildren(...nodes);
+      if (!this.states) return;
+      if (box !== this.box) this.build(box);
+      for (const def of FOLDER_SECTIONS) this.fill(def);
     },
-    defaultRow(dir) {
-      const d = defaultDirRow(dir);
-      const wrap = document.createElement("div");
-      wrap.className = "panel-dir default";
-      const line = document.createElement("div");
-      line.className = "panel-dir-line";
-      line.append(uiText("panel-scope", d.label));
-      if (d.note) line.append(uiText("panel-dir-note", d.note));
-      const path = uiText("panel-dir-path", d.path, d.openable ? "Open this folder" : "");
-      if (d.openable) path.addEventListener("click", (ev) => { ev.stopPropagation(); this.reveal({ dir: d.path }); });
-      wrap.append(line, path);
-      return wrap;
+    element(tag, cls, text) {
+      const node = document.createElement(tag);
+      if (cls) node.className = cls;
+      if (text !== undefined) node.textContent = text;
+      return node;
     },
-    dirRow(dir) {
-      const d = panelDirRow(dir);
-      const wrap = document.createElement("div");
-      wrap.className = "panel-dir";
-      const path = uiText("panel-dir-path", d.path, d.resolved);
-      path.addEventListener("click", (ev) => { ev.stopPropagation(); if (dir.exists) this.reveal({ dir: d.path }); });
-      const tail = document.createElement("span");
-      if (d.note) tail.appendChild(uiText("panel-dir-note", d.note));
-      if (d.removable) tail.appendChild(uiButton("panel-dir-remove", "remove", `Stop searching ${d.path}`, () => this.dirs({ remove: d.path })));
-      wrap.append(path, tail);
-      return wrap;
+    build(box) {
+      this.box = box;
+      this.sections = {};
+      this.messages = {};
+      this.removed = {};
+      this.open = initiallyOpen(this.stored(), this.states);
+      const top = this.element("div", "settings-top");
+      const all = this.element("button", "settings-toggle-all");
+      all.type = "button";
+      all.addEventListener("click", () => this.toggleAll());
+      this.all = all;
+      top.append(this.element("h1", "settings-title", "Settings"), all);
+      const group = this.element("section", "settings-group");
+      group.append(this.element("h2", "settings-group-title", "Folders"));
+      for (const def of FOLDER_SECTIONS) group.append(this.buildSection(def));
+      box.replaceChildren(top, group);
+      for (const def of FOLDER_SECTIONS) this.setOpen(def.kind, this.open.has(def.kind), false);
     },
-    adder() {
-      const wrap = document.createElement("div");
-      wrap.className = "panel-dir-add";
-      const input = document.createElement("input");
+    buildSection(def) {
+      const id = `sec-${def.kind}`;
+      const sec = this.element("section", "settings-sec");
+      sec.dataset.kind = def.kind;
+      const head = this.element("h3", "settings-sec-head");
+      const toggle = this.element("button", "settings-sec-toggle");
+      toggle.type = "button";
+      toggle.setAttribute("aria-controls", `${id}-body`);
+      const name = this.element("span", "settings-sec-name", def.name);
+      name.id = `${id}-name`;
+      const summary = this.element("span", "settings-sec-summary");
+      toggle.append(name, summary);
+      toggle.addEventListener("click", () => this.setOpen(def.kind, !this.open.has(def.kind), true));
+      head.append(toggle);
+      const body = this.element("div", "settings-sec-body");
+      body.id = `${id}-body`;
+      body.setAttribute("role", "region");
+      body.setAttribute("aria-labelledby", name.id);
+      const list = this.element("ul", "dir-list");
+      const defaults = this.element("ul", "dir-list defaults");
+      const msg = this.element("p", "dir-msg");
+      msg.id = `${id}-msg`;
+      msg.setAttribute("aria-live", "polite");
+      const input = this.element("input");
       input.type = "text";
-      input.placeholder = "Folder to add (full path, or ~/…)";
-      input.setAttribute("aria-label", "Folder to add");
-      const add = () => {
-        const typed = typedFolder(input.value);
-        if (typed.ok) this.dirs({ add: typed.folder });
-        else { this.error = typed.error; this.render(); }
-      };
+      input.placeholder = "Full path to a folder, or ~/…";
+      input.setAttribute("aria-label", `Folder to add to ${def.name}`);
+      input.setAttribute("aria-describedby", msg.id);
+      input.addEventListener("input", () => this.setMessage(def.kind, "", ""));
       input.addEventListener("keydown", (ev) => {
         ev.stopPropagation();
-        if (ev.key === "Enter") add();
+        if (ev.key === "Enter") this.add(def, input);
       });
-      const browse = uiButton("panel-dir-browse", "browse…", "Choose the folder in a dialog", async () => {
+      const browse = uiButton("dir-browse", "Browse…", `Choose the folder for ${def.name} in a dialog`, async () => {
         try {
-          const chosen = (await orbCall("/panels/browse", {})).path;
-          if (chosen) { input.value = chosen; input.focus(); }
+          const chosen = (await orbCall("/settings/browse", {})).path;
+          if (chosen) { input.value = chosen; this.setMessage(def.kind, "", ""); input.focus(); }
         } catch (e) {
-          this.error = String(e.message || e);
-          this.render();
+          this.setMessage(def.kind, String(e.message || e), "err");
         }
       });
-      wrap.append(input, browse, uiButton("panel-dir-add-button", "add", "Add this folder to your panel_dirs for this repo", add));
-      return wrap;
+      const add = uiButton("dir-add-button", "Add", `Add the folder to ${def.name}`, () => this.add(def, input));
+      const adder = this.element("div", "dir-add");
+      adder.append(input, browse, add);
+      body.append(
+        this.element("p", "settings-sec-purpose", def.purpose),
+        this.element("h4", "settings-sub", "Your folders"), list, adder, msg,
+        this.element("h4", "settings-sub", "Always searched"), defaults,
+      );
+      sec.append(head, body);
+      this.sections[def.kind] = { sec, toggle, summary, body, list, defaults, msg, input };
+      return sec;
+    },
+    setOpen(kind, open, persist) {
+      const s = this.sections[kind];
+      if (!s) return;
+      if (open) this.open.add(kind); else this.open.delete(kind);
+      s.toggle.setAttribute("aria-expanded", String(open));
+      s.body.hidden = !open;
+      s.sec.classList.toggle("open", open);
+      this.all.textContent = FOLDER_SECTIONS.every((d) => this.open.has(d.kind)) ? "close all" : "open all";
+      if (persist) this.save();
+    },
+    toggleAll() {
+      const open = !FOLDER_SECTIONS.every((d) => this.open.has(d.kind));
+      for (const def of FOLDER_SECTIONS) this.setOpen(def.kind, open, false);
+      this.save();
+    },
+    setMessage(kind, text, level) {
+      this.messages[kind] = { text, level };
+      const s = this.sections[kind];
+      if (!s) return;
+      s.msg.textContent = text;
+      s.msg.className = `dir-msg${level ? ` ${level}` : ""}`;
+    },
+    pathNode(row, tag) {
+      const node = this.element(tag, "dir-path");
+      pathPieces(row.path).forEach((piece, i) => {
+        if (i) node.append(document.createElement("wbr"));
+        node.append(piece);
+      });
+      return node;
+    },
+    chip(c) {
+      const chip = this.element("span", `dir-chip ${c.level}`, c.text);
+      chip.title = c.title;
+      return chip;
+    },
+    fill(def) {
+      const s = this.sections[def.kind];
+      const state = this.states[def.kind];
+      const summary = folderSummary(state);
+      s.summary.replaceChildren(` · ${summary.extraText}`);
+      if (summary.missingText) s.summary.append(this.element("span", "settings-sec-missing", ` · ${summary.missingText}`));
+      const rows = state.dirs.map((dir) => this.extraItem(def, dir));
+      const gone = this.removed[def.kind];
+      if (gone) rows.push(this.removedItem(def, gone));
+      if (!rows.length) rows.push(this.element("li", "dir-empty", `No extra folders. Add one below to use ${def.noun} kept elsewhere, such as in OneDrive.`));
+      s.list.replaceChildren(...rows);
+      s.defaults.replaceChildren(...state.defaults.map((dir) => this.defaultItem(def, dir)));
+      const m = this.messages[def.kind];
+      if (m) this.setMessage(def.kind, m.text, m.level);
+    },
+    extraItem(def, dir) {
+      const row = extraRow(dir);
+      const li = this.element("li", `dir-row${dir.exists ? "" : " missing"}${row.removable ? "" : " locked"}`);
+      li.dataset.path = dir.path;
+      const main = this.element("div", "dir-main");
+      const path = this.pathNode(row, row.openable ? "button" : "span");
+      if (row.openable) {
+        path.type = "button";
+        path.title = "Open this folder";
+        path.addEventListener("click", () => this.reveal(def, dir.path));
+      } else {
+        path.title = row.resolved;
+      }
+      const chips = this.element("span", "dir-chips");
+      for (const c of row.chips) chips.append(this.chip(c));
+      main.append(path, chips);
+      if (!dir.exists) main.append(this.element("span", "dir-note", "Nothing is found here until this folder exists."));
+      li.append(main);
+      if (row.removable) li.append(uiButton("dir-remove", "remove", `Stop searching ${dir.path}`, () => this.remove(def, dir.path)));
+      li.querySelector(".dir-remove")?.setAttribute("aria-label", `Stop searching ${dir.path}`);
+      return li;
+    },
+    removedItem(def, path) {
+      const li = this.element("li", "dir-row removed");
+      li.dataset.path = path;
+      const main = this.element("div", "dir-main");
+      main.append(this.element("span", "dir-removed-label", "Removed "), this.pathNode({ path }, "span"));
+      li.append(main, uiButton("dir-undo", "Undo", `Add ${path} back`, () => this.undo(def, path)));
+      return li;
+    },
+    defaultItem(def, dir) {
+      const row = defaultRow(dir);
+      const li = this.element("li", "dir-row default");
+      const main = this.element("div", "dir-main");
+      const path = this.pathNode(row, row.openable ? "button" : "span");
+      if (row.openable) {
+        path.type = "button";
+        path.title = "Open this folder";
+        path.addEventListener("click", () => this.reveal(def, dir.path));
+      }
+      const chips = this.element("span", "dir-chips");
+      for (const c of row.chips) chips.append(this.chip(c));
+      main.append(this.element("span", "dir-scope", row.label), path, chips);
+      li.append(main);
+      return li;
+    },
+    async reveal(def, dir) {
+      try {
+        await orbCall("/settings/reveal", { kind: def.kind, dir });
+      } catch (e) {
+        this.setMessage(def.kind, String(e.message || e), "err");
+      }
+    },
+    async change(def, body) {
+      this.setMessage(def.kind, "", "");
+      try {
+        this.states = await orbCall("/settings/folders", { kind: def.kind, ...body });
+        panelsMenu.data = null;  // the menu's list may name panels from a folder just removed, or miss ones just added
+        return true;
+      } catch (e) {
+        this.setMessage(def.kind, String(e.message || e), "err");
+        return false;
+      }
+    },
+    async add(def, input) {
+      const typed = typedFolder(input.value);
+      if (!typed.ok) { this.setMessage(def.kind, typed.error, "err"); return; }
+      if (!await this.change(def, { add: typed.folder })) return;
+      input.value = "";
+      this.removed[def.kind] = null;
+      this.fill(def);
+      this.setMessage(def.kind, `Added. ${def.noun[0].toUpperCase()}${def.noun.slice(1)} there now appear in ${def.where}.`, "ok");
+      input.focus();
+    },
+    async remove(def, folder) {
+      if (!await this.change(def, { remove: folder })) return;
+      this.removed[def.kind] = folder;
+      this.fill(def);
+      this.sections[def.kind].list.querySelector(".dir-undo")?.focus();
+    },
+    async undo(def, folder) {
+      if (!await this.change(def, { add: folder })) return;
+      this.removed[def.kind] = null;
+      this.fill(def);
+      for (const li of this.sections[def.kind].list.querySelectorAll(".dir-row")) {
+        if (li.dataset.path === folder) li.querySelector(".dir-remove")?.focus();
+      }
     },
   };
   $("bar-panels").addEventListener("click", (ev) => { ev.stopPropagation(); panelsMenu.toggle(); });
