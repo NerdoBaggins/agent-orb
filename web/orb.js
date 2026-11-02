@@ -909,7 +909,10 @@
       return span;
     },
     render() {
-      const nodes = [];
+      const top = document.createElement("div");
+      top.className = "panel-menu-top";
+      top.append(this.text("panel-menu-title", "Panels"), this.button("panel-menu-close", "×", "Close the list (Escape)", () => { $("panels-list").hidden = true; }));
+      const nodes = [top];
       if (this.error) nodes.push(this.text("panel-menu-error", this.error));
       const data = this.data;
       if (data) {
@@ -969,6 +972,7 @@
     },
   };
   $("bar-panels").addEventListener("click", (ev) => { ev.stopPropagation(); panelsMenu.toggle(); });
+  addEventListener("keydown", (ev) => { if (ev.key === "Escape" && !$("panels-list").hidden) $("panels-list").hidden = true; });
 
   const VIEW_KEY = "orb-view";
   function storedView() {
