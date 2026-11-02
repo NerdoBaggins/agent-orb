@@ -26,12 +26,12 @@ from pathlib import Path
 import numpy as np
 from aiohttp import WSMsgType, web
 
-from orb import PLUGIN_ROOT, actions, agents, engines, feeds, logs, pages, panels, releases, skins, themes, widgets
+from orb import PLUGIN_ROOT, actions, agents, engines, feeds, folders, logs, pages, panels, releases, skins, themes, widgets
 from orb import interrupt as interrupt_adapter
 from orb.audio import SAMPLE_RATE, TAP_S, speakable, split_sentences
 from orb.side import side_intent, status_sentence
-from orb.config import (WIDGET_PANE_KEYS, WIDGET_PLACE_KEYS, ConfigError, WidgetEntry, add_panel_dir, clamp_size, clamp_speed, engine_settings, expand_dirs, load_for,
-                        overlay, own_panel_dirs, remove_panel_dir, save_for_repo, save_skin_size, save_speed, save_widget, size_for, speed_for, tts_settings_for, validate_widget_entry,
+from orb.config import (WIDGET_PANE_KEYS, WIDGET_PLACE_KEYS, ConfigError, WidgetEntry, clamp_size, clamp_speed, engine_settings, expand_dirs, load_for,
+                        overlay, save_for_repo, save_skin_size, save_speed, save_widget, size_for, speed_for, tts_settings_for, validate_widget_entry,
                         widgets_on)
 from orb import waking
 from orb.engines import EngineError, Stt, Tts, Voiceprint
@@ -244,9 +244,11 @@ class OrbServer:
         self.app.router.add_get("/pending", self.pending_ids)
         self.app.router.add_post("/reply", self.reply)
         self.app.router.add_get("/panels", self.panels_list)
-        self.app.router.add_post("/panels/dirs", self.panels_dirs)
         self.app.router.add_post("/panels/reveal", self.panels_reveal)
-        self.app.router.add_post("/panels/browse", self.panels_browse)
+        self.app.router.add_get("/settings/folders", self.settings_folders)
+        self.app.router.add_post("/settings/folders", self.settings_folders_change)
+        self.app.router.add_post("/settings/reveal", self.settings_reveal)
+        self.app.router.add_post("/settings/browse", self.settings_browse)
         self.app.router.add_post("/panel", self.panel_show)
         self.app.router.add_post("/panel/close", self.panel_close)
         self.app.router.add_post("/widget", self.widget_endpoint)
@@ -311,60 +313,82 @@ class OrbServer:
             "panels": [{"name": e.name, "title": e.title, "description": e.description, "scope": e.scope,
                         "path": str(e.path) if e.path else None, "shadowed": e.shadowed} for e in entries],
             "problems": problems,
-            "defaults": [{"scope": scope, "path": str(path), "exists": path.is_dir()}
-                         for scope, path in panels.default_dirs(self.repo_root, self.home)],
-            "dirs": [{"path": d.path, "resolved": str(d.resolved), "exists": d.exists, "editable": d.editable}
-                     for d in panels.dirs(self.repo_root, self.home)],
         }
 
     async def panels_list(self, request: web.Request) -> web.Response:
-        """Every panel the user can open, and the folders searched for saved ones, read from disk on each request."""
+        """Every panel the user can open, read from disk on each request."""
         try:
-            return web.json_response(await asyncio.to_thread(self.panels_menu))
-        except pages.PageError as e:
-            raise web.HTTPBadRequest(text=str(e))
-
-    async def panels_dirs(self, request: web.Request) -> web.Response:
-        """Adds or removes one folder in the user's own `panel_dirs` for this repo. A panel's page holds no token, so
-        it cannot reach this: the folders decide which code the orb loads."""
-        body = await request.json()
-        try:
-            if isinstance(body.get("add"), str):
-                folder = panels.checked_new_dir(body["add"], self.repo_root, self.home)
-                await asyncio.to_thread(add_panel_dir, self.home, self.repo_root, folder)
-            elif isinstance(body.get("remove"), str):
-                if body["remove"] not in await asyncio.to_thread(own_panel_dirs, self.home, self.repo_root):
-                    raise pages.PageError(f"{body['remove']} is not in your panel_dirs for this repo; another config file sets it")
-                await asyncio.to_thread(remove_panel_dir, self.home, self.repo_root, body["remove"])
-            else:
-                raise pages.PageError("send add or remove, each a folder")
             return web.json_response(await asyncio.to_thread(self.panels_menu))
         except pages.PageError as e:
             raise web.HTTPBadRequest(text=str(e))
 
     async def panels_reveal(self, request: web.Request) -> web.Response:
-        """Opens, in the file manager, the folder of a listed saved panel one of the user's `panel_dirs`, or one of the two folders always searched; nothing else."""
+        """Opens, in the file manager, the folder of a listed saved panel; nothing else."""
         body = await request.json()
         try:
-            if isinstance(body.get("name"), str):
-                found = next((e for e in panels.menu(self.repo_root, self.home)[0] if e.name == body["name"] and e.path), None)
-                path = found.path if found else None
+            found = next((e for e in panels.menu(self.repo_root, self.home)[0] if e.name == body.get("name") and e.path), None)
+        except pages.PageError as e:
+            raise web.HTTPBadRequest(text=str(e))
+        if found is None or not found.path.is_dir():
+            raise web.HTTPBadRequest(text="no such panel folder")
+        await asyncio.to_thread(folders.reveal, found.path)
+        return web.json_response({"ok": True})
+
+    def folders_state(self) -> dict:
+        return {name: folders.state(kind, self.repo_root, self.home) for name, kind in folders.KINDS.items()}
+
+    async def settings_folders(self, request: web.Request) -> web.Response:
+        """For each kind of thing the user adds (panels, skins, themes, widgets): the folders always searched and the
+        extra ones in force, read from disk on each request."""
+        try:
+            return web.json_response(await asyncio.to_thread(self.folders_state))
+        except pages.PageError as e:
+            raise web.HTTPBadRequest(text=str(e))
+
+    async def settings_folders_change(self, request: web.Request) -> web.Response:
+        """Adds or removes one extra folder of a kind in the user's own file for this repo. A panel's page holds no
+        token, so it cannot reach this: the folders decide which code the orb loads."""
+        body = await request.json()
+        try:
+            kind = folders.kind_named(body.get("kind"))
+            if isinstance(body.get("add"), str):
+                await asyncio.to_thread(folders.add, kind, body["add"], self.repo_root, self.home)
+            elif isinstance(body.get("remove"), str):
+                await asyncio.to_thread(folders.remove, kind, body["remove"], self.repo_root, self.home)
             else:
-                listed = [*((d.path, d.resolved) for d in panels.dirs(self.repo_root, self.home)),
-                          *((str(p), p) for _, p in panels.default_dirs(self.repo_root, self.home))]
-                path = next((resolved for written, resolved in listed if written == body.get("dir")), None)
+                raise pages.PageError("send add or remove, each a folder")
+            if kind.name in ("skin", "theme"):
+                await self.reload_picker_dirs()
+            return web.json_response(await asyncio.to_thread(self.folders_state))
+        except pages.PageError as e:
+            raise web.HTTPBadRequest(text=str(e))
+
+    async def reload_picker_dirs(self) -> None:
+        """The skin and theme folders are read once when the server starts; a change made in settings must reach the
+        bar's menus too."""
+        config = await asyncio.to_thread(load_for, self.repo_root, self.home)
+        self.skin_dirs = expand_dirs(config["skin_dirs"], self.home)
+        self.theme_dirs = expand_dirs(config["theme_dirs"], self.home)
+        await self.refresh_pickers()
+
+    async def settings_reveal(self, request: web.Request) -> web.Response:
+        """Opens, in the file manager, a folder a kind lists (an extra one or an always-searched one); nothing else."""
+        body = await request.json()
+        try:
+            kind = folders.kind_named(body.get("kind"))
+            path = folders.listed_folder(kind, str(body.get("dir")), self.repo_root, self.home)
         except pages.PageError as e:
             raise web.HTTPBadRequest(text=str(e))
         if path is None or not path.is_dir():
-            raise web.HTTPBadRequest(text="no such panel folder")
-        await asyncio.to_thread(panels.reveal, path)
+            raise web.HTTPBadRequest(text="no such folder")
+        await asyncio.to_thread(folders.reveal, path)
         return web.json_response({"ok": True})
 
-    async def panels_browse(self, request: web.Request) -> web.Response:
+    async def settings_browse(self, request: web.Request) -> web.Response:
         """Opens the system's folder dialog on this machine and answers with the folder chosen (null when cancelled);
         the page then fills its box with it. Nothing is added until the user adds it."""
         try:
-            return web.json_response({"path": await asyncio.to_thread(panels.browse_folder)})
+            return web.json_response({"path": await asyncio.to_thread(folders.browse_folder)})
         except pages.PageError as e:
             raise web.HTTPBadRequest(text=str(e))
 
