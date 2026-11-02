@@ -2,11 +2,12 @@
 naming a title and a description."""
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from orb import pages
 from orb.config import ConfigError, expand_dirs, load_for, own_panel_dirs, panel_dirs_for
@@ -203,3 +204,36 @@ def reveal(path: Path, run=subprocess.Popen) -> None:
         os.startfile(path)  # noqa: S606 - a folder the orb listed, never a page-supplied command
     else:
         run(["open" if sys.platform == "darwin" else "xdg-open", str(path)])
+
+
+WINDOWS_PICKER = """[Console]::OutputEncoding = [Text.Encoding]::UTF8
+Add-Type -AssemblyName System.Windows.Forms
+$owner = New-Object System.Windows.Forms.Form -Property @{TopMost = $true; ShowInTaskbar = $false; Opacity = 0; Width = 1; Height = 1; StartPosition = 'CenterScreen'}
+$owner.Show()
+$dialog = New-Object System.Windows.Forms.FolderBrowserDialog -Property @{Description = 'Choose a folder of saved panels'; ShowNewFolderButton = $false}
+if ($dialog.ShowDialog($owner) -eq 'OK') { [Console]::Out.Write($dialog.SelectedPath) }
+$owner.Close()"""
+
+
+def browse_folder(platform: str = sys.platform, run=subprocess.run) -> str | None:
+    """Opens the system's folder dialog on this machine and returns the folder chosen, or None when it is cancelled.
+    A page cannot learn a real path from a folder picker, but the orb's server runs where the user is."""
+    if platform == "win32":
+        command = ["powershell", "-NoProfile", "-STA", "-Command", WINDOWS_PICKER]
+    elif platform == "darwin":
+        command = ["osascript", "-e", 'POSIX path of (choose folder with prompt "Choose a folder of saved panels")']
+    elif shutil.which("zenity"):
+        command = ["zenity", "--file-selection", "--directory", "--title=Choose a folder of saved panels"]
+    elif shutil.which("kdialog"):
+        command = ["kdialog", "--getexistingdirectory", str(Path.home())]
+    else:
+        raise PageError("this machine has no folder dialog the orb can open; type the path instead")
+    try:
+        done = run(command, capture_output=True, timeout=300)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        raise PageError(f"the folder dialog did not open: {e}")
+    chosen = done.stdout.decode("utf-8", "replace").strip()
+    if done.returncode != 0 or not chosen:
+        return None
+    parts = (PureWindowsPath if platform == "win32" else PurePosixPath)(chosen).parts
+    return chosen.rstrip("/\\") if len(parts) > 1 else chosen
