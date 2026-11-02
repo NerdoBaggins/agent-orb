@@ -834,22 +834,39 @@
   };
   $("bar-widgets").addEventListener("click", (ev) => { ev.stopPropagation(); $("widgets-list").hidden = !$("widgets-list").hidden; });
 
-  // The panels dropdown: what the server finds on disk each time it opens, so a folder added by hand shows at once.
+  async function orbCall(path, body) {
+    const r = await fetch(path, {
+      method: body ? "POST" : "GET",
+      headers: { "X-Orb-Token": token, "Content-Type": "application/json" },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    if (!r.ok) throw new Error((await r.text()) || `${path} failed`);
+    return r.json();
+  }
+  function uiButton(cls, text, title, onClick) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = cls;
+    b.textContent = text;
+    b.title = title;
+    b.addEventListener("click", (ev) => { ev.stopPropagation(); onClick(); });
+    return b;
+  }
+  function uiText(cls, text, title) {
+    const span = document.createElement("span");
+    span.className = cls;
+    span.textContent = text;
+    if (title) span.title = title;
+    return span;
+  }
+
+  // The panels dropdown, for quick choices: every panel you can open, read from disk each time it opens.
   const panelsMenu = {
     data: null,
     error: "",
-    async call(path, body) {
-      const r = await fetch(path, {
-        method: body ? "POST" : "GET",
-        headers: { "X-Orb-Token": token, "Content-Type": "application/json" },
-        body: body ? JSON.stringify(body) : undefined,
-      });
-      if (!r.ok) throw new Error((await r.text()) || `${path} failed`);
-      return r.json();
-    },
     async refresh() {
       try {
-        this.data = await this.call("/panels");
+        this.data = await orbCall("/panels");
         this.error = "";
       } catch (e) {
         this.error = String(e.message || e);
@@ -871,59 +888,32 @@
         return;
       }
       try {
-        await this.call("/panel", { name: entry.name, title: entry.title, ...(entry.path ? { saved: entry.name } : {}) });
+        await orbCall("/panel", { name: entry.name, title: entry.title, ...(entry.path ? { saved: entry.name } : {}) });
       } catch (e) {
         notice(`${entry.name}: ${e.message}`, "error");
       }
     },
-    async dirs(body) {
-      try {
-        this.data = await this.call("/panels/dirs", body);
-        this.error = "";
-      } catch (e) {
-        this.error = String(e.message || e);
-      }
-      this.render();
-    },
     async reveal(body) {
       try {
-        await this.call("/panels/reveal", body);
+        await orbCall("/panels/reveal", body);
       } catch (e) {
         notice(`panel folder: ${e.message}`, "error");
       }
     },
-    button(cls, text, title, onClick) {
-      const b = document.createElement("button");
-      b.type = "button";
-      b.className = cls;
-      b.textContent = text;
-      b.title = title;
-      b.addEventListener("click", (ev) => { ev.stopPropagation(); onClick(); });
-      return b;
-    },
-    text(cls, text, title) {
-      const span = document.createElement("span");
-      span.className = cls;
-      span.textContent = text;
-      if (title) span.title = title;
-      return span;
-    },
     render() {
       const top = document.createElement("div");
       top.className = "panel-menu-top";
-      top.append(this.text("panel-menu-title", "Panels"), this.button("panel-menu-close", "×", "Close the list (Escape)", () => { $("panels-list").hidden = true; }));
+      top.append(uiText("panel-menu-title", "Panels"), uiButton("panel-menu-close", "×", "Close the list (Escape)", () => { $("panels-list").hidden = true; }));
       const nodes = [top];
-      if (this.error) nodes.push(this.text("panel-menu-error", this.error));
-      const data = this.data;
-      if (data) {
-        for (const entry of data.panels) nodes.push(this.entryRow(entry));
-        for (const problem of data.problems) nodes.push(this.text("panel-menu-problem", problem));
-        nodes.push(this.text("panel-menu-head", "Where saved panels are found"));
-        for (const dir of data.defaults) nodes.push(this.defaultRow(dir));
-        nodes.push(this.text("panel-menu-head", "Extra panel folders"));
-        nodes.push(this.text("panel-menu-hint", "Panels kept in another folder, such as OneDrive, show in the list above once you add that folder."));
-        for (const dir of data.dirs) nodes.push(this.dirRow(dir));
-        nodes.push(this.adder());
+      if (this.error) nodes.push(uiText("panel-menu-error", this.error));
+      if (this.data) {
+        for (const entry of this.data.panels) nodes.push(this.entryRow(entry));
+        for (const problem of this.data.problems) nodes.push(uiText("panel-menu-problem", problem));
+        nodes.push(uiButton("panel-menu-settings", "Panel folders… (in settings)", "Where saved panels are found, and the folders to search besides", () => {
+          $("panels-list").hidden = true;
+          if (!orb.panels.has("settings")) toggleSettings();
+          else panelsUi.activate("settings");
+        }));
       }
       $("panels-list").replaceChildren(...nodes);
     },
@@ -935,11 +925,58 @@
       pick.type = "button";
       pick.className = "panel-pick";
       pick.title = r.tip;
-      pick.append(this.text("panel-tick", r.open ? "✓" : ""), this.text("panel-name", r.title), this.text("panel-scope", r.scope));
+      pick.append(uiText("panel-tick", r.open ? "✓" : ""), uiText("panel-name", r.title), uiText("panel-scope", r.scope));
       if (!r.shadowed) pick.addEventListener("click", (ev) => { ev.stopPropagation(); this.pick(entry); });
       wrap.appendChild(pick);
-      if (r.path) wrap.appendChild(this.button("panel-folder", "open folder", r.path, () => this.reveal({ name: r.name })));
+      if (r.path) wrap.appendChild(uiButton("panel-folder", "open folder", r.path, () => this.reveal({ name: r.name })));
       return wrap;
+    },
+  };
+
+  // The settings panel: what is set once rather than chosen quickly. It holds the panel folders for now.
+  const settingsUi = {
+    data: null,
+    error: "",
+    async refresh() {
+      try {
+        this.data = await orbCall("/panels");
+        this.error = "";
+      } catch (e) {
+        this.error = String(e.message || e);
+      }
+      this.render();
+    },
+    async dirs(body) {
+      try {
+        this.data = await orbCall("/panels/dirs", body);
+        panelsMenu.data = null;  // the menu's list may name panels from a folder just removed, or miss ones just added
+        this.error = "";
+      } catch (e) {
+        this.error = String(e.message || e);
+      }
+      this.render();
+    },
+    async reveal(body) {
+      try {
+        await orbCall("/panels/reveal", body);
+      } catch (e) {
+        notice(`panel folder: ${e.message}`, "error");
+      }
+    },
+    render() {
+      const box = $("builtin-settings");
+      if (!box) return;
+      const nodes = [uiText("settings-title", "Settings"), uiText("settings-section", "Panel folders")];
+      if (this.error) nodes.push(uiText("panel-menu-error", this.error));
+      if (this.data) {
+        nodes.push(uiText("panel-menu-head", "Where saved panels are found"));
+        for (const dir of this.data.defaults) nodes.push(this.defaultRow(dir));
+        nodes.push(uiText("panel-menu-head", "Extra panel folders"));
+        nodes.push(uiText("panel-menu-hint", "Panels kept in another folder, such as OneDrive, show in the panels menu once you add that folder."));
+        for (const dir of this.data.dirs) nodes.push(this.dirRow(dir));
+        nodes.push(this.adder());
+      }
+      box.replaceChildren(...nodes);
     },
     defaultRow(dir) {
       const d = defaultDirRow(dir);
@@ -947,9 +984,9 @@
       wrap.className = "panel-dir default";
       const line = document.createElement("div");
       line.className = "panel-dir-line";
-      line.append(this.text("panel-scope", d.label));
-      if (d.note) line.append(this.text("panel-dir-note", d.note));
-      const path = this.text("panel-dir-path", d.path, d.openable ? "Open this folder" : "");
+      line.append(uiText("panel-scope", d.label));
+      if (d.note) line.append(uiText("panel-dir-note", d.note));
+      const path = uiText("panel-dir-path", d.path, d.openable ? "Open this folder" : "");
       if (d.openable) path.addEventListener("click", (ev) => { ev.stopPropagation(); this.reveal({ dir: d.path }); });
       wrap.append(line, path);
       return wrap;
@@ -958,11 +995,11 @@
       const d = panelDirRow(dir);
       const wrap = document.createElement("div");
       wrap.className = "panel-dir";
-      const path = this.text("panel-dir-path", d.path, d.resolved);
+      const path = uiText("panel-dir-path", d.path, d.resolved);
       path.addEventListener("click", (ev) => { ev.stopPropagation(); if (dir.exists) this.reveal({ dir: d.path }); });
       const tail = document.createElement("span");
-      if (d.note) tail.appendChild(this.text("panel-dir-note", d.note));
-      if (d.removable) tail.appendChild(this.button("panel-dir-remove", "remove", `Stop searching ${d.path}`, () => this.dirs({ remove: d.path })));
+      if (d.note) tail.appendChild(uiText("panel-dir-note", d.note));
+      if (d.removable) tail.appendChild(uiButton("panel-dir-remove", "remove", `Stop searching ${d.path}`, () => this.dirs({ remove: d.path })));
       wrap.append(path, tail);
       return wrap;
     },
@@ -978,21 +1015,20 @@
         if (typed.ok) this.dirs({ add: typed.folder });
         else { this.error = typed.error; this.render(); }
       };
-      input.addEventListener("click", (ev) => ev.stopPropagation());
       input.addEventListener("keydown", (ev) => {
         ev.stopPropagation();
         if (ev.key === "Enter") add();
       });
-      const browse = this.button("panel-dir-browse", "browse…", "Choose the folder in a dialog", async () => {
+      const browse = uiButton("panel-dir-browse", "browse…", "Choose the folder in a dialog", async () => {
         try {
-          const chosen = (await this.call("/panels/browse", {})).path;
+          const chosen = (await orbCall("/panels/browse", {})).path;
           if (chosen) { input.value = chosen; input.focus(); }
         } catch (e) {
           this.error = String(e.message || e);
           this.render();
         }
       });
-      wrap.append(input, browse, this.button("panel-dir-add-button", "add", "Add this folder to your panel_dirs for this repo", add));
+      wrap.append(input, browse, uiButton("panel-dir-add-button", "add", "Add this folder to your panel_dirs for this repo", add));
       return wrap;
     },
   };
@@ -1046,6 +1082,7 @@
       this.activate(p.name);
       transcriptUi.render();
       releasesUi.render();
+      if (p.name === "settings") settingsUi.refresh();
     },
     data(name, data, at) {
       const p = orb.panels.get(name);
@@ -1092,6 +1129,7 @@
       const any = orb.panels.size > 0;
       $("transcript-toggle").classList.toggle("on", orb.panels.has("transcript"));
       $("releases-toggle").classList.toggle("on", orb.panels.has("releases"));
+      $("settings-toggle").classList.toggle("on", orb.panels.has("settings"));
       $("panels").hidden = !any;
       const stage = $("stage");
       stage.classList.toggle("has-panels", any);
@@ -1174,8 +1212,10 @@
   }
   const toggleTranscript = () => toggleBuiltin("transcript", "Transcript");
   const toggleReleases = () => toggleBuiltin("releases", "Release notes");
+  const toggleSettings = () => toggleBuiltin("settings", "Settings");
   $("transcript-toggle").addEventListener("click", toggleTranscript);
   $("releases-toggle").addEventListener("click", toggleReleases);
+  $("settings-toggle").addEventListener("click", toggleSettings);
 
   function savedReleasesTextSize() {
     try { return clampTextSize(Number(localStorage.getItem("orb.releasesTextSize"))); } catch (e) { return TEXT_SIZES.start; }
