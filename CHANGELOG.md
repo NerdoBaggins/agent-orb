@@ -7,10 +7,13 @@ that has one adds it under Unreleased.
 
 ### Added
 
-- A `panels` menu in the bar lists every panel you can open, sorted by name: the built-in transcript and release
-  notes, and your saved panels. Each shows where it comes from (built in, yours for this repo, a custom folder, or
+- A `panels` menu in the bar lists every panel you can open, sorted by name: the built-in transcript, release notes and
+  settings, and your saved panels. Each shows where it comes from (built in, yours for this repo, a custom folder, or
   global) and its folder, with an `open folder` button; a panel hidden by an earlier one of the same name is struck
-  through. The menu also lists the folders searched for saved panels and lets you add or remove one of your own, typing the path or choosing it with a `browse…` button that opens the system's folder dialog
+  through ([#139](https://github.com/NerdoBaggins/agent-orb/issues/139)).
+- A `settings` panel, opened from a bar button or the panels menu, for what you set once. It starts with the panel
+  folders: the two always searched, and extra folders you add or remove, by typing the path or choosing it with
+  `browse…`, which opens the system's folder dialog
   ([#139](https://github.com/NerdoBaggins/agent-orb/issues/139)).
 
 ## 0.5.0 — 2026-10-31
