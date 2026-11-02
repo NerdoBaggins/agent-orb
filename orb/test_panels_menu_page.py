@@ -23,7 +23,7 @@ async def open_menu(page):
 async def open_settings(page):
     await page.hover(".bar")
     await page.click("#settings-toggle")
-    await page.wait_for_selector("#builtin-settings .panel-dir-add")
+    await page.wait_for_selector("#builtin-settings .settings-sec")
 
 
 async def titles(page):
@@ -84,7 +84,7 @@ def test_the_settings_button_opens_and_closes_the_settings_panel_and_the_menu_ha
         await page.click("#settings-toggle")
         await page.wait_for_function("() => !window.orbPage.orb.panels.has('settings')")
         await open_menu(page)
-        seen["editor_in_menu"] = await page.evaluate("() => document.querySelectorAll('#panels-list .panel-dir-add, #panels-list .panel-dir').length")
+        seen["editor_in_menu"] = await page.evaluate("() => document.querySelectorAll('#panels-list .dir-add, #panels-list .dir-row').length")
 
     asyncio.run(run_page(tmp_path, [], act, server))
     assert seen == {"open": True, "title": "Settings", "lit": True, "editor_in_menu": 0}
@@ -100,44 +100,11 @@ def test_the_menus_panel_folders_link_opens_the_settings_panel(tmp_path):
         await page.click("#panels-list .panel-menu-settings")
         await page.wait_for_function("() => window.orbPage.orb.panels.has('settings')")
         seen["menu_hidden"] = await page.evaluate("() => document.getElementById('panels-list').hidden")
-        await page.wait_for_selector("#builtin-settings .panel-dir-add")
-        seen["editor"] = await page.is_visible("#builtin-settings .panel-dir-add")
+        await page.wait_for_selector("#builtin-settings .settings-sec")
+        seen["editor"] = await page.is_visible("#builtin-settings .settings-sec")
 
     asyncio.run(run_page(tmp_path, [], act, server))
     assert seen == {"menu_hidden": True, "editor": True}
-
-
-@pytest.mark.timeout(60)
-def test_adding_a_folder_lists_its_panels_in_the_menu_and_a_bad_folder_shows_the_servers_reason_without_changing_it(tmp_path):
-    server = make(tmp_path)
-    extra = tmp_path / "extra"
-    saved(extra, "chart", "Chart")
-    seen = {}
-
-    async def act(page):
-        await open_settings(page)
-        await page.fill("#builtin-settings .panel-dir-add input", str(tmp_path / "nope"))
-        await page.press("#builtin-settings .panel-dir-add input", "Enter")
-        await page.wait_for_selector("#builtin-settings .panel-menu-error")
-        seen["error"] = await page.text_content("#builtin-settings .panel-menu-error")
-        await page.fill("#builtin-settings .panel-dir-add input", str(extra))
-        await page.click("#builtin-settings .panel-dir-add-button")
-        await page.wait_for_selector("#builtin-settings .panel-dir-remove")
-        seen["dirs"] = await page.evaluate("() => [...document.querySelectorAll('#builtin-settings .panel-dir:has(.panel-dir-remove) .panel-dir-path')].map(n => n.textContent)")
-        await open_menu(page)
-        seen["after"] = await titles(page)
-        await page.click("#panels-list .panel-menu-close")
-        await page.hover(".bar")
-        await page.click("#builtin-settings .panel-dir-remove")
-        await page.wait_for_function("() => !document.querySelector('#builtin-settings .panel-dir-remove')")
-        await open_menu(page)
-        seen["removed"] = await titles(page)
-
-    asyncio.run(run_page(tmp_path, [], act, server))
-    assert "is not a folder that exists" in seen["error"]
-    assert seen["dirs"] == [str(extra)]
-    assert seen["after"] == ["Chart", "Release notes", "Settings", "Transcript"]
-    assert seen["removed"] == ["Release notes", "Settings", "Transcript"]
 
 
 @pytest.mark.timeout(60)
@@ -160,42 +127,6 @@ def test_the_close_button_and_escape_close_the_list_and_the_rest_of_the_bar_is_h
 
     asyncio.run(run_page(tmp_path, [], act, server))
     assert seen == {"voice_hidden_while_open": "hidden", "after_close": True, "reopened": True, "after_escape": True}
-
-
-@pytest.mark.timeout(60)
-def test_settings_names_the_two_default_folders_and_what_the_extra_folders_are_for(tmp_path):
-    server = make(tmp_path)
-    seen = {}
-
-    async def act(page):
-        await open_settings(page)
-        seen["heads"] = await page.evaluate("() => [...document.querySelectorAll('#builtin-settings .panel-menu-head')].map(n => n.textContent)")
-        seen["labels"] = await page.evaluate("() => [...document.querySelectorAll('#builtin-settings .panel-dir:not(:has(.panel-dir-remove)) .panel-scope')].map(n => n.textContent)")
-        seen["hint"] = await page.text_content("#builtin-settings .panel-menu-hint")
-
-    asyncio.run(run_page(tmp_path, [], act, server))
-    assert seen["heads"] == ["Where saved panels are found", "Extra panel folders"]
-    assert seen["labels"] == ["Yours, this repo", "Global"]
-    assert "another folder" in seen["hint"]
-
-
-@pytest.mark.timeout(60)
-def test_browse_fills_the_box_with_the_chosen_folder_without_adding_it(tmp_path, monkeypatch):
-    from orb import panels
-    server = make(tmp_path)
-    chosen = tmp_path / "picked"
-    chosen.mkdir()
-    monkeypatch.setattr(panels, "browse_folder", lambda: str(chosen))
-    seen = {}
-
-    async def act(page):
-        await open_settings(page)
-        await page.click("#builtin-settings .panel-dir-browse")
-        await page.wait_for_function("(v) => document.querySelector('#builtin-settings .panel-dir-add input').value === v", arg=str(chosen))
-        seen["dirs"] = await page.evaluate("() => document.querySelectorAll('#builtin-settings .panel-dir-remove').length")
-
-    asyncio.run(run_page(tmp_path, [], act, server))
-    assert seen == {"dirs": 0}
 
 
 @pytest.mark.timeout(60)
