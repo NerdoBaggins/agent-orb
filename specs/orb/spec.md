@@ -314,18 +314,22 @@ show.
   A saved panel holds `index.html` (plus any files beside it) and a `panel.json` with a `title` and a `description`
   the agent reads to know when to reuse it. Reusing one means the agent fills it with fresh data and shows it again.
 - **The panels menu.** The bar's `panels` button opens a list the server reads from disk on each request
-  (`GET /panels`): the built-in `transcript` and `releases`, then every saved panel, sorted by title without regard to
-  case. Each entry carries its scope (`built-in`, `mine`, `custom`, `user`), its folder, and whether it is shadowed by
-  an earlier folder's panel of the same name; a shadowed entry is listed but cannot be shown. Picking an entry shows
-  the panel as `orb panel show <name>` does, or closes it when it is open. `POST /panels/reveal` opens a listed panel's
-  folder, or a listed `panel_dirs` folder, in the file manager; no other path is accepted.
-- **The panel-folders editor.** The same menu first names the two folders always searched (`defaults`: the user's for this
-  repo and the global one, with whether each exists; `POST /panels/reveal` opens one that exists), then lists the `panel_dirs` in force with whether each exists and whether the
-  user's file for this repo owns it. `POST /panels/dirs` with `add` appends a folder to that file and with `remove`
-  drops one the file owns; an added folder must be absolute or start `~/`, exist, and not already be searched. The
-  file's other keys are kept. These endpoints take the token, which a panel's sandboxed page does not hold, so a panel
-  cannot change where the orb loads panels from.
-  `POST /panels/browse` opens the system's folder dialog on the machine the server runs on (PowerShell's `FolderBrowserDialog` on Windows, `osascript` on macOS, `zenity` or `kdialog` elsewhere) and answers with the folder chosen, `null` when cancelled, or 400 when the machine has no dialog; it adds nothing, the user adds the folder.
+  (`GET /panels`): the built-in `transcript`, `releases` and `settings`, then every saved panel, sorted by title without
+  regard to case. Each entry carries its scope (`built-in`, `mine`, `custom`, `user`), its folder, and whether it is
+  shadowed by an earlier folder's panel of the same name; a shadowed entry is listed but cannot be shown. Picking an
+  entry shows the panel as `orb panel show <name>` does, or closes it when it is open. `POST /panels/reveal` opens a
+  listed panel's folder, a listed `panel_dirs` folder, or one of the two folders always searched, in the file manager;
+  no other path is accepted.
+- **The settings panel.** `settings` is a built-in panel like `transcript` and `releases`, opened from the bar's
+  `settings` button or the menu's link. It is where things set once live; for now, the panel folders. It names the two
+  folders always searched (`defaults` in the list: the user's for this repo and the global one, with whether each
+  exists), then lists the `panel_dirs` in force with whether each exists and whether the user's file for this repo owns
+  it. `POST /panels/dirs` with `add` appends a folder to that file and with `remove` drops one the file owns; an added
+  folder must be absolute or start `~/`, exist, and not already be searched. The file's other keys are kept. These
+  endpoints take the token, which a panel's sandboxed page does not hold, so a panel cannot change where the orb loads
+  panels from. `POST /panels/browse` opens the system's folder dialog on the machine the server runs on (PowerShell's
+  `FolderBrowserDialog` on Windows, `osascript` on macOS, `zenity` or `kdialog` elsewhere) and answers with the folder
+  chosen, `null` when cancelled, or 400 when the machine has no dialog; it adds nothing, the user adds the folder.
 - `orb panels list` prints the saved panels with their descriptions. The skill tells the agent
   to check it before writing a new panel for the same job.
 - **A saved panel is shown by name** and the server reads it from its own folder, never from a path in the request.
