@@ -236,26 +236,31 @@ def panel_dirs_for(repo_root: Path, home: Path) -> list[Path]:
     return expand_dirs(load_for(repo_root, home)["panel_dirs"], home)
 
 
-def own_panel_dirs(home: Path, repo_root: Path) -> list[str]:
-    """The `panel_dirs` the user's file for this repo lists, as written: the only ones the orb's window may change."""
+def own_dirs(key: str, home: Path, repo_root: Path) -> list[str]:
+    """The folders the user's file for this repo lists under `key` (`panel_dirs`, ...), as written: the only ones the
+    orb's window may change."""
     try:
-        listed = json.loads(private_config_path(home, repo_root).read_text(encoding="utf-8")).get("panel_dirs", [])
+        listed = json.loads(private_config_path(home, repo_root).read_text(encoding="utf-8")).get(key, [])
     except (OSError, json.JSONDecodeError, AttributeError):
         return []
     return [d for d in listed if isinstance(d, str)] if isinstance(listed, list) else []
 
 
-def add_panel_dir(home: Path, repo_root: Path, folder: str) -> None:
+def add_dir(key: str, home: Path, repo_root: Path, folder: str) -> None:
+    assert key in FOLDER_KEYS, key
+
     def update(data: dict) -> None:
-        listed = data.get("panel_dirs")
-        data["panel_dirs"] = [*(listed if isinstance(listed, list) else []), folder]
+        listed = data.get(key)
+        data[key] = [*(listed if isinstance(listed, list) else []), folder]
     save_for_repo(home, repo_root, update)
 
 
-def remove_panel_dir(home: Path, repo_root: Path, folder: str) -> None:
+def remove_dir(key: str, home: Path, repo_root: Path, folder: str) -> None:
+    assert key in FOLDER_KEYS, key
+
     def update(data: dict) -> None:
-        listed = data.get("panel_dirs")
-        data["panel_dirs"] = [d for d in (listed if isinstance(listed, list) else []) if d != folder]
+        listed = data.get(key)
+        data[key] = [d for d in (listed if isinstance(listed, list) else []) if d != folder]
     save_for_repo(home, repo_root, update)
 
 
