@@ -164,3 +164,31 @@ def test_reveal_opens_an_existing_default_folder_and_refuses_one_that_is_not_mad
             assert (await post({"dir": str(mine_folder)})).status == 400
         assert opened == [user_folder]
     run(go())
+
+
+def test_browse_answers_with_the_folder_the_dialog_chose_or_null_when_it_was_cancelled_and_needs_the_token(tmp_path, monkeypatch):
+    async def go():
+        server = make(tmp_path)
+        answers = iter(["/chosen/folder", None])
+        monkeypatch.setattr(panels, "browse_folder", lambda: next(answers))
+        async with await client_for(server) as c:
+            assert (await c.post("/panels/browse", json={})).status == 403
+            r = await c.post("/panels/browse", params={"token": TOKEN}, json={})
+            assert r.status == 200 and await r.json() == {"path": "/chosen/folder"}
+            assert await (await c.post("/panels/browse", params={"token": TOKEN}, json={})).json() == {"path": None}
+        assert not own_config(server).exists()
+    run(go())
+
+
+def test_browse_reports_a_machine_with_no_dialog_as_a_400_with_the_reason(tmp_path, monkeypatch):
+    async def go():
+        server = make(tmp_path)
+
+        def none():
+            raise panels.PageError("this machine has no folder dialog the orb can open; type the path instead")
+
+        monkeypatch.setattr(panels, "browse_folder", none)
+        async with await client_for(server) as c:
+            r = await c.post("/panels/browse", params={"token": TOKEN}, json={})
+            assert r.status == 400 and "type the path" in await r.text()
+    run(go())
