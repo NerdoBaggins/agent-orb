@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
-const { scopeLabel, panelRow: row, panelDirRow: dirRow, typedFolder } = createRequire(import.meta.url)("./panelsmenu.js");
+const { scopeLabel, panelRow: row, panelDirRow: dirRow, defaultDirRow, typedFolder } = createRequire(import.meta.url)("./panelsmenu.js");
 
 const entry = (over = {}) => ({ name: "chart", title: "Chart", description: "A chart.", scope: "user", path: "/p/chart", shadowed: false, ...over });
 
@@ -42,4 +42,12 @@ test("a folder row says when it is missing or set elsewhere, and only the user's
 test("a typed folder is trimmed and an empty one is refused", () => {
   assert.deepEqual(typedFolder("  /a/b \n"), { ok: true, folder: "/a/b" });
   assert.equal(typedFolder("   ").ok, false);
+});
+
+test("a default folder is labelled by who it is for, and one not made yet cannot be opened", () => {
+  assert.deepEqual(defaultDirRow({ scope: "mine", path: "/a", exists: true }), { label: "Yours, this repo", path: "/a", note: "", openable: true });
+  const none = defaultDirRow({ scope: "user", path: "/b", exists: false });
+  assert.equal(none.label, "Global");
+  assert.equal(none.note, "not created yet");
+  assert.equal(none.openable, false);
 });

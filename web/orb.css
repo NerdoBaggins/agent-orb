@@ -216,15 +216,18 @@ body.bar-on-orb #tabs { padding-right: 8px; } /* the pill sits on the orb's side
 .panel-scope { color: var(--orb-dim); font-size: 12px; }
 .panel-folder, .panel-dir-remove {
   font: inherit; font-size: 12px; color: var(--orb-dim); background: none; border: 1px solid var(--orb-edge, var(--orb-line));
-  border-radius: 4px; padding: 3px 9px; margin-right: 12px; cursor: pointer;
+  border-radius: 4px; padding: 3px 9px; cursor: pointer;
 }
+.panel-menu-row .panel-folder { margin-right: 12px; }
 .panel-menu-head { display: block; padding: 12px 14px 4px; margin-top: 6px; color: var(--orb-dim); border-top: 1px solid var(--orb-line); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; }
-.panel-dir { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; padding: 4px 0 4px 14px; }
+.panel-dir { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 4px 14px; }
+.panel-dir > span { white-space: nowrap; }
 .panel-dir-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--orb-fg); cursor: pointer; }
 .panel-dir-note { color: var(--orb-warn); margin-right: 8px; font-size: 12px; }
 .panel-dir-add { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 8px 14px 2px; }
 .panel-dir-add input { font: inherit; color: var(--orb-fg); background: var(--orb-bg); border: 1px solid var(--orb-line); border-radius: 4px; padding: 6px 8px; min-width: 0; }
 .panel-dir-add button { font: inherit; color: var(--orb-fg); background: none; border: 1px solid var(--orb-line); border-radius: 4px; padding: 6px 14px; cursor: pointer; }
+.panel-menu-hint { display: block; padding: 2px 14px 6px; color: var(--orb-dim); font-size: 12px; }
 .panel-menu-error, .panel-menu-problem { display: block; padding: 4px 14px; color: var(--orb-warn); }
 #widgets { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
 .widget { position: absolute; pointer-events: auto; display: flex; flex-direction: column; border: 1px solid var(--orb-line); border-radius: 6px;

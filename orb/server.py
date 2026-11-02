@@ -310,6 +310,8 @@ class OrbServer:
             "panels": [{"name": e.name, "title": e.title, "description": e.description, "scope": e.scope,
                         "path": str(e.path) if e.path else None, "shadowed": e.shadowed} for e in entries],
             "problems": problems,
+            "defaults": [{"scope": scope, "path": str(path), "exists": path.is_dir()}
+                         for scope, path in panels.default_dirs(self.repo_root, self.home)],
             "dirs": [{"path": d.path, "resolved": str(d.resolved), "exists": d.exists, "editable": d.editable}
                      for d in panels.dirs(self.repo_root, self.home)],
         }
@@ -340,14 +342,16 @@ class OrbServer:
             raise web.HTTPBadRequest(text=str(e))
 
     async def panels_reveal(self, request: web.Request) -> web.Response:
-        """Opens, in the file manager, the folder of a listed saved panel or one of the user's `panel_dirs`; nothing else."""
+        """Opens, in the file manager, the folder of a listed saved panel one of the user's `panel_dirs`, or one of the two folders always searched; nothing else."""
         body = await request.json()
         try:
             if isinstance(body.get("name"), str):
                 found = next((e for e in panels.menu(self.repo_root, self.home)[0] if e.name == body["name"] and e.path), None)
                 path = found.path if found else None
             else:
-                path = next((d.resolved for d in panels.dirs(self.repo_root, self.home) if d.path == body.get("dir")), None)
+                listed = [*((d.path, d.resolved) for d in panels.dirs(self.repo_root, self.home)),
+                          *((str(p), p) for _, p in panels.default_dirs(self.repo_root, self.home))]
+                path = next((resolved for written, resolved in listed if written == body.get("dir")), None)
         except pages.PageError as e:
             raise web.HTTPBadRequest(text=str(e))
         if path is None or not path.is_dir():
