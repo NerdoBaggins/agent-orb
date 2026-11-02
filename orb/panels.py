@@ -13,7 +13,7 @@ from orb import pages
 from orb.config import ConfigError, expand_dirs, load_for, own_panel_dirs, panel_dirs_for
 from orb.pages import PageError, collect_files, scoped_dirs, settled, signature
 
-BUILTIN = ("transcript", "releases")
+BUILTIN = ("transcript", "releases", "settings")
 MAX_TITLE_CHARS = 200
 
 
@@ -143,8 +143,9 @@ class MenuEntry:
     shadowed: bool
 
 
-BUILTIN_TITLES = {"transcript": "Transcript", "releases": "Release notes"}
-BUILTIN_DESCRIPTIONS = {"transcript": "Every request and reply of this session.", "releases": "What changed in each orb release."}
+BUILTIN_TITLES = {"transcript": "Transcript", "releases": "Release notes", "settings": "Settings"}
+BUILTIN_DESCRIPTIONS = {"transcript": "Every request and reply of this session.", "releases": "What changed in each orb release.",
+                        "settings": "Where saved panels are found, and the folders to search besides."}
 
 
 def menu(repo_root: Path, home: Path) -> tuple[list[MenuEntry], list[str]]:
