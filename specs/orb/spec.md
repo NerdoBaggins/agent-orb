@@ -318,18 +318,31 @@ show.
   regard to case. Each entry carries its scope (`built-in`, `mine`, `custom`, `user`), its folder, and whether it is
   shadowed by an earlier folder's panel of the same name; a shadowed entry is listed but cannot be shown. Picking an
   entry shows the panel as `orb panel show <name>` does, or closes it when it is open. `POST /panels/reveal` opens a
-  listed panel's folder, a listed `panel_dirs` folder, or one of the two folders always searched, in the file manager;
-  no other path is accepted.
+  listed saved panel's folder in the file manager; no other path is accepted.
 - **The settings panel.** `settings` is a built-in panel like `transcript` and `releases`, opened from the bar's
-  `settings` button or the menu's link. It is where things set once live; for now, the panel folders. It names the two
-  folders always searched (`defaults` in the list: the user's for this repo and the global one, with whether each
-  exists), then lists the `panel_dirs` in force with whether each exists and whether the user's file for this repo owns
-  it. `POST /panels/dirs` with `add` appends a folder to that file and with `remove` drops one the file owns; an added
-  folder must be absolute or start `~/`, exist, and not already be searched. The file's other keys are kept. These
-  endpoints take the token, which a panel's sandboxed page does not hold, so a panel cannot change where the orb loads
-  panels from. `POST /panels/browse` opens the system's folder dialog on the machine the server runs on (PowerShell's
-  `FolderBrowserDialog` on Windows, `osascript` on macOS, `zenity` or `kdialog` elsewhere) and answers with the folder
-  chosen, `null` when cancelled, or 400 when the machine has no dialog; it adds nothing, the user adds the folder.
+  `settings` button or the menu's link. It is where things set once live: a page of collapsible sections under a
+  "Folders" heading, one per kind of folder the orb searches (`panel`, `skin`, `theme`, `widget`, sorted by name), so that
+  later sections (shortcuts, speech, wake word) slot in without rework.
+  - **A section** is a heading holding a button (`aria-expanded`, `aria-controls`) over a region. Its header says how many
+    extra folders there are and how many are missing; a section with a missing folder starts open, the others closed, and
+    the ids of the open ones are kept in the browser's local storage. The frames are built once and only the lists in them
+    are redrawn, so focus, typed text and open state survive each action, and a message belongs to the section whose
+    action produced it (`aria-live`).
+  - **Its body** has a line saying what the folders are for and in what order they are searched, "Your folders" (rows
+    with a path, a `missing` or `set in another config file` chip, and `remove`; an empty state), the add row (text box,
+    `Browse…`, `Add`), then "Always searched", dimmer: the two folders every kind always searches (panels and widgets:
+    this repo and all repos; skins and themes: all repos and the ones bundled with the orb), with a `not created yet`
+    chip when one does not exist. `remove` leaves a struck-through row with `Undo`.
+  - **The server** answers `GET /settings/folders` with, for each kind, the `defaults` and the extra `dirs` in force
+    (whether each exists, and whether the user's file for this repo owns it). `POST /settings/folders` with a `kind` and
+    `add` appends a folder to that kind's key (`panel_dirs`, `skin_dirs`, `theme_dirs`, `widget_dirs`) in that file, and
+    with `remove` drops one the file owns; an added folder must be absolute or start `~/`, exist, and not already be
+    searched. The file's other keys are kept, and a change to the skin or theme folders reaches the bar's menus at once.
+    These endpoints take the token, which a panel's sandboxed page does not hold, so a panel cannot change where the orb
+    loads anything from. `POST /settings/reveal` opens a listed folder of a kind in the file manager; no other path is
+    accepted. `POST /settings/browse` opens the system's folder dialog on the machine the server runs on (PowerShell's
+    `FolderBrowserDialog` on Windows, `osascript` on macOS, `zenity` or `kdialog` elsewhere) and answers with the folder
+    chosen, `null` when cancelled, or 400 when the machine has no dialog; it adds nothing, the user adds the folder.
 - `orb panels list` prints the saved panels with their descriptions. The skill tells the agent
   to check it before writing a new panel for the same job.
 - **A saved panel is shown by name** and the server reads it from its own folder, never from a path in the request.
