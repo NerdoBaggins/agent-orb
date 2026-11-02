@@ -918,7 +918,10 @@
       if (data) {
         for (const entry of data.panels) nodes.push(this.entryRow(entry));
         for (const problem of data.problems) nodes.push(this.text("panel-menu-problem", problem));
-        nodes.push(this.text("panel-menu-head", "Folders searched for saved panels, besides yours"));
+        nodes.push(this.text("panel-menu-head", "Where saved panels are found"));
+        for (const dir of data.defaults) nodes.push(this.defaultRow(dir));
+        nodes.push(this.text("panel-menu-head", "Extra panel folders"));
+        nodes.push(this.text("panel-menu-hint", "Panels kept in another folder, such as OneDrive, show in the list above once you add that folder."));
         for (const dir of data.dirs) nodes.push(this.dirRow(dir));
         nodes.push(this.adder());
       }
@@ -936,6 +939,18 @@
       if (!r.shadowed) pick.addEventListener("click", (ev) => { ev.stopPropagation(); this.pick(entry); });
       wrap.appendChild(pick);
       if (r.path) wrap.appendChild(this.button("panel-folder", "open folder", r.path, () => this.reveal({ name: r.name })));
+      return wrap;
+    },
+    defaultRow(dir) {
+      const d = defaultDirRow(dir);
+      const wrap = document.createElement("div");
+      wrap.className = "panel-dir";
+      const path = this.text("panel-dir-path", d.path, d.openable ? "Open this folder" : "");
+      if (d.openable) path.addEventListener("click", (ev) => { ev.stopPropagation(); this.reveal({ dir: d.path }); });
+      const tail = document.createElement("span");
+      if (d.note) tail.appendChild(this.text("panel-dir-note", d.note));
+      tail.appendChild(this.text("panel-scope", d.label));
+      wrap.append(path, tail);
       return wrap;
     },
     dirRow(dir) {
