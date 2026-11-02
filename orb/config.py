@@ -236,6 +236,29 @@ def panel_dirs_for(repo_root: Path, home: Path) -> list[Path]:
     return expand_dirs(load_for(repo_root, home)["panel_dirs"], home)
 
 
+def own_panel_dirs(home: Path, repo_root: Path) -> list[str]:
+    """The `panel_dirs` the user's file for this repo lists, as written: the only ones the orb's window may change."""
+    try:
+        listed = json.loads(private_config_path(home, repo_root).read_text(encoding="utf-8")).get("panel_dirs", [])
+    except (OSError, json.JSONDecodeError, AttributeError):
+        return []
+    return [d for d in listed if isinstance(d, str)] if isinstance(listed, list) else []
+
+
+def add_panel_dir(home: Path, repo_root: Path, folder: str) -> None:
+    def update(data: dict) -> None:
+        listed = data.get("panel_dirs")
+        data["panel_dirs"] = [*(listed if isinstance(listed, list) else []), folder]
+    save_for_repo(home, repo_root, update)
+
+
+def remove_panel_dir(home: Path, repo_root: Path, folder: str) -> None:
+    def update(data: dict) -> None:
+        listed = data.get("panel_dirs")
+        data["panel_dirs"] = [d for d in (listed if isinstance(listed, list) else []) if d != folder]
+    save_for_repo(home, repo_root, update)
+
+
 def widget_dirs_for(repo_root: Path, home: Path) -> list[Path]:
     return expand_dirs(load_for(repo_root, home)["widget_dirs"], home)
 
