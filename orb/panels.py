@@ -2,12 +2,14 @@
 naming a title and a description."""
 import os
 import re
+import subprocess
+import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
 from orb import pages
-from orb.config import ConfigError, panel_dirs_for
+from orb.config import ConfigError, expand_dirs, load_for, own_panel_dirs, panel_dirs_for
 from orb.pages import PageError, collect_files, scoped_dirs, settled, signature
 
 BUILTIN = ("transcript", "releases")
@@ -128,3 +130,71 @@ def resolve_show(target: str, repo_root: Path, home: Path) -> Show:
     if saved:
         return Show(saved.name, saved.title[:MAX_TITLE_CHARS], collect_files(saved.path / "index.html"), saved.name)
     raise PageError(f"{target!r} is neither an HTML file nor a saved panel (orb panels list shows those)")
+
+
+@dataclass
+class MenuEntry:
+    name: str
+    title: str
+    description: str
+    scope: str
+    path: Path | None
+    shadowed: bool
+
+
+BUILTIN_TITLES = {"transcript": "Transcript", "releases": "Release notes"}
+BUILTIN_DESCRIPTIONS = {"transcript": "Every request and reply of this session.", "releases": "What changed in each orb release."}
+
+
+def menu(repo_root: Path, home: Path) -> tuple[list[MenuEntry], list[str]]:
+    """Every panel the user can open, built-in and saved, sorted by title without regard to case. A saved panel that
+    shares a name with an earlier one in the search order is listed but shadowed: showing the name opens the earlier."""
+    entries = [MenuEntry(n, BUILTIN_TITLES[n], BUILTIN_DESCRIPTIONS[n], "built-in", None, False) for n in BUILTIN]
+    saved, problems = list_saved(repo_root, home)
+    seen = set(BUILTIN)
+    for p in saved:
+        entries.append(MenuEntry(p.name, p.title, p.description, p.scope, p.path, p.name in seen))
+        seen.add(p.name)
+    return sorted(entries, key=lambda e: (e.title.lower(), e.name)), problems
+
+
+@dataclass
+class DirEntry:
+    path: str
+    resolved: Path
+    exists: bool
+    editable: bool
+
+
+def dirs(repo_root: Path, home: Path) -> list[DirEntry]:
+    """The `panel_dirs` in force, as written, and which of them the user's file for this repo owns."""
+    try:
+        listed = load_for(repo_root, home)["panel_dirs"]
+    except ConfigError as e:
+        raise PageError(str(e))
+    own = set(own_panel_dirs(home, repo_root))
+    return [DirEntry(d, p, p.is_dir(), d in own) for d, p in zip(listed, expand_dirs(listed, home))]
+
+
+def checked_new_dir(raw: str, repo_root: Path, home: Path) -> str:
+    """A folder to add to `panel_dirs`, as it will be written: absolute or `~/…`, an existing folder, not one already searched."""
+    folder = raw.strip()
+    if not folder:
+        raise PageError("give a folder")
+    if not (folder.startswith("~/") or Path(folder).is_absolute()):
+        raise PageError(f"{folder} is not absolute; write the full path or one starting ~/")
+    path = expand_dirs([folder], home)[0]
+    if not path.is_dir():
+        raise PageError(f"{path} is not a folder that exists")
+    searched = {p.resolve() for _, p in panel_dirs(repo_root, home)}
+    if path.resolve() in searched:
+        raise PageError(f"{path} is already searched for panels")
+    return folder
+
+
+def reveal(path: Path, run=subprocess.Popen) -> None:
+    """Opens a folder in the system's file manager."""
+    if sys.platform == "win32":
+        os.startfile(path)  # noqa: S606 - a folder the orb listed, never a page-supplied command
+    else:
+        run(["open" if sys.platform == "darwin" else "xdg-open", str(path)])

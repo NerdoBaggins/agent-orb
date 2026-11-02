@@ -30,8 +30,8 @@ from orb import PLUGIN_ROOT, actions, agents, engines, feeds, logs, pages, panel
 from orb import interrupt as interrupt_adapter
 from orb.audio import SAMPLE_RATE, TAP_S, speakable, split_sentences
 from orb.side import side_intent, status_sentence
-from orb.config import (WIDGET_PANE_KEYS, WIDGET_PLACE_KEYS, ConfigError, WidgetEntry, clamp_size, clamp_speed, engine_settings, expand_dirs, load_for,
-                        overlay, save_for_repo, save_skin_size, save_speed, save_widget, size_for, speed_for, tts_settings_for, validate_widget_entry,
+from orb.config import (WIDGET_PANE_KEYS, WIDGET_PLACE_KEYS, ConfigError, WidgetEntry, add_panel_dir, clamp_size, clamp_speed, engine_settings, expand_dirs, load_for,
+                        overlay, own_panel_dirs, remove_panel_dir, save_for_repo, save_skin_size, save_speed, save_widget, size_for, speed_for, tts_settings_for, validate_widget_entry,
                         widgets_on)
 from orb import waking
 from orb.engines import EngineError, Stt, Tts, Voiceprint
@@ -243,6 +243,9 @@ class OrbServer:
         self.app.router.add_get("/health", self.health)
         self.app.router.add_get("/pending", self.pending_ids)
         self.app.router.add_post("/reply", self.reply)
+        self.app.router.add_get("/panels", self.panels_list)
+        self.app.router.add_post("/panels/dirs", self.panels_dirs)
+        self.app.router.add_post("/panels/reveal", self.panels_reveal)
         self.app.router.add_post("/panel", self.panel_show)
         self.app.router.add_post("/panel/close", self.panel_close)
         self.app.router.add_post("/widget", self.widget_endpoint)
@@ -300,6 +303,57 @@ class OrbServer:
         return response
 
     # ---- panels and skin ----
+
+    def panels_menu(self) -> dict:
+        entries, problems = panels.menu(self.repo_root, self.home)
+        return {
+            "panels": [{"name": e.name, "title": e.title, "description": e.description, "scope": e.scope,
+                        "path": str(e.path) if e.path else None, "shadowed": e.shadowed} for e in entries],
+            "problems": problems,
+            "dirs": [{"path": d.path, "resolved": str(d.resolved), "exists": d.exists, "editable": d.editable}
+                     for d in panels.dirs(self.repo_root, self.home)],
+        }
+
+    async def panels_list(self, request: web.Request) -> web.Response:
+        """Every panel the user can open, and the folders searched for saved ones, read from disk on each request."""
+        try:
+            return web.json_response(await asyncio.to_thread(self.panels_menu))
+        except pages.PageError as e:
+            raise web.HTTPBadRequest(text=str(e))
+
+    async def panels_dirs(self, request: web.Request) -> web.Response:
+        """Adds or removes one folder in the user's own `panel_dirs` for this repo. A panel's page holds no token, so
+        it cannot reach this: the folders decide which code the orb loads."""
+        body = await request.json()
+        try:
+            if isinstance(body.get("add"), str):
+                folder = panels.checked_new_dir(body["add"], self.repo_root, self.home)
+                await asyncio.to_thread(add_panel_dir, self.home, self.repo_root, folder)
+            elif isinstance(body.get("remove"), str):
+                if body["remove"] not in await asyncio.to_thread(own_panel_dirs, self.home, self.repo_root):
+                    raise pages.PageError(f"{body['remove']} is not in your panel_dirs for this repo; another config file sets it")
+                await asyncio.to_thread(remove_panel_dir, self.home, self.repo_root, body["remove"])
+            else:
+                raise pages.PageError("send add or remove, each a folder")
+            return web.json_response(await asyncio.to_thread(self.panels_menu))
+        except pages.PageError as e:
+            raise web.HTTPBadRequest(text=str(e))
+
+    async def panels_reveal(self, request: web.Request) -> web.Response:
+        """Opens, in the file manager, the folder of a listed saved panel or one of the user's `panel_dirs`; nothing else."""
+        body = await request.json()
+        try:
+            if isinstance(body.get("name"), str):
+                found = next((e for e in panels.menu(self.repo_root, self.home)[0] if e.name == body["name"] and e.path), None)
+                path = found.path if found else None
+            else:
+                path = next((d.resolved for d in panels.dirs(self.repo_root, self.home) if d.path == body.get("dir")), None)
+        except pages.PageError as e:
+            raise web.HTTPBadRequest(text=str(e))
+        if path is None or not path.is_dir():
+            raise web.HTTPBadRequest(text="no such panel folder")
+        await asyncio.to_thread(panels.reveal, path)
+        return web.json_response({"ok": True})
 
     async def panel_show(self, request: web.Request) -> web.Response:
         """Shows a page from the files posted, or a saved panel named by `saved`, which the server reads from its own
