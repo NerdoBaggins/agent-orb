@@ -93,3 +93,25 @@ def test_adding_a_folder_lists_its_panels_and_a_bad_folder_shows_the_servers_rea
     assert seen["after"] == ["Chart", "Release notes", "Transcript"]
     assert seen["dirs"] == [str(extra)]
     assert seen["removed"] == ["Release notes", "Transcript"]
+
+
+@pytest.mark.timeout(60)
+def test_the_close_button_and_escape_close_the_list_and_the_rest_of_the_bar_is_hidden_while_it_is_open(tmp_path):
+    server = make(tmp_path)
+    seen = {}
+
+    async def hidden(page):
+        return await page.evaluate("() => document.getElementById('panels-list').hidden")
+
+    async def act(page):
+        await open_menu(page)
+        seen["voice_hidden_while_open"] = await page.evaluate("() => getComputedStyle(document.getElementById('voice-toggle')).visibility")
+        await page.click("#panels-list .panel-menu-close")
+        seen["after_close"] = await hidden(page)
+        await open_menu(page)
+        seen["reopened"] = not await hidden(page)
+        await page.keyboard.press("Escape")
+        seen["after_escape"] = await hidden(page)
+
+    asyncio.run(run_page(tmp_path, [], act, server))
+    assert seen == {"voice_hidden_while_open": "hidden", "after_close": True, "reopened": True, "after_escape": True}

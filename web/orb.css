@@ -189,32 +189,43 @@ body.bar-on-orb #tabs { padding-right: 8px; } /* the pill sits on the orb's side
 .widget-row.missing { color: var(--orb-dim); }
 .widget-tick { color: var(--orb-accent); }
 .widget-scope { color: var(--orb-dim); }
-.bar-panels-wrap { position: relative; }
+.bar-panels-wrap { position: static; }
 #bar-panels.on { color: var(--orb-fg); }
+/* While the list is open it stands in for the bar: every other control is hidden under it, and the bar's own box
+   is dropped, so no edge of either shows around the other. */
+.bar:has(#panels-list:not([hidden])) { opacity: 1; background: none; border-color: transparent; box-shadow: none; }
+.bar:has(#panels-list:not([hidden])) > :not(.bar-panels-wrap) { visibility: hidden; }
 #panels-list {
-  position: absolute; top: calc(100% + 6px); right: 0; z-index: 20; min-width: 300px; max-width: 460px; max-height: 70vh; overflow-y: auto;
-  background: var(--orb-surface); border: 1px solid var(--orb-line); border-radius: 6px; padding: 6px 0;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); font-size: 12px;
+  position: absolute; top: 0; right: 0; z-index: 30; width: min(440px, calc(100vw - 24px)); max-height: calc(100vh - 24px); overflow-y: auto;
+  background-color: #000; background-image: linear-gradient(var(--orb-surface), var(--orb-surface));
+  border: 1px solid var(--orb-line); border-radius: 8px; padding: 6px 0 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.8); font-size: 13px; text-transform: none; letter-spacing: 0.02em;
 }
 #panels-list[hidden] { display: none; }
+.panel-menu-top { display: flex; justify-content: space-between; align-items: center; padding: 4px 12px 8px; color: var(--orb-accent); letter-spacing: 0.2em; text-transform: uppercase; font-weight: 600; }
+.panel-menu-close { font: inherit; font-size: 16px; line-height: 1; color: var(--orb-dim); background: none; border: 0; padding: 2px 6px; cursor: pointer; }
+.panel-menu-close:hover { color: var(--orb-fg); }
 .panel-menu-row { display: grid; grid-template-columns: 1fr auto; align-items: center; }
 .panel-pick {
-  display: grid; grid-template-columns: 16px 1fr auto; gap: 10px; align-items: center; padding: 5px 12px;
+  display: grid; grid-template-columns: 18px 1fr auto; gap: 10px; align-items: center; padding: 9px 14px;
   font: inherit; color: var(--orb-fg); background: none; border: 0; width: 100%; text-align: left; cursor: pointer;
 }
-.panel-pick:hover, .panel-folder:hover, .panel-dir-remove:hover { background: color-mix(in srgb, var(--orb-accent) 12%, transparent); }
+.panel-pick:hover, .panel-folder:hover, .panel-dir-remove:hover { background: color-mix(in srgb, var(--orb-accent) 14%, transparent); }
 .panel-menu-row.shadowed .panel-pick { color: var(--orb-dim); text-decoration: line-through; cursor: default; }
 .panel-tick { color: var(--orb-accent); }
-.panel-scope { color: var(--orb-dim); }
-.panel-folder, .panel-dir-remove { font: inherit; color: var(--orb-dim); background: none; border: 0; padding: 5px 10px; cursor: pointer; }
-.panel-menu-head { padding: 8px 12px 4px; color: var(--orb-dim); border-top: 1px solid var(--orb-line); margin-top: 4px; }
-.panel-dir { display: grid; grid-template-columns: 1fr auto; align-items: center; padding: 0 0 0 12px; }
+.panel-scope { color: var(--orb-dim); font-size: 12px; }
+.panel-folder, .panel-dir-remove {
+  font: inherit; font-size: 12px; color: var(--orb-dim); background: none; border: 1px solid var(--orb-edge, var(--orb-line));
+  border-radius: 4px; padding: 3px 9px; margin-right: 12px; cursor: pointer;
+}
+.panel-menu-head { display: block; padding: 12px 14px 4px; margin-top: 6px; color: var(--orb-dim); border-top: 1px solid var(--orb-line); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; }
+.panel-dir { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; padding: 4px 0 4px 14px; }
 .panel-dir-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--orb-fg); cursor: pointer; }
-.panel-dir-note { color: var(--orb-warn); margin-right: 6px; }
-.panel-dir-add { display: grid; grid-template-columns: 1fr auto; gap: 6px; padding: 4px 12px; }
-.panel-dir-add input { font: inherit; color: var(--orb-fg); background: var(--orb-bg); border: 1px solid var(--orb-line); border-radius: 4px; padding: 3px 6px; min-width: 0; }
-.panel-dir-add button { font: inherit; color: var(--orb-fg); background: none; border: 1px solid var(--orb-line); border-radius: 4px; padding: 3px 10px; cursor: pointer; }
-.panel-menu-error, .panel-menu-problem { padding: 2px 12px; color: var(--orb-warn); }
+.panel-dir-note { color: var(--orb-warn); margin-right: 8px; font-size: 12px; }
+.panel-dir-add { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 8px 14px 2px; }
+.panel-dir-add input { font: inherit; color: var(--orb-fg); background: var(--orb-bg); border: 1px solid var(--orb-line); border-radius: 4px; padding: 6px 8px; min-width: 0; }
+.panel-dir-add button { font: inherit; color: var(--orb-fg); background: none; border: 1px solid var(--orb-line); border-radius: 4px; padding: 6px 14px; cursor: pointer; }
+.panel-menu-error, .panel-menu-problem { display: block; padding: 4px 14px; color: var(--orb-warn); }
 #widgets { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
 .widget { position: absolute; pointer-events: auto; display: flex; flex-direction: column; border: 1px solid var(--orb-line); border-radius: 6px;
   background: var(--orb-bg); overflow: hidden; }
