@@ -944,13 +944,14 @@
     defaultRow(dir) {
       const d = defaultDirRow(dir);
       const wrap = document.createElement("div");
-      wrap.className = "panel-dir";
+      wrap.className = "panel-dir default";
+      const line = document.createElement("div");
+      line.className = "panel-dir-line";
+      line.append(this.text("panel-scope", d.label));
+      if (d.note) line.append(this.text("panel-dir-note", d.note));
       const path = this.text("panel-dir-path", d.path, d.openable ? "Open this folder" : "");
       if (d.openable) path.addEventListener("click", (ev) => { ev.stopPropagation(); this.reveal({ dir: d.path }); });
-      const tail = document.createElement("span");
-      if (d.note) tail.appendChild(this.text("panel-dir-note", d.note));
-      tail.appendChild(this.text("panel-scope", d.label));
-      wrap.append(path, tail);
+      wrap.append(line, path);
       return wrap;
     },
     dirRow(dir) {
@@ -982,7 +983,16 @@
         ev.stopPropagation();
         if (ev.key === "Enter") add();
       });
-      wrap.append(input, this.button("panel-dir-add-button", "add", "Add this folder to your panel_dirs for this repo", add));
+      const browse = this.button("panel-dir-browse", "browse…", "Choose the folder in a dialog", async () => {
+        try {
+          const chosen = (await this.call("/panels/browse", {})).path;
+          if (chosen) { input.value = chosen; input.focus(); }
+        } catch (e) {
+          this.error = String(e.message || e);
+          this.render();
+        }
+      });
+      wrap.append(input, browse, this.button("panel-dir-add-button", "add", "Add this folder to your panel_dirs for this repo", add));
       return wrap;
     },
   };
