@@ -151,3 +151,20 @@ def test_browse_fills_the_box_with_the_chosen_folder_without_adding_it(tmp_path,
 
     asyncio.run(run_page(tmp_path, [], act, server))
     assert seen == {"dirs": 0}
+
+
+@pytest.mark.timeout(60)
+def test_the_list_stays_open_when_the_bar_loses_the_pointer_and_the_focus_as_a_system_dialog_takes_it(tmp_path):
+    server = make(tmp_path)
+    seen = {}
+
+    async def act(page):
+        await open_menu(page)
+        await page.mouse.move(300, 700)
+        await page.evaluate("() => document.activeElement && document.activeElement.blur()")
+        await page.wait_for_timeout(2500)
+        seen["bar_open"] = await page.evaluate("() => document.querySelector('.bar').classList.contains('open')")
+        seen["list_visible"] = await page.is_visible("#panels-list")
+
+    asyncio.run(run_page(tmp_path, [], act, server))
+    assert seen == {"bar_open": False, "list_visible": True}
