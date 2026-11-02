@@ -5,6 +5,14 @@ that has one adds it under Unreleased.
 
 ## Unreleased
 
+### Added
+
+- A `panels` menu in the bar lists every panel you can open, sorted by name: the built-in transcript and release
+  notes, and your saved panels. Each shows where it comes from (built in, yours for this repo, a custom folder, or
+  global) and its folder, with an `open folder` button; a panel hidden by an earlier one of the same name is struck
+  through. The menu also lists the folders searched for saved panels and lets you add or remove one of your own
+  ([#139](https://github.com/NerdoBaggins/agent-orb/issues/139)).
+
 ## 0.5.0 — 2026-10-31
 
 ### Added
