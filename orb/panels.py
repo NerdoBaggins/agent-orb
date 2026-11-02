@@ -158,6 +158,11 @@ def menu(repo_root: Path, home: Path) -> tuple[list[MenuEntry], list[str]]:
     return sorted(entries, key=lambda e: (e.title.lower(), e.name)), problems
 
 
+def default_dirs(repo_root: Path, home: Path) -> list[tuple[str, Path]]:
+    """The two folders searched whatever `panel_dirs` says: the user's for this repo, and the user's for every repo."""
+    return [(scope, path) for scope, path in panel_dirs(repo_root, home) if scope != "custom"]
+
+
 @dataclass
 class DirEntry:
     path: str

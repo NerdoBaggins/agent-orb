@@ -319,7 +319,8 @@ show.
   an earlier folder's panel of the same name; a shadowed entry is listed but cannot be shown. Picking an entry shows
   the panel as `orb panel show <name>` does, or closes it when it is open. `POST /panels/reveal` opens a listed panel's
   folder, or a listed `panel_dirs` folder, in the file manager; no other path is accepted.
-- **The panel-folders editor.** The same menu lists the `panel_dirs` in force with whether each exists and whether the
+- **The panel-folders editor.** The same menu first names the two folders always searched (`defaults`: the user's for this
+  repo and the global one, with whether each exists; `POST /panels/reveal` opens one that exists), then lists the `panel_dirs` in force with whether each exists and whether the
   user's file for this repo owns it. `POST /panels/dirs` with `add` appends a folder to that file and with `remove`
   drops one the file owns; an added folder must be absolute or start `~/`, exist, and not already be searched. The
   file's other keys are kept. These endpoints take the token, which a panel's sandboxed page does not hold, so a panel

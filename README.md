@@ -334,8 +334,8 @@ folders in [Where your things live](#where-your-things-live). A saved panel relo
 and every saved panel. Each row shows where it comes from (built in, yours for this repo, a custom folder from
 `panel_dirs`, or global) and its folder on hover, and `open folder` shows it in your file manager. Click a row to
 show the panel, or to close it if it is open. A panel with the same name as one earlier in the search order is listed
-struck through: showing that name opens the earlier one. Under the list, the menu shows the `panel_dirs` folders and
-adds or removes one in your file for this repo (`~/.config/orb/repos/<repo id>/config.json`); a folder set in another
+struck through: showing that name opens the earlier one. Under the list, the menu names the two folders always searched (yours for this repo and the global one), then the
+extra `panel_dirs` folders, and in your file for this repo (`~/.config/orb/repos/<repo id>/config.json`); a folder set in another
 of your config files is shown but can only be removed there. Type or paste the full path: a web page cannot learn the
 path from a folder picker. Only the orb's own window can change these folders, since they decide which code the orb
 loads: a panel's page holds no token for it.

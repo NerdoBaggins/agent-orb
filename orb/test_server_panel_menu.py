@@ -136,3 +136,31 @@ def test_reveal_opens_a_listed_panels_folder_or_listed_dir_and_refuses_any_other
                 assert (await post(refused)).status == 400, refused
         assert opened == [folder, listed_dir]
     run(go())
+
+
+def test_the_list_names_the_two_folders_always_searched_and_whether_each_exists(tmp_path):
+    async def go():
+        server = make(tmp_path)
+        (server.home / ".config" / "orb" / "panels").mkdir(parents=True)
+        async with await client_for(server) as c:
+            body = await (await listed(c)).json()
+        assert [(d["scope"], d["exists"]) for d in body["defaults"]] == [("mine", False), ("user", True)]
+        assert body["defaults"][0]["path"] == str(private_root(server.home, server.repo_root) / "panels")
+        assert body["dirs"] == []
+    run(go())
+
+
+def test_reveal_opens_an_existing_default_folder_and_refuses_one_that_is_not_made_yet(tmp_path, monkeypatch):
+    async def go():
+        server = make(tmp_path)
+        opened = []
+        monkeypatch.setattr(panels, "reveal", opened.append)
+        user_folder = server.home / ".config" / "orb" / "panels"
+        user_folder.mkdir(parents=True)
+        mine_folder = private_root(server.home, server.repo_root) / "panels"
+        async with await client_for(server) as c:
+            post = lambda body: c.post("/panels/reveal", params={"token": TOKEN}, json=body)
+            assert (await post({"dir": str(user_folder)})).status == 200
+            assert (await post({"dir": str(mine_folder)})).status == 400
+        assert opened == [user_folder]
+    run(go())
