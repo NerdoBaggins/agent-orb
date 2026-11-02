@@ -246,6 +246,7 @@ class OrbServer:
         self.app.router.add_get("/panels", self.panels_list)
         self.app.router.add_post("/panels/dirs", self.panels_dirs)
         self.app.router.add_post("/panels/reveal", self.panels_reveal)
+        self.app.router.add_post("/panels/browse", self.panels_browse)
         self.app.router.add_post("/panel", self.panel_show)
         self.app.router.add_post("/panel/close", self.panel_close)
         self.app.router.add_post("/widget", self.widget_endpoint)
@@ -358,6 +359,14 @@ class OrbServer:
             raise web.HTTPBadRequest(text="no such panel folder")
         await asyncio.to_thread(panels.reveal, path)
         return web.json_response({"ok": True})
+
+    async def panels_browse(self, request: web.Request) -> web.Response:
+        """Opens the system's folder dialog on this machine and answers with the folder chosen (null when cancelled);
+        the page then fills its box with it. Nothing is added until the user adds it."""
+        try:
+            return web.json_response({"path": await asyncio.to_thread(panels.browse_folder)})
+        except pages.PageError as e:
+            raise web.HTTPBadRequest(text=str(e))
 
     async def panel_show(self, request: web.Request) -> web.Response:
         """Shows a page from the files posted, or a saved panel named by `saved`, which the server reads from its own
