@@ -132,3 +132,22 @@ def test_the_list_names_the_two_default_folders_and_what_the_extra_folders_are_f
     assert seen["heads"] == ["Where saved panels are found", "Extra panel folders"]
     assert seen["labels"] == ["Yours, this repo", "Global"]
     assert "another folder" in seen["hint"]
+
+
+@pytest.mark.timeout(60)
+def test_browse_fills_the_box_with_the_chosen_folder_without_adding_it(tmp_path, monkeypatch):
+    from orb import panels
+    server = make(tmp_path)
+    chosen = tmp_path / "picked"
+    chosen.mkdir()
+    monkeypatch.setattr(panels, "browse_folder", lambda: str(chosen))
+    seen = {}
+
+    async def act(page):
+        await open_menu(page)
+        await page.click("#panels-list .panel-dir-browse")
+        await page.wait_for_function("(v) => document.querySelector('#panels-list .panel-dir-add input').value === v", arg=str(chosen))
+        seen["dirs"] = await page.evaluate("() => document.querySelectorAll('#panels-list .panel-dir-remove').length")
+
+    asyncio.run(run_page(tmp_path, [], act, server))
+    assert seen == {"dirs": 0}
