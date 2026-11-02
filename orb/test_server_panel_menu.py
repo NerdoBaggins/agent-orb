@@ -30,7 +30,7 @@ def test_the_list_has_the_built_in_panels_and_every_saved_one_sorted_by_title_wi
         async with await client_for(server) as c:
             body = await (await listed(c)).json()
         assert [(p["name"], p["scope"]) for p in body["panels"]] == [
-            ("alpha", "mine"), ("releases", "built-in"), ("transcript", "built-in"), ("zed", "user")]
+            ("alpha", "mine"), ("releases", "built-in"), ("settings", "built-in"), ("transcript", "built-in"), ("zed", "user")]
         assert body["problems"] == []
     run(go())
 
