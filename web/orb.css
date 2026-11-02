@@ -195,6 +195,7 @@ body.bar-on-orb #tabs { padding-right: 8px; } /* the pill sits on the orb's side
    is dropped, so no edge of either shows around the other. */
 .bar:has(#panels-list:not([hidden])) { opacity: 1; background: none; border-color: transparent; box-shadow: none; }
 .bar:has(#panels-list:not([hidden])) > :not(.bar-panels-wrap) { visibility: hidden; }
+.bar:has(#panels-list:not([hidden])) > .bar-panels-wrap { display: flex; }
 #panels-list {
   position: absolute; top: 0; right: 0; z-index: 30; width: min(600px, calc(100vw - 24px)); max-height: calc(100vh - 24px); overflow-y: auto;
   background-color: #000; background-image: linear-gradient(var(--orb-surface), var(--orb-surface));
