@@ -325,6 +325,7 @@ show.
   drops one the file owns; an added folder must be absolute or start `~/`, exist, and not already be searched. The
   file's other keys are kept. These endpoints take the token, which a panel's sandboxed page does not hold, so a panel
   cannot change where the orb loads panels from.
+  `POST /panels/browse` opens the system's folder dialog on the machine the server runs on (PowerShell's `FolderBrowserDialog` on Windows, `osascript` on macOS, `zenity` or `kdialog` elsewhere) and answers with the folder chosen, `null` when cancelled, or 400 when the machine has no dialog; it adds nothing, the user adds the folder.
 - `orb panels list` prints the saved panels with their descriptions. The skill tells the agent
   to check it before writing a new panel for the same job.
 - **A saved panel is shown by name** and the server reads it from its own folder, never from a path in the request.
