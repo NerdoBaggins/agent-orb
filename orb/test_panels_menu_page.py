@@ -34,7 +34,7 @@ def test_the_dropdown_lists_the_built_in_and_saved_panels_sorted_and_picking_one
     async def act(page):
         await open_menu(page)
         seen["titles"] = await titles(page)
-        seen["scopes"] = await page.evaluate("() => [...document.querySelectorAll('#panels-list .panel-scope')].map(n => n.textContent)")
+        seen["scopes"] = await page.evaluate("() => [...document.querySelectorAll('#panels-list .panel-menu-row .panel-scope')].map(n => n.textContent)")
         await page.click("#panels-list .panel-pick:has-text('Apple')")
         await page.wait_for_function("() => window.orbPage.orb.panels.has('alpha')")
         seen["hidden_after_pick"] = await page.evaluate("() => document.getElementById('panels-list').hidden")
@@ -82,9 +82,9 @@ def test_adding_a_folder_lists_its_panels_and_a_bad_folder_shows_the_servers_rea
         await page.click("#panels-list .panel-dir-add-button")
         await page.wait_for_selector("#panels-list .panel-pick:has-text('Chart')")
         seen["after"] = await titles(page)
-        seen["dirs"] = await page.evaluate("() => [...document.querySelectorAll('#panels-list .panel-dir-path')].map(n => n.textContent)")
+        seen["dirs"] = await page.evaluate("() => [...document.querySelectorAll('#panels-list .panel-dir:has(.panel-dir-remove) .panel-dir-path')].map(n => n.textContent)")
         await page.click("#panels-list .panel-dir-remove")
-        await page.wait_for_function("() => !document.querySelector('#panels-list .panel-dir-path')")
+        await page.wait_for_function("() => !document.querySelector('#panels-list .panel-dir-remove')")
         seen["removed"] = await titles(page)
 
     asyncio.run(run_page(tmp_path, [], act, server))
@@ -115,3 +115,20 @@ def test_the_close_button_and_escape_close_the_list_and_the_rest_of_the_bar_is_h
 
     asyncio.run(run_page(tmp_path, [], act, server))
     assert seen == {"voice_hidden_while_open": "hidden", "after_close": True, "reopened": True, "after_escape": True}
+
+
+@pytest.mark.timeout(60)
+def test_the_list_names_the_two_default_folders_and_what_the_extra_folders_are_for(tmp_path):
+    server = make(tmp_path)
+    seen = {}
+
+    async def act(page):
+        await open_menu(page)
+        seen["heads"] = await page.evaluate("() => [...document.querySelectorAll('#panels-list .panel-menu-head')].map(n => n.textContent)")
+        seen["labels"] = await page.evaluate("() => [...document.querySelectorAll('#panels-list .panel-dir:not(:has(.panel-dir-remove)) .panel-scope')].map(n => n.textContent)")
+        seen["hint"] = await page.text_content("#panels-list .panel-menu-hint")
+
+    asyncio.run(run_page(tmp_path, [], act, server))
+    assert seen["heads"] == ["Where saved panels are found", "Extra panel folders"]
+    assert seen["labels"] == ["Yours, this repo", "Global"]
+    assert "another folder" in seen["hint"]
