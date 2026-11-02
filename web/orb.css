@@ -41,9 +41,10 @@ body {
   gap: 8px; padding: 8px 12px; border-radius: 12px;
 }
 .bar > .bar-title, .bar > .bar-repo, .bar > .bar-link.ok, .bar > .bar-engines, .bar > .bar-btn, .bar > .bar-speed,
-.bar > .bar-size, .bar > .bar-options { display: none; }
+.bar > .bar-size, .bar > .bar-options, .bar > .bar-panels-wrap { display: none; }
 .bar.open > .bar-title, .bar.open > .bar-repo, .bar.open > .bar-link.ok, .bar.open > .bar-engines,
 .bar.open > .bar-btn, .bar.open > .bar-speed, .bar.open > .bar-size, .bar.open > .bar-options:not([hidden]),
+.bar.open > .bar-panels-wrap, .bar:focus-within > .bar-panels-wrap,
 .bar:focus-within > .bar-title, .bar:focus-within > .bar-repo, .bar:focus-within > .bar-link.ok,
 .bar:focus-within > .bar-engines, .bar:focus-within > .bar-btn, .bar:focus-within > .bar-speed, .bar:focus-within > .bar-size,
 .bar:focus-within > .bar-options:not([hidden]), .bar > #voice-toggle.on { display: flex; }
@@ -188,6 +189,32 @@ body.bar-on-orb #tabs { padding-right: 8px; } /* the pill sits on the orb's side
 .widget-row.missing { color: var(--orb-dim); }
 .widget-tick { color: var(--orb-accent); }
 .widget-scope { color: var(--orb-dim); }
+.bar-panels-wrap { position: relative; }
+#bar-panels.on { color: var(--orb-fg); }
+#panels-list {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 20; min-width: 300px; max-width: 460px; max-height: 70vh; overflow-y: auto;
+  background: var(--orb-surface); border: 1px solid var(--orb-line); border-radius: 6px; padding: 6px 0;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); font-size: 12px;
+}
+#panels-list[hidden] { display: none; }
+.panel-menu-row { display: grid; grid-template-columns: 1fr auto; align-items: center; }
+.panel-pick {
+  display: grid; grid-template-columns: 16px 1fr auto; gap: 10px; align-items: center; padding: 5px 12px;
+  font: inherit; color: var(--orb-fg); background: none; border: 0; width: 100%; text-align: left; cursor: pointer;
+}
+.panel-pick:hover, .panel-folder:hover, .panel-dir-remove:hover { background: color-mix(in srgb, var(--orb-accent) 12%, transparent); }
+.panel-menu-row.shadowed .panel-pick { color: var(--orb-dim); text-decoration: line-through; cursor: default; }
+.panel-tick { color: var(--orb-accent); }
+.panel-scope { color: var(--orb-dim); }
+.panel-folder, .panel-dir-remove { font: inherit; color: var(--orb-dim); background: none; border: 0; padding: 5px 10px; cursor: pointer; }
+.panel-menu-head { padding: 8px 12px 4px; color: var(--orb-dim); border-top: 1px solid var(--orb-line); margin-top: 4px; }
+.panel-dir { display: grid; grid-template-columns: 1fr auto; align-items: center; padding: 0 0 0 12px; }
+.panel-dir-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--orb-fg); cursor: pointer; }
+.panel-dir-note { color: var(--orb-warn); margin-right: 6px; }
+.panel-dir-add { display: grid; grid-template-columns: 1fr auto; gap: 6px; padding: 4px 12px; }
+.panel-dir-add input { font: inherit; color: var(--orb-fg); background: var(--orb-bg); border: 1px solid var(--orb-line); border-radius: 4px; padding: 3px 6px; min-width: 0; }
+.panel-dir-add button { font: inherit; color: var(--orb-fg); background: none; border: 1px solid var(--orb-line); border-radius: 4px; padding: 3px 10px; cursor: pointer; }
+.panel-menu-error, .panel-menu-problem { padding: 2px 12px; color: var(--orb-warn); }
 #widgets { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
 .widget { position: absolute; pointer-events: auto; display: flex; flex-direction: column; border: 1px solid var(--orb-line); border-radius: 6px;
   background: var(--orb-bg); overflow: hidden; }
