@@ -11,9 +11,10 @@ that has one adds it under Unreleased.
   settings, and your saved panels. Each shows where it comes from (built in, yours for this repo, a custom folder, or
   global) and its folder, with an `open folder` button; a panel hidden by an earlier one of the same name is struck
   through ([#139](https://github.com/NerdoBaggins/agent-orb/issues/139)).
-- A `settings` panel, opened from a bar button or the panels menu, for what you set once. It starts with the panel
-  folders: the two always searched, and extra folders you add or remove, by typing the path or choosing it with
-  `browse…`, which opens the system's folder dialog
+- A `settings` panel, opened from a bar button or the panels menu, for what you set once. It starts with collapsible
+  sections for the panel, skin, theme and widget folders: each shows the extra folders you added and the two always
+  searched, adds one by typing the path or choosing it with `Browse…` (the system's folder dialog), and removes one with
+  an `Undo`; a section with a missing folder opens itself, and which sections you leave open are remembered
   ([#139](https://github.com/NerdoBaggins/agent-orb/issues/139)).
 
 ## 0.5.0 — 2026-10-31
