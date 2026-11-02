@@ -336,14 +336,17 @@ from `panel_dirs`, or global) and its folder on hover, and `open folder` shows i
 show the panel, or to close it if it is open. A panel with the same name as one earlier in the search order is listed
 struck through: showing that name opens the earlier one.
 
-**The `settings` panel** (the bar's `settings` button) is for what you set once, not what you pick quickly. For now it
-holds the panel folders: it names the two folders always searched (yours for this repo and the global one), then your
-extra `panel_dirs` folders, and adds or removes one in your file for this repo
-(`~/.config/orb/repos/<repo id>/config.json`). A folder set in another of your config files is shown but can only be
-removed there. Type or paste the full path, or press `browse…` to choose it in the system's folder dialog (a web page
-cannot learn the path from a folder picker, so the orb's server opens the dialog on your machine and hands the path
-back). Only the orb's own window can change these folders, since they decide which code the orb loads: a panel's page
-holds no token for it.
+**The `settings` panel** (the bar's `settings` button) is for what you set once, not what you pick quickly. It is a
+list of collapsible sections, which for now are the folders the orb searches: panel, skin, theme and widget folders.
+Each section starts closed with a summary on its header (`2 extra · 1 missing`), except one with a missing folder, which
+starts open; the sections you leave open are remembered, and `open all` or `close all` does every one. A section lists
+your extra folders first and adds or removes one in your file for this repo
+(`~/.config/orb/repos/<repo id>/config.json`), then the two folders always searched. Type or paste the full path, or
+press `Browse…` to choose it in the system's folder dialog (a web page cannot learn the path from a folder picker, so the
+orb's server opens the dialog on your machine and hands the path back); nothing is added until you press `Add`. `remove`
+keeps the row for an `Undo`. A folder set in another of your config files is shown but can only be removed there. Only
+the orb's own window can change these folders, since they decide which code the orb loads: a panel's page holds no token
+for it.
 
 ### Feeds and actions
 
