@@ -6,7 +6,7 @@ from aiohttp import ClientSession
 
 from orb.test_bar_page import open_bar
 from orb.test_panel_bridge import run_page
-from orb.test_server import TOKEN, make
+from orb.test_server import TOKEN, make, wait_for
 
 pytestmark = pytest.mark.browser
 
@@ -36,13 +36,6 @@ def visible(page):
 
 def sent(server):
     return [text for text, _ in server.link.sent]
-
-
-async def state_when(server, settled, timeout=5.0):
-    deadline = asyncio.get_running_loop().time() + timeout
-    while not settled(server.state) and asyncio.get_running_loop().time() < deadline:
-        await asyncio.sleep(0.02)
-    return server.state
 
 
 @pytest.mark.timeout(60)
@@ -239,11 +232,13 @@ def test_releasing_the_talk_key_after_enter_opened_the_box_stops_listening(tmp_p
 
     async def act(page):
         await page.keyboard.down("Space")
-        seen["held"] = await state_when(server, lambda state: state == "listening")
+        await wait_for(lambda: server.state == "listening", timeout=5)
+        seen["held"] = server.state
         await page.keyboard.press("Enter")
         seen["open"] = await visible(page)
         await page.keyboard.up("Space")
-        seen["released"] = await state_when(server, lambda state: state != "listening")
+        await wait_for(lambda: server.state != "listening", timeout=5)
+        seen["released"] = server.state
 
     asyncio.run(run_page(tmp_path, [], act, server))
     assert seen["held"] == "listening"
@@ -265,7 +260,8 @@ def test_a_finished_key_press_does_not_release_a_later_mic_button_hold(tmp_path)
         mic = await page.locator("#mic").bounding_box()
         await page.mouse.move(mic["x"] + mic["width"] / 2, mic["y"] + mic["height"] / 2)
         await page.mouse.down()
-        seen["held"] = await state_when(server, lambda state: state == "listening")
+        await wait_for(lambda: server.state == "listening", timeout=5)
+        seen["held"] = server.state
         await page.keyboard.press("Space")
         await page.wait_for_timeout(300)
         seen["after"] = server.state
@@ -285,9 +281,11 @@ def test_releasing_the_talk_key_after_enter_opened_the_box_while_the_mic_opened_
         await page.evaluate(SLOW_MIC)
         await page.keyboard.down("Space")
         await page.keyboard.press("Enter")
-        seen["held"] = await state_when(server, lambda state: state == "listening")
+        await wait_for(lambda: server.state == "listening", timeout=5)
+        seen["held"] = server.state
         await page.keyboard.up("Space")
-        seen["released"] = await state_when(server, lambda state: state != "listening")
+        await wait_for(lambda: server.state != "listening", timeout=5)
+        seen["released"] = server.state
 
     asyncio.run(run_page(tmp_path, [], act, server))
     assert seen["held"] == "listening"
@@ -303,10 +301,12 @@ def test_releasing_the_talk_key_after_clicking_into_the_box_stops_listening(tmp_
         await page.keyboard.press("Enter")
         await page.evaluate("document.getElementById('typed').blur()")
         await page.keyboard.down("Space")
-        seen["held"] = await state_when(server, lambda state: state == "listening")
+        await wait_for(lambda: server.state == "listening", timeout=5)
+        seen["held"] = server.state
         await page.locator(FIELD).click()
         await page.keyboard.up("Space")
-        seen["released"] = await state_when(server, lambda state: state != "listening")
+        await wait_for(lambda: server.state != "listening", timeout=5)
+        seen["released"] = server.state
 
     asyncio.run(run_page(tmp_path, [], act, server))
     assert seen["held"] == "listening"
@@ -343,7 +343,8 @@ def test_a_key_up_lost_to_a_window_blur_does_not_release_a_later_mic_button_hold
         mic = await page.locator("#mic").bounding_box()
         await page.mouse.move(mic["x"] + mic["width"] / 2, mic["y"] + mic["height"] / 2)
         await page.mouse.down()
-        seen["held"] = await state_when(server, lambda state: state == "listening")
+        await wait_for(lambda: server.state == "listening", timeout=5)
+        seen["held"] = server.state
         await page.keyboard.press("Space")
         await page.wait_for_timeout(300)
         seen["after"] = server.state
