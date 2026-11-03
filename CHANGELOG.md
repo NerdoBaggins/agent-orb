@@ -30,7 +30,7 @@ that has one adds it under Unreleased.
 
 ### Fixed
 
-- The orb skill now says `.orb-speaker` draws its own speaker icon, so a panel an agent writes no longer shows two
+- The orb skill now says an `.orb-speaker` button holds a word and never an icon, so a panel an agent writes no longer shows two
   speakers on a button ([#153](https://github.com/NerdoBaggins/agent-orb/issues/153)).
 
 ## 0.5.0 — 2026-10-31
