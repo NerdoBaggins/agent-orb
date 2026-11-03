@@ -191,8 +191,6 @@ body.bar-on-orb #tabs { padding-right: 8px; } /* the pill sits on the orb's side
 .widget-scope { color: var(--orb-dim); }
 .bar-panels-wrap { position: static; }
 #bar-panels.on { color: var(--orb-fg); }
-/* While the list is open it stands in for the bar: every other control is hidden under it, and the bar's own box
-   is dropped, so no edge of either shows around the other. */
 .bar:has(#panels-list:not([hidden])) { opacity: 1; background: none; border-color: transparent; box-shadow: none; }
 .bar:has(#panels-list:not([hidden])) > :not(.bar-panels-wrap) { visibility: hidden; }
 .bar:has(#panels-list:not([hidden])) > .bar-panels-wrap { display: flex; }
