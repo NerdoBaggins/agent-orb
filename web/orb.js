@@ -203,7 +203,7 @@
     panelsBridge.broadcastState(state);
     transcriptUi.saying = state === "speaking" ? said || null : null;
     transcriptUi.syncSpeakers();
-    releasesUi.settle();
+    explainer.settle();
   }
 
   // ---- socket ----
@@ -326,16 +326,16 @@
       case "reply":
         transcriptUi.answer(m.req, m.text, "answered");
         panelsBridge.resolve(m.ref, m.text);
-        releasesUi.replied(m.ref);
+        explainer.replied(m.ref);
         break;
       case "interrupted":
         transcriptUi.answer(m.req, null, "interrupted");
         panelsBridge.reject(m.ref, "interrupted");
-        releasesUi.ended(m.ref);
+        explainer.ended(m.ref);
         break;
       case "notice":
         notice(m.text, m.level === "error" ? "error" : "info", true);
-        if (m.ref) { panelsBridge.reject(m.ref, m.text); releasesUi.ended(m.ref); typedBox.restore(m.ref); }
+        if (m.ref) { panelsBridge.reject(m.ref, m.text); explainer.ended(m.ref); typedBox.restore(m.ref); }
         break;
       case "speak_start":
         player.start();
@@ -987,10 +987,25 @@
       this.all = all;
       top.append(this.element("h1", "settings-title", "Settings"), all);
       const group = this.element("section", "settings-group");
-      group.append(this.element("h2", "settings-group-title", "Folders"));
+      group.append(this.element("h2", "settings-group-title", "Folders"), this.defaultsBlock());
       for (const def of FOLDER_SECTIONS) group.append(this.buildSection(def));
       box.replaceChildren(top, group);
       for (const def of FOLDER_SECTIONS) this.setOpen(def.kind, this.open.has(def.kind), false);
+    },
+    defaultsBlock() {
+      const box = this.element("div", "settings-defaults");
+      const rows = [
+        ["Every repo", "A folder for each kind in .config/orb in your home folder, such as .config/orb/skins. Whatever is in it shows in every repo on this machine."],
+        ["Just this repo", "Panels and widgets only: a private folder for this repo, kept next to the one above under .config/orb/repos."],
+        ["Built in", "Skins and themes only: the ones that come with the orb and update with it."],
+      ];
+      const title = this.element("h3", "settings-sub", "Default folders");
+      title.append(explainer.button("settings", "defaults", "In the orb's Settings page, explain the default folders block to me aloud in a few sentences: which folders the orb always searches for panels, widgets, skins and themes, and why I never need to add them. Plain language, no file paths read out."));
+      box.append(title, this.element("p", "settings-sec-purpose", "The orb always searches these, whatever you add below. You never need to add them."));
+      const list = this.element("dl", "settings-defaults-list");
+      for (const [name, text] of rows) list.append(this.element("dt", "", name), this.element("dd", "", text));
+      box.append(list);
+      return box;
     },
     buildSection(def) {
       const id = `sec-${def.kind}`;
@@ -1005,13 +1020,14 @@
       const summary = this.element("span", "settings-sec-summary");
       toggle.append(name, summary);
       toggle.addEventListener("click", () => this.setOpen(def.kind, !this.open.has(def.kind), true));
-      head.append(toggle);
+      head.append(toggle, explainer.button("settings", def.kind, def.ask));
       const body = this.element("div", "settings-sec-body");
       body.id = `${id}-body`;
       body.setAttribute("role", "region");
       body.setAttribute("aria-labelledby", name.id);
       const list = this.element("ul", "dir-list");
-      const defaults = this.element("ul", "dir-list defaults");
+      const defaults = this.element("p", "dir-defaults");
+      const openUser = uiButton("dir-open-user", "Open the every-repo folder", `Open the every-repo ${def.noun} folder in the file manager`, () => this.reveal(def, this.userFolder(def.kind)));
       const msg = this.element("p", "dir-msg");
       msg.id = `${id}-msg`;
       msg.setAttribute("aria-live", "polite");
@@ -1035,11 +1051,11 @@
       adder.append(input, browse, add);
       body.append(
         this.element("p", "settings-sec-purpose", def.purpose),
-        this.element("h4", "settings-sub", "Your folders"), list, adder, msg,
-        this.element("h4", "settings-sub", "Always searched"), defaults,
+        this.element("h4", "settings-sub", "Folders you added"), list, adder, msg,
+        defaults, openUser,
       );
       sec.append(head, body);
-      this.sections[def.kind] = { sec, toggle, summary, body, list, defaults, msg, input };
+      this.sections[def.kind] = { sec, toggle, summary, body, list, defaults, openUser, msg, input };
       return sec;
     },
     setOpen(kind, open, persist) {
@@ -1066,9 +1082,10 @@
     },
     pathNode(row, tag) {
       const node = this.element(tag, "dir-path");
-      pathPieces(row.path).forEach((piece, i) => {
+      const pieces = pathPieces(row.path);
+      pieces.forEach((piece, i) => {
         if (i) node.append(document.createElement("wbr"));
-        node.append(piece);
+        node.append(i === pieces.length - 1 ? piece : this.element("span", "dir-parent", piece));
       });
       return node;
     },
@@ -1086,9 +1103,10 @@
       const rows = state.dirs.map((dir) => this.extraItem(def, dir));
       const gone = this.removed[def.kind];
       if (gone) rows.push(this.removedItem(def, gone.folder));
-      if (!rows.length) rows.push(this.element("li", "dir-empty", `No extra folders. Add one below to use ${def.noun} kept elsewhere, such as in OneDrive.`));
+      if (!rows.length) rows.push(this.element("li", "dir-empty", `No added folders. Add one below to use ${def.noun} kept elsewhere.`));
       s.list.replaceChildren(...rows);
-      s.defaults.replaceChildren(...state.defaults.map((dir) => this.defaultItem(def, dir)));
+      s.defaults.textContent = defaultsSummary(state.defaults);
+      s.openUser.hidden = !this.userFolder(def.kind);
       const m = this.messages[def.kind];
       if (m) this.setMessage(def.kind, m.text, m.level);
     },
@@ -1100,7 +1118,7 @@
       const path = this.pathNode(row, row.openable ? "button" : "span");
       if (row.openable) {
         path.type = "button";
-        path.title = "Open this folder";
+        path.setAttribute("aria-label", `Open ${dir.path} in the file manager`);
         path.addEventListener("click", () => this.reveal(def, dir.path));
       } else {
         path.title = row.resolved;
@@ -1108,7 +1126,7 @@
       const chips = this.element("span", "dir-chips");
       for (const c of row.chips) chips.append(this.chip(c));
       main.append(path, chips);
-      if (!dir.exists) main.append(this.element("span", "dir-note", "Nothing is found here until this folder exists."));
+      for (const note of row.notes) main.append(this.element("span", "dir-note", note));
       li.append(main);
       if (row.removable) li.append(uiButton("dir-remove", "remove", `Stop searching ${dir.path}`, () => this.remove(def, dir.path)));
       li.querySelector(".dir-remove")?.setAttribute("aria-label", `Stop searching ${dir.path}`);
@@ -1122,21 +1140,9 @@
       li.append(main, uiButton("dir-undo", "Undo", `Add ${path} back`, () => this.undo(def, path)));
       return li;
     },
-    defaultItem(def, dir) {
-      const row = defaultRow(dir);
-      const li = this.element("li", "dir-row default");
-      const main = this.element("div", "dir-main");
-      const path = this.pathNode(row, row.openable ? "button" : "span");
-      if (row.openable) {
-        path.type = "button";
-        path.title = "Open this folder";
-        path.addEventListener("click", () => this.reveal(def, dir.path));
-      }
-      const chips = this.element("span", "dir-chips");
-      for (const c of row.chips) chips.append(this.chip(c));
-      main.append(this.element("span", "dir-scope", row.label), path, chips);
-      li.append(main);
-      return li;
+    userFolder(kind) {
+      const user = this.states[kind].defaults.find((d) => d.scope === "user");
+      return user && user.exists ? user.path : "";
     },
     async reveal(def, dir) {
       try {
@@ -1412,17 +1418,20 @@
       const label = document.createElement(kind === "release" ? "h3" : "span");
       label.textContent = text;
       element.appendChild(label);
-      if (request) element.appendChild(this.explainButton(id, request));
+      if (request) element.appendChild(explainer.button("releases", id, request));
       return element;
     },
+  };
+
+  const explainer = {
     explaining: null,
     seq: 0,
-    explainButton(id, request) {
+    button(page, id, request) {
       const button = document.createElement("button");
       button.type = "button";
       button.className = "rn-explain tr-say";
-      button.dataset.id = id;
-      button.addEventListener("click", () => this.toggle(id, request));
+      button.dataset.id = `${page}:${id}`;
+      button.addEventListener("click", () => this.toggle(page, button.dataset.id, request));
       this.show(button);
       return button;
     },
@@ -1433,15 +1442,15 @@
       button.setAttribute("aria-label", mine ? "Stop explaining" : "Explain this aloud");
     },
     syncButtons() {
-      for (const button of document.querySelectorAll("#builtin-releases .rn-explain")) this.show(button);
+      for (const button of document.querySelectorAll("#builtin-releases .rn-explain, #builtin-settings .rn-explain")) this.show(button);
     },
-    toggle(id, request) {
+    toggle(page, id, request) {
       if (this.explaining) {
         stopNow();
       } else {
-        this.explaining = { id, ref: `releases:${++this.seq}`, replied: false };
+        this.explaining = { id, ref: `${page}:${++this.seq}`, replied: false };
         send({
-          type: "ask", text: request, speak: true, ref: this.explaining.ref, kind: "panel", page: "releases",
+          type: "ask", text: request, speak: true, ref: this.explaining.ref, kind: "panel", page,
           active: !!(navigator.userActivation && navigator.userActivation.isActive),
         });
       }

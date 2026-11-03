@@ -47,7 +47,7 @@ def test_settings_has_one_collapsed_section_per_folder_kind_sorted_by_name_and_e
 
     asyncio.run(run_page(tmp_path, [], act, server))
     assert seen["names"] == ["Panel folders", "Skin folders", "Theme folders", "Widget folders"]
-    assert seen["summaries"] == ["· defaults only"] * 4
+    assert seen["summaries"] == ["· no added folders"] * 4
     assert seen["start"] == ["false"] * 4 and seen["body_visible_at_start"] is False
     assert seen["after_open"] == ("true", True)
     assert seen["after_close"] == ("false", False)
@@ -107,27 +107,48 @@ def test_a_section_with_a_missing_folder_starts_open_and_says_so_while_the_other
 
     asyncio.run(run_page(tmp_path, [], act, server))
     assert seen["expanded"] == ["false", "true", "false", "false"]
-    assert seen["summary"] == "· 1 extra · 1 missing"
-    assert seen["missing_part"].strip() == "· 1 missing"
-    assert seen["chip"] == "missing" and "until this folder exists" in seen["note"]
+    assert seen["summary"] == "· 1 added folder · 1 not found"
+    assert seen["missing_part"].strip() == "· 1 not found"
+    assert seen["chip"] == "Folder not found" and "isn't on disk right now" in seen["note"]
 
 
 @pytest.mark.timeout(60)
-def test_each_section_names_its_always_searched_folders_by_who_they_are_for(tmp_path):
+def test_the_defaults_are_explained_once_and_each_section_only_says_which_apply(tmp_path):
     server = make(tmp_path)
     seen = {}
 
     async def act(page):
         await open_settings(page)
         await page.click("#builtin-settings .settings-toggle-all")
+        seen["block"] = await page.text_content("#builtin-settings .settings-defaults")
+        seen["blocks"] = await page.locator("#builtin-settings .settings-defaults").count()
         for kind in ("panel", "skin", "theme", "widget"):
-            seen[kind] = await page.evaluate("(k) => [...document.querySelectorAll(`#builtin-settings .settings-sec[data-kind=${k}] .dir-row.default .dir-scope`)].map(n => n.textContent)", kind)
-        seen["not_yet"] = await page.evaluate("() => [...document.querySelectorAll('#builtin-settings .dir-row.default .dir-chip')].map(n => n.textContent)")
+            seen[kind] = (await page.text_content(section(kind, ".dir-defaults"))).strip()
+        seen["rows"] = await page.locator("#builtin-settings .dir-row.default").count()
 
     asyncio.run(run_page(tmp_path, [], act, server))
-    assert seen["panel"] == seen["widget"] == ["This repo", "All repos"]
-    assert seen["skin"] == seen["theme"] == ["All repos", "Bundled with the orb"]
-    assert seen["not_yet"] == ["not created yet"] * 6
+    assert seen["blocks"] == 1 and "Every repo" in seen["block"] and "Built in" in seen["block"]
+    assert seen["panel"] == seen["widget"] == "Also searched: Just this repo and Every repo (see Default folders above)."
+    assert seen["skin"] == seen["theme"] == "Also searched: Every repo and Built in (see Default folders above)."
+    assert seen["rows"] == 0
+
+
+@pytest.mark.timeout(60)
+def test_each_section_and_the_defaults_block_has_a_speaker_that_asks_the_agent_to_explain_it_aloud(tmp_path):
+    server = make(tmp_path)
+    seen = {}
+
+    async def act(page):
+        await open_settings(page)
+        seen["count"] = await page.locator("#builtin-settings .rn-explain").count()
+        await page.click(section("skin", ".rn-explain"))
+        await page.wait_for_timeout(1000)
+
+    asyncio.run(run_page(tmp_path, [], act, server))
+    assert seen["count"] == 5
+    sent = server.link.sent[0][0]
+    assert sent.startswith('[sent by the orb panel "settings", not spoken]') and "skin folders section" in sent
+    assert server.transcript[0]["speak"] is True
 
 
 @pytest.mark.timeout(90)
@@ -170,9 +191,9 @@ def test_adding_then_removing_then_undoing_a_folder_keeps_focus_and_messages_ins
     assert seen["error_cleared_on_typing"] == ""
     assert seen["ok"] == "Added. Widgets there now appear in the widgets list."
     assert seen["box_after_add"] == ("", "Folder to add to Widget folders")
-    assert seen["summary_after_add"] == "· 1 extra"
+    assert seen["summary_after_add"] == "· 1 added folder"
     assert seen["focus_after_remove"] == "dir-undo"
-    assert seen["summary_after_remove"] == "· defaults only"
+    assert seen["summary_after_remove"] == "· no added folders"
     assert seen["focus_after_undo"] == "dir-remove"
     assert seen["removed_rows_after_undo"] == 0
 
