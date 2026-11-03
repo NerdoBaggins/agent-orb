@@ -118,7 +118,7 @@ def test_a_folder_set_in_another_config_file_is_listed_but_cannot_be_removed_fro
         user_file.write_text(json.dumps({"panel_dirs": [str(other)]}), encoding="utf-8")
         async with await client_for(server) as c:
             body = await (await get_state(c)).json()
-            assert [(d["path"], d["editable"]) for d in body["panel"]["dirs"]] == [(str(other), False)]
+            assert [(d["path"], d["editable"], d["source"]) for d in body["panel"]["dirs"]] == [(str(other), False, "~/.config/orb/config.json")]
             assert (await change(c, kind="panel", remove=str(other))).status == 400
         assert json.loads(user_file.read_text(encoding="utf-8")) == {"panel_dirs": [str(other)]}
     run(go())
