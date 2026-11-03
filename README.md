@@ -582,7 +582,7 @@ is loaded.
 
 ```
 uv sync --group dev
-uv run pytest -n auto                    # a test that needs node or Chrome skips without it
+uv run pytest -n auto
 uv run pytest -n auto -m "not browser"
 ```
 
