@@ -112,7 +112,7 @@ uv run --project "<ORB_ROOT>" orb panel show releases
 
 The orb injects the user's theme: a stylesheet of `--orb-*` tokens (`--orb-bg`, `--orb-surface`, `--orb-fg`,
 `--orb-dim`, `--orb-accent`, `--orb-line`, `--orb-edge`, `--orb-ok`, `--orb-warn`, `--orb-err`, `--orb-font`,
-`--orb-display` for headings, `--orb-mono`) and styled `table`, `button`, `.orb-card`, and `.orb-speaker` for a round speaker button that draws its own speaker icon, so its content is a word or nothing and never an icon of your own. Build panels
+`--orb-display` for headings, `--orb-mono`) and styled `table`, `button`, `.orb-card`, and `.orb-speaker` for a round speaker button; its content is a word, never an icon. Build panels
 from those and from the tokens, not from colors and fonts of your own, so a panel looks right in whatever theme the
 user picks. It also gets these functions:
 
