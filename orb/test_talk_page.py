@@ -5,6 +5,8 @@ import pytest
 from orb.test_panel_bridge import run_page
 from orb.test_typed_page import attached
 
+pytestmark = pytest.mark.browser
+
 CONTROLLED_MIC = """(() => {
   const devices = navigator.mediaDevices;
   const open = devices.getUserMedia.bind(devices);

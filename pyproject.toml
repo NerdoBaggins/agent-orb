@@ -26,3 +26,4 @@ packages = ["orb"]
 [tool.pytest.ini_options]
 testpaths = ["orb", "engines", "channel", "copilot"]
 timeout = 60
+markers = ["browser: drives the orb page in a real Chrome; slow, so a fast run leaves it out with -m \"not browser\""]

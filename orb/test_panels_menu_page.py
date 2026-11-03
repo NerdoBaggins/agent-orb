@@ -6,6 +6,8 @@ import pytest
 from orb.test_panel_bridge import run_page
 from orb.test_server import make
 
+pytestmark = pytest.mark.browser
+
 
 def saved(root, name, title):
     folder = root / name

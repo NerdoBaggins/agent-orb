@@ -4,6 +4,8 @@ import pytest
 
 from orb.test_panel_bridge import run_page
 
+pytestmark = pytest.mark.browser
+
 BOX = "(sel) => { const r = document.querySelector(sel).getBoundingClientRect(); return {x: r.x, y: r.y, w: r.width, h: r.height}; }"
 INVISIBLE_BUT_SHOWN = """() => [...document.querySelectorAll('.bar > *')]
   .filter(e => getComputedStyle(e).display !== 'none' && !e.hidden && getComputedStyle(e).opacity === '0')

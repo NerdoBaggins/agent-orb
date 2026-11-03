@@ -4,6 +4,8 @@ import pytest
 
 from orb.test_transcript_speaker import transcript_page
 
+pytestmark = pytest.mark.browser
+
 pytest.importorskip("playwright.async_api")
 
 FEED = [
