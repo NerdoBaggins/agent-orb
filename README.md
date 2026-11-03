@@ -296,11 +296,13 @@ a choice made in one repo stays there.
 | `stt` | `{"engine": "moonshine", "moonshine": {}}` |
 | `tts` | `{"engine": "kokoro", "speed": 1.18, "kokoro": {"voice": {"af_heart": 0.55, "bf_emma": 0.45}, "lang": "en-gb"}}` — `speed` is one number or per agent, `{"claude": 1.1, "copilot": 1.3}` |
 | `wake` | absent (push-to-talk only); see [Wake word](#wake-word) |
-| `panel_dirs` | `[]` — extra folders for saved panels, absolute or `~/…`; they add up across your files, so a folder one file lists stays searched when another lists more; only your own two files may set it |
-| `theme_dirs` | `[]` — extra folders for themes, absolute or `~/…`, searched first; they add up across your files, so a folder one file lists stays searched when another lists more; only your own two files may set it |
-| `skin_dirs` | `[]` — extra folders for skins, absolute or `~/…`, searched first; they add up across your files, so a folder one file lists stays searched when another lists more; only your own two files may set it |
-| `widget_dirs` | `[]` — extra folders for widgets, absolute or `~/…`; they add up across your files, so a folder one file lists stays searched when another lists more; only your own two files may set it |
+| `panel_dirs` | `[]` — extra folders for saved panels, absolute or `~/…`; only your own two files may set it |
+| `theme_dirs` | `[]` — extra folders for themes, absolute or `~/…`, searched first; only your own two files may set it |
+| `skin_dirs` | `[]` — extra folders for skins, absolute or `~/…`, searched first; only your own two files may set it |
+| `widget_dirs` | `[]` — extra folders for widgets, absolute or `~/…`; only your own two files may set it |
 | `widgets` | `{}` — per widget, `{"on": true, "x": 0.02, "y": 0.04, "width": 180, "height": 44}`: whether it shows and where, with `pane_width` and `pane_height` (the orb pane's size when it was placed, written by the orb) so the widget's size scales with the pane afterwards; merges per widget; only your own files may set it |
+
+The four `*_dirs` lists add up across your files: a folder one file lists stays searched when another lists more.
 
 An engine's settings sit in a block under its own name inside `stt` or `tts`, so a layer that says only
 `"tts": {"engine": "voxtral"}` gets the `voxtral` block from the layers beneath it and nothing from `kokoro`'s.
