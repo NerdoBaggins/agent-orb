@@ -7,7 +7,7 @@ that has one adds it under Unreleased.
 
 ### Added
 
-- A `panels` menu in the bar lists every panel you can open, sorted by name: the built-in transcript, release notes and
+- A `panels` menu in the bar lists every panel you can open, sorted by title: the built-in transcript, release notes and
   settings, and your saved panels. Each shows where it comes from (built in, yours for this repo, a custom folder, or
   global) and its folder, with an `open folder` button; a panel hidden by an earlier one of the same name is struck
   through ([#139](https://github.com/NerdoBaggins/agent-orb/issues/139)).
@@ -15,6 +15,15 @@ that has one adds it under Unreleased.
   sections for the panel, skin, theme and widget folders: each shows the extra folders you added and the two always
   searched, adds one by typing the path or choosing it with `Browse…` (the system's folder dialog), and removes one with
   an `Undo`; a section with a missing folder opens itself, and which sections you leave open are remembered
+  ([#139](https://github.com/NerdoBaggins/agent-orb/issues/139)).
+
+### Changed
+
+- `panel_dirs`, `skin_dirs`, `theme_dirs` and `widget_dirs` now add up across your config files: a folder one file
+  lists stays searched when another file lists more, where a later file used to replace an earlier one's list
+  ([#139](https://github.com/NerdoBaggins/agent-orb/issues/139)).
+- `settings` is now a built-in panel name, like `transcript` and `releases`. A saved panel of that name is listed
+  struck through and cannot be shown; rename its folder
   ([#139](https://github.com/NerdoBaggins/agent-orb/issues/139)).
 
 ## 0.5.0 — 2026-10-31
