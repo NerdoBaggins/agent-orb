@@ -582,8 +582,8 @@ is loaded.
 
 ```
 uv sync --group dev
-uv run pytest -n auto                       # everything, in parallel; the channel and panel-API tests need node
-uv run pytest -n auto -m "not browser"      # leaves out the tests that drive the page in Chrome
+uv run pytest -n auto                    # a test that needs node or Chrome skips without it
+uv run pytest -n auto -m "not browser"
 ```
 
 Every plugin test runs in a throwaway repo outside this one with the plugin loaded by `--plugin-dir`; the plugin is
