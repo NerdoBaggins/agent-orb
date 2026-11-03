@@ -860,7 +860,6 @@
     return span;
   }
 
-  // The panels dropdown, for quick choices: every panel you can open, read from disk each time it opens.
   const panelsMenu = {
     data: null,
     error: "",
@@ -933,9 +932,6 @@
     },
   };
 
-  // The settings panel: what is set once rather than chosen quickly. It holds one collapsible section per kind of
-  // folder for now. The frames are built once and only the lists inside them are redrawn, so focus, typed text and
-  // which sections are open survive each action; a message belongs to the section whose action produced it.
   const SETTINGS_OPEN_KEY = "orb-settings-open";
   const settingsUi = {
     states: null,
@@ -1025,10 +1021,7 @@
       input.setAttribute("aria-label", `Folder to add to ${def.name}`);
       input.setAttribute("aria-describedby", msg.id);
       input.addEventListener("input", () => this.setMessage(def.kind, "", ""));
-      input.addEventListener("keydown", (ev) => {
-        ev.stopPropagation();
-        if (ev.key === "Enter") this.add(def, input);
-      });
+      input.addEventListener("keydown", (ev) => { if (ev.key === "Enter") this.add(def, input); });
       const browse = uiButton("dir-browse", "Browse…", `Choose the folder for ${def.name} in a dialog`, async () => {
         try {
           const chosen = (await orbCall("/settings/browse", {})).path;
@@ -1092,7 +1085,7 @@
       if (summary.missingText) s.summary.append(this.element("span", "settings-sec-missing", ` · ${summary.missingText}`));
       const rows = state.dirs.map((dir) => this.extraItem(def, dir));
       const gone = this.removed[def.kind];
-      if (gone) rows.push(this.removedItem(def, gone));
+      if (gone) rows.push(this.removedItem(def, gone.folder));
       if (!rows.length) rows.push(this.element("li", "dir-empty", `No extra folders. Add one below to use ${def.noun} kept elsewhere, such as in OneDrive.`));
       s.list.replaceChildren(...rows);
       s.defaults.replaceChildren(...state.defaults.map((dir) => this.defaultItem(def, dir)));
@@ -1155,8 +1148,11 @@
     async change(def, body) {
       this.setMessage(def.kind, "", "");
       try {
-        this.states = await orbCall("/settings/folders", { kind: def.kind, ...body });
-        panelsMenu.data = null;  // the menu's list may name panels from a folder just removed, or miss ones just added
+        const answer = await orbCall("/settings/folders", { kind: def.kind, ...body });
+        this.removedIndex = answer.removed_index;
+        delete answer.removed_index;
+        this.states = answer;
+        panelsMenu.data = null;
         return true;
       } catch (e) {
         this.setMessage(def.kind, String(e.message || e), "err");
@@ -1175,12 +1171,12 @@
     },
     async remove(def, folder) {
       if (!await this.change(def, { remove: folder })) return;
-      this.removed[def.kind] = folder;
+      this.removed[def.kind] = { folder, index: this.removedIndex };
       this.fill(def);
       this.sections[def.kind].list.querySelector(".dir-undo")?.focus();
     },
     async undo(def, folder) {
-      if (!await this.change(def, { add: folder })) return;
+      if (!await this.change(def, { restore: folder, index: this.removed[def.kind].index })) return;
       this.removed[def.kind] = null;
       this.fill(def);
       for (const li of this.sections[def.kind].list.querySelectorAll(".dir-row")) {
@@ -2021,6 +2017,6 @@
   }
   requestAnimationFrame(frame);
 
-  window.orbPage = { orb, send, player, ptt, panelsUi, widgetsUi, panelsMenu };
+  window.orbPage = { orb, send, player, ptt, panelsUi, widgetsUi };
   connect();
 })();
