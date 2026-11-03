@@ -18,4 +18,4 @@ def test_skill_tells_the_agent_the_class_draws_its_own_icon():
 def test_skill_speaker_buttons_hold_no_icon_of_their_own():
     buttons = re.findall(r'<button class="orb-speaker"[^>]*>(.*?)</button>', SKILL)
     assert buttons
-    assert all(not re.search(r"[☀-➿\U0001F300-\U0001FAFF]|&#\d+;", b) for b in buttons)
+    assert all(re.fullmatch(r"[A-Za-z ]*", b) for b in buttons)
