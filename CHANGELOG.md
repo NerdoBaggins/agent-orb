@@ -28,6 +28,11 @@ that has one adds it under Unreleased.
   struck through and cannot be shown; rename its folder
   ([#139](https://github.com/NerdoBaggins/agent-orb/issues/139)).
 
+### Fixed
+
+- The orb skill now says `.orb-speaker` draws its own speaker icon, so a panel an agent writes no longer shows two
+  speakers on a button ([#153](https://github.com/NerdoBaggins/agent-orb/issues/153)).
+
 ## 0.5.0 — 2026-10-31
 
 ### Added
