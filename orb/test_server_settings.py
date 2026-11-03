@@ -135,19 +135,21 @@ def test_changing_the_skin_or_theme_folders_reaches_the_bars_menus_but_changing_
         original = server.refresh_pickers
 
         async def spy():
-            refreshed.append(list(server.skin_dirs))
+            refreshed.append((list(server.skin_dirs), list(server.theme_dirs)))
             await original()
 
         server.refresh_pickers = spy
-        panel_folder = tmp_path / "panel-extra"
-        panel_folder.mkdir()
+        panel_folder, theme_folder = tmp_path / "panel-extra", tmp_path / "theme-extra"
+        panel_folder.mkdir(), theme_folder.mkdir()
         async with await client_for(server) as c:
             assert (await change(c, kind="panel", add=str(panel_folder))).status == 200
             assert refreshed == []
             assert (await change(c, kind="skin", add=str(extra))).status == 200
-            assert refreshed == [[extra]]
+            assert refreshed == [([extra], [])]
+            assert (await change(c, kind="theme", add=str(theme_folder))).status == 200
+            assert refreshed[-1] == ([extra], [theme_folder])
             assert (await change(c, kind="skin", remove=str(extra))).status == 200
-            assert refreshed[-1] == []
+            assert refreshed[-1] == ([], [theme_folder])
     run(go())
 
 
@@ -199,4 +201,100 @@ def test_browse_reports_a_machine_with_no_dialog_as_a_400_with_the_reason(tmp_pa
         async with await client_for(server) as c:
             r = await c.post("/settings/browse", params={"token": TOKEN}, json={})
             assert r.status == 400 and "type the path" in await r.text()
+    run(go())
+
+
+def test_a_folder_another_config_file_lists_stays_searched_after_the_window_adds_and_removes_its_own(tmp_path):
+    async def go():
+        server = make(tmp_path)
+        other, mine = tmp_path / "from-user-file", tmp_path / "from-window"
+        other.mkdir(), mine.mkdir()
+        user_file = server.home / ".config" / "orb" / "config.json"
+        user_file.parent.mkdir(parents=True, exist_ok=True)
+        user_file.write_text(json.dumps({"panel_dirs": [str(other)]}), encoding="utf-8")
+        async with await client_for(server) as c:
+            added = await (await change(c, kind="panel", add=str(mine))).json()
+            assert [(d["path"], d["editable"]) for d in added["panel"]["dirs"]] == [(str(other), False), (str(mine), True)]
+            removed = await (await change(c, kind="panel", remove=str(mine))).json()
+            assert [(d["path"], d["editable"]) for d in removed["panel"]["dirs"]] == [(str(other), False)]
+    run(go())
+
+
+def test_removing_a_folder_says_where_it_was_and_restoring_puts_it_back_there_even_when_it_no_longer_exists(tmp_path):
+    async def go():
+        server = make(tmp_path)
+        first, gone, last = tmp_path / "first", tmp_path / "gone", tmp_path / "last"
+        first.mkdir(), last.mkdir()
+        own_config(server).parent.mkdir(parents=True, exist_ok=True)
+        own_config(server).write_text(json.dumps({"skin_dirs": [str(first), str(gone), str(last)]}), encoding="utf-8")
+        async with await client_for(server) as c:
+            removed = await (await change(c, kind="skin", remove=str(gone))).json()
+            assert removed["removed_index"] == 1
+            assert [d["path"] for d in removed["skin"]["dirs"]] == [str(first), str(last)]
+            restored = await (await change(c, kind="skin", restore=str(gone), index=1)).json()
+            assert "removed_index" not in restored
+            assert [d["path"] for d in restored["skin"]["dirs"]] == [str(first), str(gone), str(last)]
+            assert [d["exists"] for d in restored["skin"]["dirs"]] == [True, False, True]
+        assert json.loads(own_config(server).read_text(encoding="utf-8"))["skin_dirs"] == [str(first), str(gone), str(last)]
+    run(go())
+
+
+def test_a_restore_that_is_relative_already_listed_or_has_no_whole_index_is_refused(tmp_path):
+    async def go():
+        server = make(tmp_path)
+        here = tmp_path / "here"
+        here.mkdir()
+        own_config(server).parent.mkdir(parents=True, exist_ok=True)
+        own_config(server).write_text(json.dumps({"widget_dirs": [str(here)]}), encoding="utf-8")
+        async with await client_for(server) as c:
+            for bad in [dict(restore="relative/dir", index=0), dict(restore=str(here), index=0), dict(restore=str(tmp_path / "x"), index=-1),
+                        dict(restore=str(tmp_path / "x"), index="0"), dict(restore=str(tmp_path / "x")), dict(restore=str(tmp_path / "x"), index=True)]:
+                assert (await change(c, kind="widget", **bad)).status == 400, bad
+        assert json.loads(own_config(server).read_text(encoding="utf-8"))["widget_dirs"] == [str(here)]
+    run(go())
+
+
+def test_a_folder_named_by_a_path_that_leads_back_to_a_searched_one_is_refused(tmp_path):
+    async def go():
+        server = make(tmp_path)
+        user_folder = server.home / ".config" / "orb" / "panels"
+        user_folder.mkdir(parents=True)
+        roundabout = str(user_folder / ".." / user_folder.name)
+        async with await client_for(server) as c:
+            r = await change(c, kind="panel", add=roundabout)
+            assert r.status == 400 and "already searched" in await r.text()
+    run(go())
+
+
+def test_a_malformed_config_file_answers_400_with_the_reason_instead_of_failing(tmp_path):
+    async def go():
+        server = make(tmp_path)
+        own_config(server).parent.mkdir(parents=True, exist_ok=True)
+        own_config(server).write_text("{ not json", encoding="utf-8")
+        async with await client_for(server) as c:
+            for response in [await get_state(c), await change(c, kind="panel", add=str(tmp_path)),
+                             await change(c, kind="panel", remove=str(tmp_path))]:
+                assert response.status == 400
+    run(go())
+
+
+def test_a_file_manager_that_will_not_open_answers_400_with_the_reason_on_both_reveal_routes(tmp_path, monkeypatch):
+    async def go():
+        server = make(tmp_path)
+        user_folder = server.home / ".config" / "orb" / "widgets"
+        user_folder.mkdir(parents=True)
+        panel_folder = server.home / ".config" / "orb" / "panels" / "chart"
+        panel_folder.mkdir(parents=True)
+        (panel_folder / "index.html").write_text("<p>x</p>", encoding="utf-8")
+        (panel_folder / "panel.json").write_text(json.dumps({"title": "Chart", "description": "d"}), encoding="utf-8")
+
+        def refuse(path):
+            raise folders.PageError("the file manager did not open: no xdg-open")
+
+        monkeypatch.setattr(folders, "reveal", refuse)
+        async with await client_for(server) as c:
+            r = await c.post("/settings/reveal", params={"token": TOKEN}, json={"kind": "widget", "dir": str(user_folder)})
+            assert r.status == 400 and "did not open" in await r.text()
+            r = await c.post("/panels/reveal", params={"token": TOKEN}, json={"name": "chart"})
+            assert r.status == 400 and "did not open" in await r.text()
     run(go())

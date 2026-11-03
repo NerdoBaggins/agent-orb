@@ -17,15 +17,15 @@ def listed(c):
     return c.get("/panels", params={"token": TOKEN})
 
 
-def test_the_list_has_the_built_in_panels_and_every_saved_one_sorted_by_title_without_case(tmp_path):
+def test_the_list_has_the_built_in_panels_and_every_saved_one_sorted_by_title_without_regard_to_case(tmp_path):
     async def go():
         server = make(tmp_path)
-        saved(server.home / ".config" / "orb" / "panels", "zed", title="zebra")
-        saved(private_root(server.home, server.repo_root) / "panels", "alpha", title="Apple")
+        saved(server.home / ".config" / "orb" / "panels", "zed", title="apple")
+        saved(private_root(server.home, server.repo_root) / "panels", "alpha", title="Zebra")
         async with await client_for(server) as c:
             body = await (await listed(c)).json()
         assert [(p["name"], p["scope"]) for p in body["panels"]] == [
-            ("alpha", "mine"), ("releases", "built-in"), ("settings", "built-in"), ("transcript", "built-in"), ("zed", "user")]
+            ("zed", "user"), ("releases", "built-in"), ("settings", "built-in"), ("transcript", "built-in"), ("alpha", "mine")]
         assert body["problems"] == []
         assert "dirs" not in body and "defaults" not in body
     run(go())
@@ -64,4 +64,29 @@ def test_reveal_opens_a_listed_saved_panels_folder_and_refuses_a_built_in_an_unk
             for refused in [{"name": "transcript"}, {"name": "settings"}, {"name": "nope"}, {"dir": str(tmp_path)}, {}]:
                 assert (await post(refused)).status == 400, refused
         assert opened == [folder]
+    run(go())
+
+
+def test_a_saved_panel_named_like_a_built_in_is_listed_struck_through_and_the_built_in_is_not(tmp_path):
+    async def go():
+        server = make(tmp_path)
+        saved(server.home / ".config" / "orb" / "panels", "settings", title="My settings")
+        async with await client_for(server) as c:
+            body = await (await listed(c)).json()
+        by_scope = {p["scope"]: p["shadowed"] for p in body["panels"] if p["name"] == "settings"}
+        assert by_scope == {"built-in": False, "user": True}
+    run(go())
+
+
+def test_a_saved_panels_title_is_cut_at_the_limit_whichever_way_it_is_shown(tmp_path):
+    async def go():
+        server = make(tmp_path)
+        saved(server.home / ".config" / "orb" / "panels", "long", title="x" * 300)
+        async with await client_for(server) as c:
+            r = await c.post("/panel", params={"token": TOKEN}, json={"name": "long", "saved": "long", "title": "y" * 300})
+            assert r.status == 200
+            assert len(server.panels["long"]["title"]) == 200
+            r = await c.post("/panel", params={"token": TOKEN}, json={"name": "long", "saved": "long"})
+            assert r.status == 200
+            assert server.panels["long"]["title"] == "x" * 200
     run(go())
