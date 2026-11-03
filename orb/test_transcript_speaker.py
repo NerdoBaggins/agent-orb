@@ -6,6 +6,8 @@ from aiohttp import ClientSession, web
 from orb.test_panel_bridge import browser
 from orb.test_server import TOKEN, make
 
+pytestmark = pytest.mark.browser
+
 playwright = pytest.importorskip("playwright.async_api")
 
 FEED = [

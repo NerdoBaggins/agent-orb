@@ -8,6 +8,8 @@ from orb.test_panel_bridge import run_page
 from orb.test_server import make, skinned
 from orb.test_server_themes import hud
 
+pytestmark = pytest.mark.browser
+
 
 async def picked(page, select):
     return await page.evaluate("""(select) => {
