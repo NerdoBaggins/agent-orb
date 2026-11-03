@@ -3,7 +3,8 @@ import asyncio
 import pytest
 
 from orb.test_panel_bridge import run_page
-from orb.test_typed_page import attached
+from orb.test_server import wait_for
+from orb.test_typed_page import MIC_OPENS_S, attached
 
 pytestmark = pytest.mark.browser
 
@@ -19,7 +20,11 @@ RECORDING = {"state": "listening", "recording": True, "starts": 1}
 NOT_RECORDING = {"state": "idle", "recording": False, "starts": 0}
 
 
-def state_after(tmp_path, keys):
+def listening(server):
+    return server.state == "listening"
+
+
+def state_after(tmp_path, keys, settled=lambda server: True):
     server = attached(tmp_path)
     seen = {}
     starts = []
@@ -33,6 +38,7 @@ def state_after(tmp_path, keys):
 
     async def act(page):
         await keys(page)
+        await wait_for(lambda: settled(server), timeout=MIC_OPENS_S)
         await page.wait_for_timeout(800)
         seen.update(state=server.state, recording=server.recording is not None, starts=len(starts))
 
@@ -53,7 +59,7 @@ def test_a_hold_on_the_first_use_records(tmp_path):
     async def hold(page):
         await page.keyboard.down("Space")
 
-    assert state_after(tmp_path, hold) == RECORDING
+    assert state_after(tmp_path, hold, listening) == RECORDING
 
 
 @pytest.mark.timeout(60)
@@ -62,7 +68,7 @@ def test_pressing_again_while_the_mic_opens_records_once(tmp_path):
         await page.keyboard.press("Space")
         await page.keyboard.down("Space")
 
-    assert state_after(tmp_path, tap_then_hold) == RECORDING
+    assert state_after(tmp_path, tap_then_hold, listening) == RECORDING
 
 
 @pytest.mark.timeout(60)
@@ -74,7 +80,7 @@ def test_a_failed_open_from_an_earlier_press_does_not_cancel_a_held_key(tmp_path
         await page.keyboard.down("Space")
         await page.evaluate("(async () => { opens[0].reject(new Error('gone')); await tick(); opens[1].resolve(await real()); })()")
 
-    assert state_after(tmp_path, tap_then_hold_through_a_device_change) == RECORDING
+    assert state_after(tmp_path, tap_then_hold_through_a_device_change, listening) == RECORDING
 
 
 @pytest.mark.timeout(60)
@@ -87,7 +93,7 @@ def test_the_mic_button_records_after_a_held_key_failed_to_open_the_mic(tmp_path
         await page.locator("#mic").hover()
         await page.mouse.down()
 
-    assert state_after(tmp_path, hold_through_a_failed_open_then_press_the_mic) == RECORDING
+    assert state_after(tmp_path, hold_through_a_failed_open_then_press_the_mic, listening) == RECORDING
 
 
 @pytest.mark.timeout(60)
