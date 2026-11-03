@@ -1,6 +1,3 @@
-"""The folders the orb searches for each kind of thing a user adds: panels, skins, themes and widgets. Each kind has two
-folders it always searches and any number of extra ones listed in the user's own config (`panel_dirs`, `skin_dirs`, ...).
-The settings panel reads and changes the extras; nothing here touches the always-searched folders."""
 import os
 import shutil
 import subprocess
@@ -9,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from orb import skins, themes
-from orb.config import ConfigError, add_dir, expand_dirs, load_for, own_dirs, remove_dir
+from orb.config import ConfigError, expand_dirs, insert_dir, load_for, own_dirs, remove_dir
 from orb.pages import PageError
 from orb.state import private_root
 
@@ -37,8 +34,6 @@ def kind_named(name) -> Kind:
 
 
 def default_dirs(kind: Kind, repo_root: Path, home: Path) -> list[tuple[str, Path]]:
-    """The two folders searched whatever the config says. Panels and widgets have the user's for this repo and the
-    user's for every repo; skins and themes have the user's for every repo and the ones that come with the orb."""
     user = Path(home) / ".config" / "orb" / kind.plural
     if kind.bundled is None:
         return [("mine", private_root(home, repo_root) / kind.plural), ("user", user)]
@@ -54,7 +49,6 @@ class DirEntry:
 
 
 def extra_dirs(kind: Kind, repo_root: Path, home: Path) -> list[DirEntry]:
-    """The extra folders in force, as written, and which of them the user's file for this repo owns."""
     try:
         listed = load_for(repo_root, home)[kind.key]
     except ConfigError as e:
@@ -63,13 +57,17 @@ def extra_dirs(kind: Kind, repo_root: Path, home: Path) -> list[DirEntry]:
     return [DirEntry(d, p, p.is_dir(), d in own) for d, p in zip(listed, expand_dirs(listed, home))]
 
 
-def checked_new_dir(kind: Kind, raw: str, repo_root: Path, home: Path) -> str:
-    """A folder to add, as it will be written: absolute or `~/…`, an existing folder, not one already searched."""
+def written_form(raw: str) -> str:
     folder = raw.strip()
     if not folder:
         raise PageError("give a folder")
     if not (folder.startswith("~/") or Path(folder).is_absolute()):
         raise PageError(f"{folder} is not absolute; write the full path or one starting ~/")
+    return folder
+
+
+def checked_new_dir(kind: Kind, raw: str, repo_root: Path, home: Path) -> str:
+    folder = written_form(raw)
     path = expand_dirs([folder], home)[0]
     if not path.is_dir():
         raise PageError(f"{path} is not a folder that exists")
@@ -87,28 +85,40 @@ def state(kind: Kind, repo_root: Path, home: Path) -> dict:
 
 
 def add(kind: Kind, raw: str, repo_root: Path, home: Path) -> None:
-    add_dir(kind.key, home, repo_root, checked_new_dir(kind, raw, repo_root, home))
+    insert_dir(kind.key, home, repo_root, checked_new_dir(kind, raw, repo_root, home))
 
 
-def remove(kind: Kind, folder: str, repo_root: Path, home: Path) -> None:
-    if folder not in own_dirs(kind.key, home, repo_root):
+def remove(kind: Kind, folder: str, repo_root: Path, home: Path) -> int:
+    own = own_dirs(kind.key, home, repo_root)
+    if folder not in own:
         raise PageError(f"{folder} is not in your {kind.key} for this repo; another config file sets it")
     remove_dir(kind.key, home, repo_root, folder)
+    return own.index(folder)
+
+
+def restore(kind: Kind, folder: str, index, repo_root: Path, home: Path) -> None:
+    written = written_form(folder)
+    if not isinstance(index, int) or isinstance(index, bool) or index < 0:
+        raise PageError("index must be a whole number, 0 or more")
+    if written in own_dirs(kind.key, home, repo_root):
+        raise PageError(f"{written} is already in your {kind.key} for this repo")
+    insert_dir(kind.key, home, repo_root, written, index)
 
 
 def listed_folder(kind: Kind, written: str, repo_root: Path, home: Path) -> Path | None:
-    """The folder a request names, when it is one this kind lists (an extra as written, or an always-searched one)."""
     candidates = [*((d.path, d.resolved) for d in extra_dirs(kind, repo_root, home)),
                   *((str(p), p) for _, p in default_dirs(kind, repo_root, home))]
     return next((path for named, path in candidates if named == written), None)
 
 
 def reveal(path: Path, run=subprocess.Popen) -> None:
-    """Opens a folder in the system's file manager."""
-    if sys.platform == "win32":
-        os.startfile(path)  # noqa: S606 - a folder the orb listed, never a page-supplied command
-    else:
-        run(["open" if sys.platform == "darwin" else "xdg-open", str(path)])
+    try:
+        if sys.platform == "win32":
+            os.startfile(path)
+        else:
+            run(["open" if sys.platform == "darwin" else "xdg-open", str(path)])
+    except OSError as e:
+        raise PageError(f"the file manager did not open: {e}")
 
 
 WINDOWS_PICKER = """[Console]::OutputEncoding = [Text.Encoding]::UTF8
@@ -121,8 +131,6 @@ $owner.Close()"""
 
 
 def browse_folder(platform: str = sys.platform, run=subprocess.run) -> str | None:
-    """Opens the system's folder dialog on this machine and returns the folder chosen, or None when it is cancelled.
-    A page cannot learn a real path from a folder picker, but the orb's server runs where the user is."""
     if platform == "win32":
         command = ["powershell", "-NoProfile", "-STA", "-Command", WINDOWS_PICKER]
     elif platform == "darwin":

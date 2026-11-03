@@ -379,3 +379,28 @@ def test_the_size_sliders_range_is_the_range_sizes_are_kept_in():
     assert (attribute("min"), attribute("max"), attribute("value")) == (SIZE_MIN, SIZE_MAX, SIZE_NORMAL)
 
 
+
+
+def test_the_folder_lists_add_up_across_layers_in_order_without_repeats_while_other_lists_are_replaced():
+    from orb.config import merge
+    merged = merge({"panel_dirs": ["/a", "/b"], "skin_dirs": ["/s"]}, {"panel_dirs": ["/c", "/a"]})
+    assert merged["panel_dirs"] == ["/a", "/b", "/c"]
+    assert merged["skin_dirs"] == ["/s"]
+    assert merged["theme_dirs"] == [] and merged["widget_dirs"] == []
+
+
+def test_the_folders_the_users_file_lists_are_read_as_written_and_a_file_that_cannot_hold_a_list_lists_none(tmp_path):
+    from orb.config import own_dirs, private_config_path
+    home, repo = tmp_path / "home", tmp_path / "repo"
+    path = private_config_path(home, repo)
+    path.parent.mkdir(parents=True)
+    path.write_text('{"panel_dirs": ["/a", 7, "/b"]}', encoding="utf-8")
+    assert own_dirs("panel_dirs", home, repo) == ["/a", "/b"]
+    path.write_text('{"panel_dirs": "/a"}', encoding="utf-8")
+    assert own_dirs("panel_dirs", home, repo) == []
+    path.write_text("[1, 2]", encoding="utf-8")
+    assert own_dirs("panel_dirs", home, repo) == []
+    path.write_text("{ not json", encoding="utf-8")
+    assert own_dirs("panel_dirs", home, repo) == []
+    path.unlink()
+    assert own_dirs("panel_dirs", home, repo) == []

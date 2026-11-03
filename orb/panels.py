@@ -142,12 +142,10 @@ class MenuEntry:
 
 BUILTIN_TITLES = {"transcript": "Transcript", "releases": "Release notes", "settings": "Settings"}
 BUILTIN_DESCRIPTIONS = {"transcript": "Every request and reply of this session.", "releases": "What changed in each orb release.",
-                        "settings": "Where saved panels are found, and the folders to search besides."}
+                        "settings": "The folders the orb searches for panels, skins, themes and widgets."}
 
 
 def menu(repo_root: Path, home: Path) -> tuple[list[MenuEntry], list[str]]:
-    """Every panel the user can open, built-in and saved, sorted by title without regard to case. A saved panel that
-    shares a name with an earlier one in the search order is listed but shadowed: showing the name opens the earlier."""
     entries = [MenuEntry(n, BUILTIN_TITLES[n], BUILTIN_DESCRIPTIONS[n], "built-in", None, False) for n in BUILTIN]
     saved, problems = list_saved(repo_root, home)
     seen = set(BUILTIN)
