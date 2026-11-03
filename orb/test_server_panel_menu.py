@@ -61,7 +61,7 @@ def test_reveal_opens_a_listed_saved_panels_folder_and_refuses_a_name_a_built_in
         async with await client_for(server) as c:
             post = lambda body: c.post("/panels/reveal", params={"token": TOKEN}, json=body)
             assert (await post({"path": str(folder)})).status == 200
-            for refused in [{"name": "chart"}, {"path": "transcript"}, {"path": str(tmp_path / "nope")}, {"path": str(tmp_path)}, {}]:
+            for refused in [{"name": "chart"}, {"path": "transcript"}, {"path": "None"}, {"path": str(tmp_path / "nope")}, {"path": str(tmp_path)}, {}]:
                 assert (await post(refused)).status == 400, refused
         assert opened == [folder]
     run(go())
