@@ -12,14 +12,14 @@ test("the sections are one per kind and sorted by name", () => {
 });
 
 test("a section with no extra folders says defaults only and has no problem", () => {
-  assert.deepEqual(folderSummary({ defaults: [], dirs: [] }), { extra: 0, missing: 0, extraText: "defaults only", missingText: "", text: "defaults only", problem: false });
-  assert.equal(folderSummary(undefined).text, "defaults only");
+  assert.deepEqual(folderSummary({ defaults: [], dirs: [] }), { extraText: "defaults only", missingText: "", problem: false });
+  assert.equal(folderSummary(undefined).extraText, "defaults only");
 });
 
 test("a summary counts the extras and the missing ones, and a missing one is a problem", () => {
   const s = folderSummary({ dirs: [dir(), dir({ exists: false }), dir({ exists: false })] });
-  assert.deepEqual(s, { extra: 3, missing: 2, extraText: "3 extra", missingText: "2 missing", text: "3 extra · 2 missing", problem: true });
-  assert.equal(folderSummary({ dirs: [dir()] }).text, "1 extra");
+  assert.deepEqual(s, { extraText: "3 extra", missingText: "2 missing", problem: true });
+  assert.equal(folderSummary({ dirs: [dir()] }).extraText, "1 extra");
 });
 
 test("a path is cut after each separator and the pieces join back to the path", () => {

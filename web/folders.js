@@ -1,6 +1,3 @@
-// The settings panel's folder sections: nothing here touches the page, so node can test it.
-
-// One section per kind of thing a user adds, in the order they are shown: by name.
 const FOLDER_SECTIONS = [
   {
     kind: "panel", name: "Panel folders", noun: "panels", where: "the panels menu",
@@ -26,21 +23,18 @@ function defaultLabel(scope) {
   return DEFAULT_LABELS[scope] || scope;
 }
 
-// What a collapsed header says at a glance, and whether the section has something wrong in it.
 function folderSummary(state) {
   const dirs = (state && state.dirs) || [];
   const missing = dirs.filter((d) => !d.exists).length;
   const extraText = dirs.length ? `${dirs.length} extra` : "defaults only";
   const missingText = missing ? `${missing} missing` : "";
-  return { extra: dirs.length, missing, extraText, missingText, text: [extraText, missingText].filter(Boolean).join(" · "), problem: missing > 0 };
+  return { extraText, missingText, problem: missing > 0 };
 }
 
-// A path in pieces that end at a separator, so the page can let it wrap between folder names and never inside one.
 function pathPieces(path) {
   return String(path).split(/(?<=[\\/])/).filter((piece) => piece !== "");
 }
 
-// One of the user's extra folders as the list shows it.
 function extraRow(dir) {
   const chips = [];
   if (!dir.exists) chips.push({ text: "missing", level: "warn", title: "Nothing is found here until this folder exists." });
@@ -48,20 +42,17 @@ function extraRow(dir) {
   return { path: dir.path, resolved: dir.resolved, chips, removable: dir.editable, openable: dir.exists };
 }
 
-// One of the folders always searched.
 function defaultRow(dir) {
   const chips = dir.exists ? [] : [{ text: "not created yet", level: "dim", title: "Created when you save the first one here." }];
   return { label: defaultLabel(dir.scope), path: dir.path, chips, openable: dir.exists };
 }
 
-// Which sections start open: the ones the user left open, and any with a problem in it.
 function initiallyOpen(stored, states) {
   const open = new Set(Array.isArray(stored) ? stored.filter((k) => typeof k === "string") : []);
   for (const section of FOLDER_SECTIONS) if (folderSummary(states && states[section.kind]).problem) open.add(section.kind);
   return open;
 }
 
-// A folder typed into the editor, trimmed; the server decides whether it is a good one.
 function typedFolder(text) {
   const folder = String(text).trim();
   return folder ? { ok: true, folder } : { ok: false, error: "Give a folder to add." };

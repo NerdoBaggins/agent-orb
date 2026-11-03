@@ -268,3 +268,106 @@ def test_the_menu_does_not_offer_a_removed_folders_panels_while_its_list_reloads
     asyncio.run(run_page(tmp_path, [], act, server))
     assert seen["while_reloading"] == []
     assert seen["after_reload"] == ["Release notes", "Settings", "Transcript"]
+
+
+@pytest.mark.timeout(60)
+def test_undoing_the_removal_of_a_missing_folder_puts_it_back_in_the_same_place(tmp_path):
+    server = make(tmp_path)
+    gone, there = tmp_path / "gone", tmp_path / "there"
+    there.mkdir()
+    config = private_config_path(server.home, server.repo_root)
+    config.parent.mkdir(parents=True, exist_ok=True)
+    config.write_text(json.dumps({"theme_dirs": [str(gone), str(there)]}), encoding="utf-8")
+    seen = {}
+
+    async def paths(page):
+        return await page.evaluate("() => [...document.querySelectorAll('#builtin-settings .settings-sec[data-kind=theme] .dir-row:not(.default):not(.removed) .dir-path')].map(n => n.textContent)")
+
+    async def act(page):
+        await open_settings(page)
+        seen["before"] = await paths(page)
+        await page.click(section("theme", ".dir-row.missing .dir-remove"))
+        await page.wait_for_selector(section("theme", ".dir-row.removed"))
+        seen["removed"] = await paths(page)
+        await page.click(section("theme", ".dir-undo"))
+        await page.wait_for_function("() => !document.querySelector('#builtin-settings .dir-row.removed')")
+        seen["after"] = await paths(page)
+        seen["error"] = await page.text_content(section("theme", ".dir-msg"))
+
+    asyncio.run(run_page(tmp_path, [], act, server))
+    assert seen["before"] == [str(gone), str(there)]
+    assert seen["removed"] == [str(there)]
+    assert seen["after"] == [str(gone), str(there)]
+    assert seen["error"] == ""
+
+
+@pytest.mark.timeout(60)
+def test_a_browse_that_fails_says_why_in_its_own_section(tmp_path, monkeypatch):
+    from orb import folders
+    server = make(tmp_path)
+
+    def none():
+        raise folders.PageError("this machine has no folder dialog the orb can open; type the path instead")
+
+    monkeypatch.setattr(folders, "browse_folder", none)
+    seen = {}
+
+    async def act(page):
+        await open_settings(page)
+        await page.click(section("skin", ".settings-sec-toggle"))
+        await page.click(section("skin", ".dir-browse"))
+        await page.wait_for_selector(section("skin", ".dir-msg.err"))
+        seen["message"] = await page.text_content(section("skin", ".dir-msg"))
+        seen["other"] = await page.text_content(section("panel", ".dir-msg"))
+
+    asyncio.run(run_page(tmp_path, [], act, server))
+    assert "type the path" in seen["message"] and seen["other"] == ""
+
+
+@pytest.mark.timeout(60)
+def test_open_all_is_remembered_when_the_panel_is_closed_and_opened_again(tmp_path):
+    server = make(tmp_path)
+    seen = {}
+
+    async def act(page):
+        await open_settings(page)
+        await page.click("#builtin-settings .settings-toggle-all")
+        await page.hover(".bar")
+        await page.click("#settings-toggle")
+        await page.wait_for_function("() => !window.orbPage.orb.panels.has('settings')")
+        await open_settings(page)
+        seen["after_reopen"] = await expanded(page)
+
+    asyncio.run(run_page(tmp_path, [], act, server))
+    assert seen["after_reopen"] == ["true"] * 4
+
+
+@pytest.mark.timeout(60)
+def test_settings_still_opens_when_the_browser_refuses_to_read_local_storage(tmp_path):
+    server = make(tmp_path)
+    seen = {}
+
+    async def act(page):
+        await page.add_init_script("Storage.prototype.getItem = () => { throw new Error('storage is blocked'); }")
+        await page.reload()
+        await page.wait_for_timeout(800)
+        await open_settings(page)
+        seen["expanded"] = await expanded(page)
+
+    asyncio.run(run_page(tmp_path, [], act, server))
+    assert seen["expanded"] == ["false"] * 4
+
+
+@pytest.mark.timeout(60)
+def test_each_section_is_a_labelled_region_and_its_message_is_announced(tmp_path):
+    server = make(tmp_path)
+    seen = {}
+
+    async def act(page):
+        await open_settings(page)
+        seen["regions"] = await page.evaluate("() => [...document.querySelectorAll('#builtin-settings .settings-sec-body')].map(b => [b.getAttribute('role'), document.getElementById(b.getAttribute('aria-labelledby')).textContent])")
+        seen["live"] = await page.evaluate("() => [...document.querySelectorAll('#builtin-settings .dir-msg')].map(m => m.getAttribute('aria-live'))")
+
+    asyncio.run(run_page(tmp_path, [], act, server))
+    assert seen["regions"] == [["region", name] for name in ("Panel folders", "Skin folders", "Theme folders", "Widget folders")]
+    assert seen["live"] == ["polite"] * 4
