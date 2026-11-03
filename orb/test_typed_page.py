@@ -233,17 +233,13 @@ def test_releasing_the_talk_key_after_enter_opened_the_box_stops_listening(tmp_p
     async def act(page):
         await page.keyboard.down("Space")
         await wait_for(lambda: server.state == "listening", timeout=5)
-        seen["held"] = server.state
         await page.keyboard.press("Enter")
         seen["open"] = await visible(page)
         await page.keyboard.up("Space")
         await wait_for(lambda: server.state != "listening", timeout=5)
-        seen["released"] = server.state
 
     asyncio.run(run_page(tmp_path, [], act, server))
-    assert seen["held"] == "listening"
     assert seen["open"] is True
-    assert seen["released"] != "listening"
 
 
 @pytest.mark.timeout(60)
@@ -261,56 +257,44 @@ def test_a_finished_key_press_does_not_release_a_later_mic_button_hold(tmp_path)
         await page.mouse.move(mic["x"] + mic["width"] / 2, mic["y"] + mic["height"] / 2)
         await page.mouse.down()
         await wait_for(lambda: server.state == "listening", timeout=5)
-        seen["held"] = server.state
         await page.keyboard.press("Space")
         await page.wait_for_timeout(300)
         seen["after"] = server.state
         await page.mouse.up()
 
     asyncio.run(run_page(tmp_path, [], act, server))
-    assert seen["held"] == "listening"
     assert seen["after"] == "listening"
 
 
 @pytest.mark.timeout(60)
 def test_releasing_the_talk_key_after_enter_opened_the_box_while_the_mic_opened_stops_listening(tmp_path):
     server = attached(tmp_path)
-    seen = {}
 
     async def act(page):
         await page.evaluate(SLOW_MIC)
         await page.keyboard.down("Space")
         await page.keyboard.press("Enter")
         await wait_for(lambda: server.state == "listening", timeout=5)
-        seen["held"] = server.state
         await page.keyboard.up("Space")
         await wait_for(lambda: server.state != "listening", timeout=5)
-        seen["released"] = server.state
 
     asyncio.run(run_page(tmp_path, [], act, server))
-    assert seen["held"] == "listening"
-    assert seen["released"] != "listening"
 
 
 @pytest.mark.timeout(60)
 def test_releasing_the_talk_key_after_clicking_into_the_box_stops_listening(tmp_path):
     server = attached(tmp_path)
-    seen = {}
 
     async def act(page):
         await page.keyboard.press("Enter")
         await page.evaluate("document.getElementById('typed').blur()")
         await page.keyboard.down("Space")
         await wait_for(lambda: server.state == "listening", timeout=5)
-        seen["held"] = server.state
         await page.locator(FIELD).click()
         await page.keyboard.up("Space")
         await wait_for(lambda: server.state != "listening", timeout=5)
-        seen["released"] = server.state
 
     asyncio.run(run_page(tmp_path, [], act, server))
-    assert seen["held"] == "listening"
-    assert seen["released"] != "listening"
 
 
 @pytest.mark.timeout(60)
@@ -344,14 +328,12 @@ def test_a_key_up_lost_to_a_window_blur_does_not_release_a_later_mic_button_hold
         await page.mouse.move(mic["x"] + mic["width"] / 2, mic["y"] + mic["height"] / 2)
         await page.mouse.down()
         await wait_for(lambda: server.state == "listening", timeout=5)
-        seen["held"] = server.state
         await page.keyboard.press("Space")
         await page.wait_for_timeout(300)
         seen["after"] = server.state
         await page.mouse.up()
 
     asyncio.run(run_page(tmp_path, [], act, server))
-    assert seen["held"] == "listening"
     assert seen["after"] == "listening"
 
 
