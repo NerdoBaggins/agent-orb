@@ -371,3 +371,32 @@ def test_each_section_is_a_labelled_region_and_its_message_is_announced(tmp_path
     asyncio.run(run_page(tmp_path, [], act, server))
     assert seen["regions"] == [["region", name] for name in ("Panel folders", "Skin folders", "Theme folders", "Widget folders")]
     assert seen["live"] == ["polite"] * 4
+
+
+@pytest.mark.timeout(60)
+def test_undoing_the_removal_of_a_folder_that_is_not_first_puts_it_back_in_the_same_place(tmp_path):
+    server = make(tmp_path)
+    first, middle, last = tmp_path / "first", tmp_path / "middle", tmp_path / "last"
+    for folder in (first, middle, last):
+        folder.mkdir()
+    config = private_config_path(server.home, server.repo_root)
+    config.parent.mkdir(parents=True, exist_ok=True)
+    config.write_text(json.dumps({"widget_dirs": [str(first), str(middle), str(last)]}), encoding="utf-8")
+    seen = {}
+
+    async def paths(page):
+        return await page.evaluate("() => [...document.querySelectorAll('#builtin-settings .settings-sec[data-kind=widget] .dir-row:not(.default):not(.removed) .dir-path')].map(n => n.textContent)")
+
+    async def act(page):
+        await open_settings(page)
+        await page.click(section("widget", ".settings-sec-toggle"))
+        await page.evaluate("(p) => [...document.querySelectorAll('#builtin-settings .dir-row')].find(li => li.dataset.path === p).querySelector('.dir-remove').click()", str(middle))
+        await page.wait_for_selector(section("widget", ".dir-row.removed"))
+        seen["removed"] = await paths(page)
+        await page.click(section("widget", ".dir-undo"))
+        await page.wait_for_function("() => !document.querySelector('#builtin-settings .dir-row.removed')")
+        seen["after"] = await paths(page)
+
+    asyncio.run(run_page(tmp_path, [], act, server))
+    assert seen["removed"] == [str(first), str(last)]
+    assert seen["after"] == [str(first), str(middle), str(last)]

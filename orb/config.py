@@ -250,7 +250,7 @@ def insert_dir(key: str, home: Path, repo_root: Path, folder: str, index: int | 
     def update(data: dict) -> None:
         listed = data.get(key)
         listed = list(listed) if isinstance(listed, list) else []
-        listed.insert(len(listed) if index is None else max(0, min(index, len(listed))), folder)
+        listed.insert(len(listed) if index is None else index, folder)
         data[key] = listed
     save_for_repo(home, repo_root, update)
 
