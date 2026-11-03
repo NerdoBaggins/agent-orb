@@ -48,11 +48,11 @@ def test_the_list_and_reveal_need_the_token(tmp_path):
         server = make(tmp_path)
         async with await client_for(server) as c:
             assert (await c.get("/panels")).status == 403
-            assert (await c.post("/panels/reveal", json={"name": "x"})).status == 403
+            assert (await c.post("/panels/reveal", json={"path": "x"})).status == 403
     run(go())
 
 
-def test_reveal_opens_a_listed_saved_panels_folder_and_refuses_a_built_in_an_unknown_name_and_a_path(tmp_path, monkeypatch):
+def test_reveal_opens_a_listed_saved_panels_folder_and_refuses_a_name_a_built_in_and_a_path_not_listed(tmp_path, monkeypatch):
     async def go():
         server = make(tmp_path)
         opened = []
@@ -60,8 +60,8 @@ def test_reveal_opens_a_listed_saved_panels_folder_and_refuses_a_built_in_an_unk
         folder = saved(server.home / ".config" / "orb" / "panels", "chart")
         async with await client_for(server) as c:
             post = lambda body: c.post("/panels/reveal", params={"token": TOKEN}, json=body)
-            assert (await post({"name": "chart"})).status == 200
-            for refused in [{"name": "transcript"}, {"name": "settings"}, {"name": "nope"}, {"dir": str(tmp_path)}, {}]:
+            assert (await post({"path": str(folder)})).status == 200
+            for refused in [{"name": "chart"}, {"path": "transcript"}, {"path": str(tmp_path / "nope")}, {"path": str(tmp_path)}, {}]:
                 assert (await post(refused)).status == 400, refused
         assert opened == [folder]
     run(go())
@@ -89,4 +89,21 @@ def test_a_saved_panels_title_is_cut_at_the_limit_whichever_way_it_is_shown(tmp_
             r = await c.post("/panel", params={"token": TOKEN}, json={"name": "long", "saved": "long"})
             assert r.status == 200
             assert server.panels["long"]["title"] == "x" * 200
+    run(go())
+
+
+def test_open_folder_opens_the_folder_of_the_row_clicked_when_two_saved_panels_share_a_name(tmp_path, monkeypatch):
+    async def go():
+        server = make(tmp_path)
+        opened = []
+        monkeypatch.setattr(folders, "reveal", opened.append)
+        winner = saved(private_root(server.home, server.repo_root) / "panels", "dup", title="Z winner")
+        shadowed = saved(server.home / ".config" / "orb" / "panels", "dup", title="A shadowed")
+        async with await client_for(server) as c:
+            post = lambda body: c.post("/panels/reveal", params={"token": TOKEN}, json=body)
+            assert (await post({"path": str(winner)})).status == 200
+            assert (await post({"path": str(shadowed)})).status == 200
+            assert (await post({"path": str(tmp_path)})).status == 400
+            assert (await post({"name": "dup"})).status == 400
+        assert opened == [winner, shadowed]
     run(go())

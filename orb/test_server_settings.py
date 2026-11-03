@@ -295,6 +295,6 @@ def test_a_file_manager_that_will_not_open_answers_400_with_the_reason_on_both_r
         async with await client_for(server) as c:
             r = await c.post("/settings/reveal", params={"token": TOKEN}, json={"kind": "widget", "dir": str(user_folder)})
             assert r.status == 400 and "did not open" in await r.text()
-            r = await c.post("/panels/reveal", params={"token": TOKEN}, json={"name": "chart"})
+            r = await c.post("/panels/reveal", params={"token": TOKEN}, json={"path": str(panel_folder)})
             assert r.status == 400 and "did not open" in await r.text()
     run(go())

@@ -227,3 +227,23 @@ def test_the_menus_folders_link_brings_an_open_settings_panel_forward(tmp_path):
 
     asyncio.run(run_page(tmp_path, [], act, server))
     assert seen == {"before": "Transcript", "after": "Settings"}
+
+
+@pytest.mark.timeout(60)
+def test_the_open_folder_button_of_a_row_opens_that_rows_folder_when_two_panels_share_a_name(tmp_path, monkeypatch):
+    from orb import folders
+    server = make(tmp_path)
+    opened = []
+    monkeypatch.setattr(folders, "reveal", opened.append)
+    saved(tmp_path / "home" / ".config" / "orb" / "panels", "dup", "A shadowed")
+    from orb.state import private_root
+    winner_root = private_root(server.home, server.repo_root) / "panels"
+    saved(winner_root, "dup", "Z winner")
+
+    async def act(page):
+        await open_menu(page)
+        await page.click("#panels-list .panel-menu-row:has-text('Z winner') .panel-folder")
+        await page.wait_for_timeout(500)
+
+    asyncio.run(run_page(tmp_path, [], act, server))
+    assert opened == [winner_root / "dup"]
