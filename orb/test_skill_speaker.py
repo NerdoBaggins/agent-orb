@@ -6,7 +6,7 @@ SKILL = (PLUGIN_ROOT / "skills" / "orb" / "SKILL.md").read_text(encoding="utf-8"
 PANEL_CSS = re.sub(r"/\*.*?\*/", "", (PLUGIN_ROOT / "web" / "panel.css").read_text(encoding="utf-8"), flags=re.S)
 
 
-def test_panel_css_draws_a_glyph_on_the_speaker():
+def test_panel_css_gives_the_speaker_non_empty_before_content():
     assert re.search(r"\.orb-speaker::before\s*\{[^}]*(?<![\w-])content:\s*([\"'])[^\"']+\1", PANEL_CSS)
 
 
