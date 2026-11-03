@@ -197,7 +197,9 @@ def merge(*layers: dict) -> dict:
     merged = copy.deepcopy(DEFAULTS)
     for layer in layers:
         for key, value in layer.items():
-            if key in TYPES:
+            if key in FOLDER_KEYS:
+                merged[key] = [*merged[key], *(d for d in value if d not in merged[key])]
+            elif key in TYPES:
                 merged[key] = overlay(key, merged[key], value)
     return merged
 
@@ -237,8 +239,6 @@ def panel_dirs_for(repo_root: Path, home: Path) -> list[Path]:
 
 
 def own_dirs(key: str, home: Path, repo_root: Path) -> list[str]:
-    """The folders the user's file for this repo lists under `key` (`panel_dirs`, ...), as written: the only ones the
-    orb's window may change."""
     try:
         listed = json.loads(private_config_path(home, repo_root).read_text(encoding="utf-8")).get(key, [])
     except (OSError, json.JSONDecodeError, AttributeError):
@@ -246,21 +246,18 @@ def own_dirs(key: str, home: Path, repo_root: Path) -> list[str]:
     return [d for d in listed if isinstance(d, str)] if isinstance(listed, list) else []
 
 
-def add_dir(key: str, home: Path, repo_root: Path, folder: str) -> None:
-    assert key in FOLDER_KEYS, key
-
+def insert_dir(key: str, home: Path, repo_root: Path, folder: str, index: int | None = None) -> None:
     def update(data: dict) -> None:
         listed = data.get(key)
-        data[key] = [*(listed if isinstance(listed, list) else []), folder]
+        listed = list(listed) if isinstance(listed, list) else []
+        listed.insert(len(listed) if index is None else max(0, min(index, len(listed))), folder)
+        data[key] = listed
     save_for_repo(home, repo_root, update)
 
 
 def remove_dir(key: str, home: Path, repo_root: Path, folder: str) -> None:
-    assert key in FOLDER_KEYS, key
-
     def update(data: dict) -> None:
-        listed = data.get(key)
-        data[key] = [d for d in (listed if isinstance(listed, list) else []) if d != folder]
+        data[key] = [d for d in data[key] if d != folder]
     save_for_repo(home, repo_root, update)
 
 

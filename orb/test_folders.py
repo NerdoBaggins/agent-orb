@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from orb.pages import PageError
@@ -50,3 +52,39 @@ def test_a_dialog_that_cannot_start_is_reported_as_a_page_error():
         raise OSError("no display")
     with pytest.raises(PageError, match="did not open"):
         browse_folder("darwin", broken)
+
+
+def test_the_kdialog_command_asks_for_an_existing_directory_and_a_dialog_that_times_out_is_reported(monkeypatch):
+    import subprocess
+    seen = {}
+
+    def spy(command, **kwargs):
+        seen["command"] = command
+        return SimpleNamespace(stdout=b"", returncode=1)
+
+    monkeypatch.setattr("orb.folders.shutil.which", lambda name: "/usr/bin/kdialog" if name == "kdialog" else None)
+    browse_folder("linux", spy)
+    assert seen["command"][:2] == ["kdialog", "--getexistingdirectory"]
+
+    def slow(command, **kwargs):
+        raise subprocess.TimeoutExpired(command, 300)
+
+    with pytest.raises(PageError, match="did not open"):
+        browse_folder("darwin", slow)
+
+
+def test_a_file_manager_that_cannot_start_is_reported_as_a_page_error_and_the_right_one_is_asked(monkeypatch):
+    from orb import folders
+    asked = []
+    monkeypatch.setattr(folders.sys, "platform", "linux")
+    folders.reveal(Path("/some/folder"), run=asked.append)
+    monkeypatch.setattr(folders.sys, "platform", "darwin")
+    folders.reveal(Path("/some/folder"), run=asked.append)
+    assert [command[0] for command in asked] == ["xdg-open", "open"]
+
+    def missing(command):
+        raise FileNotFoundError("no such file")
+
+    monkeypatch.setattr(folders.sys, "platform", "linux")
+    with pytest.raises(PageError, match="file manager did not open"):
+        folders.reveal(Path("/some/folder"), run=missing)
