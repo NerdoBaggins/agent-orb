@@ -324,7 +324,7 @@ class OrbServer:
     async def panels_reveal(self, request: web.Request) -> web.Response:
         body = await request.json()
         try:
-            found = next((e for e in panels.menu(self.repo_root, self.home)[0] if e.name == body.get("name") and e.path), None)
+            found = next((e for e in panels.menu(self.repo_root, self.home)[0] if e.path and str(e.path) == body.get("path")), None)
             if found is None or not found.path.is_dir():
                 raise pages.PageError("no such panel folder")
             await asyncio.to_thread(folders.reveal, found.path)

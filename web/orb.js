@@ -927,7 +927,7 @@
       pick.append(uiText("panel-tick", r.open ? "✓" : ""), uiText("panel-name", r.title), uiText("panel-scope", r.scope));
       if (!r.shadowed) pick.addEventListener("click", (ev) => { ev.stopPropagation(); this.pick(entry); });
       wrap.appendChild(pick);
-      if (r.path) wrap.appendChild(uiButton("panel-folder", "open folder", r.path, () => this.reveal({ name: r.name })));
+      if (r.path) wrap.appendChild(uiButton("panel-folder", "open folder", r.path, () => this.reveal({ path: r.path })));
       return wrap;
     },
   };
