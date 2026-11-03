@@ -8,6 +8,8 @@ from orb import PLUGIN_ROOT, agents, releases
 from orb.test_panel_bridge import browser
 from orb.test_server import TOKEN, make
 
+pytestmark = pytest.mark.browser
+
 playwright = pytest.importorskip("playwright.async_api")
 
 CHANGELOG = PLUGIN_ROOT / "CHANGELOG.md"

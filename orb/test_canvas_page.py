@@ -7,6 +7,8 @@ from aiohttp import ClientSession
 from orb.test_panel_bridge import run_page
 from orb.test_server import TOKEN
 
+pytestmark = pytest.mark.browser
+
 SLIDE_MS = 1200
 SLOW_SLIDE = f"#orb-pane {{ transition-duration: {SLIDE_MS}ms !important; }}"
 SIZES = """() => { const c = document.getElementById('orb'); const r = c.parentElement.getBoundingClientRect();

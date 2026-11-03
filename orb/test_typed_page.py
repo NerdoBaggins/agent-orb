@@ -8,6 +8,8 @@ from orb.test_bar_page import open_bar
 from orb.test_panel_bridge import run_page
 from orb.test_server import TOKEN, make
 
+pytestmark = pytest.mark.browser
+
 FIELD = "#typed"
 PANEL = """<!doctype html><body tabindex="0"><button id="b">b</button></body>"""
 FOCUS_PULLER = """<!doctype html><body><input id="i" onkeydown="parent.focus()"></body>"""

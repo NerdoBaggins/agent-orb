@@ -6,6 +6,8 @@ from aiohttp import ClientSession, web
 
 from orb.test_server import TOKEN, make
 
+pytestmark = pytest.mark.browser
+
 playwright = pytest.importorskip("playwright.async_api")
 
 CLICKED = """<!doctype html><body><button id="go" style="width:200px;height:80px"
