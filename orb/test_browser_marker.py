@@ -59,6 +59,34 @@ def chrome():
 def test_probe(chrome):
     pass
 """
+CONNECT = """
+import asyncio
+import pytest
+from playwright.async_api import async_playwright
+{mark}
+
+async def connect():
+    async with async_playwright() as p:
+        await p.chromium.connect("ws://127.0.0.1:1")
+
+
+def test_probe():
+    asyncio.run(connect())
+"""
+CONNECT_OVER_CDP = """
+import asyncio
+import pytest
+from playwright.async_api import async_playwright
+{mark}
+
+async def connect():
+    async with async_playwright() as p:
+        await p.chromium.connect_over_cdp("http://127.0.0.1:1")
+
+
+def test_probe():
+    asyncio.run(connect())
+"""
 NO_BROWSER = """
 import pytest
 {mark}
@@ -68,7 +96,7 @@ def test_probe():
 """
 MARK = "pytestmark = pytest.mark.browser"
 STARTS = {"async launch": ASYNC_LAUNCH, "sync launch": SYNC_LAUNCH, "persistent context": PERSISTENT_CONTEXT,
-          "module-scoped fixture": MODULE_FIXTURE}
+          "module-scoped fixture": MODULE_FIXTURE, "connect": CONNECT, "connect over cdp": CONNECT_OVER_CDP}
 
 
 def probe(pytester, source, folder="probes"):
