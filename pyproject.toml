@@ -26,5 +26,5 @@ packages = ["orb"]
 [tool.pytest.ini_options]
 testpaths = ["orb", "engines", "channel", "copilot"]
 timeout = 60
-addopts = "-n auto --maxprocesses 4"
+addopts = "-n auto"
 markers = ["browser"]
