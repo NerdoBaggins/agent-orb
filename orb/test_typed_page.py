@@ -12,6 +12,7 @@ pytestmark = pytest.mark.browser
 
 MIC_OPENS_S = 5
 RELEASES_S = 1
+WIDGET_ROUND_TRIP_MS = 5000
 
 FIELD = "#typed"
 PANEL = """<!doctype html><body tabindex="0"><button id="b">b</button></body>"""
@@ -252,9 +253,9 @@ def test_a_finished_key_press_does_not_release_a_later_mic_button_hold(tmp_path)
 
     async def act(page):
         await page.keyboard.down("Space")
-        await page.wait_for_timeout(700)
+        await wait_for(lambda: server.state == "listening", timeout=MIC_OPENS_S)
         await page.keyboard.up("Space")
-        await page.wait_for_timeout(300)
+        await wait_for(lambda: server.state != "listening", timeout=RELEASES_S)
         await page.keyboard.press("Enter")
         mic = await page.locator("#mic").bounding_box()
         await page.mouse.move(mic["x"] + mic["width"] / 2, mic["y"] + mic["height"] / 2)
@@ -323,9 +324,9 @@ def test_a_key_up_lost_to_a_window_blur_does_not_release_a_later_mic_button_hold
 
     async def act(page):
         await page.keyboard.down("Space")
-        await page.wait_for_timeout(700)
+        await wait_for(lambda: server.state == "listening", timeout=MIC_OPENS_S)
         await page.evaluate("window.dispatchEvent(new Event('blur'))")
-        await page.wait_for_timeout(300)
+        await wait_for(lambda: server.state != "listening", timeout=RELEASES_S)
         await page.keyboard.press("Enter")
         mic = await page.locator("#mic").bounding_box()
         await page.mouse.move(mic["x"] + mic["width"] / 2, mic["y"] + mic["height"] / 2)
@@ -350,7 +351,7 @@ def test_a_space_typed_in_the_box_leaves_a_mic_button_hold_alone(tmp_path):
         mic = await page.locator("#mic").bounding_box()
         await page.mouse.move(mic["x"] + mic["width"] / 2, mic["y"] + mic["height"] / 2)
         await page.mouse.down()
-        await page.wait_for_timeout(700)
+        await wait_for(lambda: server.state == "listening", timeout=MIC_OPENS_S)
         await page.keyboard.press("Space")
         await page.wait_for_timeout(300)
         seen["state"] = server.state
@@ -549,18 +550,19 @@ def test_a_reload_after_sending_leaves_the_box_empty(tmp_path):
 
 @pytest.mark.timeout(60)
 def test_a_held_talk_key_does_not_type_into_the_box(tmp_path):
+    server = attached(tmp_path)
     seen = {}
 
     async def act(page):
         await page.keyboard.down("Space")
-        await page.wait_for_timeout(500)
+        await wait_for(lambda: server.state == "listening", timeout=MIC_OPENS_S)
         await page.keyboard.press("Enter")
         await page.keyboard.down("Space")
         await page.keyboard.down("Space")
         seen["value"] = await page.locator(FIELD).input_value()
         await page.keyboard.up("Space")
 
-    asyncio.run(run_page(tmp_path, [], act, attached(tmp_path)))
+    asyncio.run(run_page(tmp_path, [], act, server))
     assert seen["value"] == ""
 
 
@@ -713,10 +715,10 @@ def test_a_widget_that_keeps_taking_the_focus_is_turned_off(tmp_path):
 
     async def act(page):
         await server.widget_on("thief")
-        await page.wait_for_timeout(1000)
+        await page.locator(".widget iframe").wait_for(state="attached", timeout=WIDGET_ROUND_TRIP_MS)
         seen["shown"] = await page.locator(".widget iframe").count()
         await page.evaluate("document.getElementById('type-toggle').click()")
-        await page.wait_for_timeout(500)
+        await page.locator(".widget iframe").wait_for(state="detached", timeout=WIDGET_ROUND_TRIP_MS)
         seen["left"] = await page.locator(".widget iframe").count()
 
     asyncio.run(run_page(tmp_path, [], act, server))

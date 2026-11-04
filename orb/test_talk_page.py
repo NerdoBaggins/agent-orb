@@ -88,7 +88,7 @@ def test_the_mic_button_records_after_a_held_key_failed_to_open_the_mic(tmp_path
     async def hold_through_a_failed_open_then_press_the_mic(page):
         await page.evaluate(CONTROLLED_MIC)
         await page.keyboard.down("Space")
-        await page.wait_for_timeout(100)
+        await page.wait_for_function("window.opens.length > 0")
         await page.evaluate("(async () => { opens[0].reject(new Error('gone')); await tick(); navigator.mediaDevices.getUserMedia = real; })()")
         await page.locator("#mic").hover()
         await page.mouse.down()
