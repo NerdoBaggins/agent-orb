@@ -5,33 +5,39 @@ that has one adds it under Unreleased.
 
 ## Unreleased
 
+## 0.6.0 — 2026-11-03
+
+### Upgrading
+
+- `panel_dirs`, `skin_dirs`, `theme_dirs` and `widget_dirs` now add up across your config files, so a folder one file
+  lists stays searched when another file lists more. If you relied on a later file replacing an earlier one's list,
+  remove the folders you no longer want.
+- `settings` is now a built-in panel name. Rename the folder of any saved panel called `settings`: it is listed struck
+  through and cannot be opened.
+
 ### Added
 
 - A `panels` menu in the bar lists every panel you can open, sorted by title: the built-in transcript, release notes and
   settings, and your saved panels. Each shows where it comes from (built in, yours for this repo, a custom folder, or
   global) and its folder, with an `open folder` button; a panel hidden by an earlier one of the same name is struck
   through ([#139](https://github.com/NerdoBaggins/agent-orb/issues/139)).
-- A `settings` panel, opened from a bar button or the panels menu, for what you set once. It starts with collapsible
-  sections for the panel, skin, theme and widget folders: each shows the extra folders you added, names the config file
-  that sets one it cannot remove, adds one by typing the path or choosing it with `Browse…` (the system's folder dialog),
-  and removes one with an `Undo`; one `Default folders` block explains the folders always searched, and each section has a
-  speaker that asks the agent to explain it. A section with a missing folder opens itself, and which sections you leave
-  open are remembered
+- A `settings` panel, opened from a bar button or the panels menu, for what you set once: collapsible sections for the
+  panel, skin, theme and widget folders. Add a folder by typing the path or choosing it with `Browse…` (the system's
+  folder dialog), remove one with an `Undo` that puts it back in its old place, and click a section's speaker for the
+  agent to explain it. A section with a missing folder opens itself, and which sections you leave open are remembered
   ([#139](https://github.com/NerdoBaggins/agent-orb/issues/139)).
 
 ### Changed
 
-- `panel_dirs`, `skin_dirs`, `theme_dirs` and `widget_dirs` now add up across your config files: a folder one file
-  lists stays searched when another file lists more, where a later file used to replace an earlier one's list
+- The four folder lists add up across config files, as described under Upgrading
   ([#139](https://github.com/NerdoBaggins/agent-orb/issues/139)).
-- `settings` is now a built-in panel name, like `transcript` and `releases`. A saved panel of that name is listed
-  struck through and cannot be shown; rename its folder
+- `settings` is a built-in panel name, as described under Upgrading
   ([#139](https://github.com/NerdoBaggins/agent-orb/issues/139)).
 
 ### Fixed
 
-- The orb skill now says an `.orb-speaker` button holds a word and never an icon, so a panel an agent writes no longer shows two
-  speakers on a button ([#153](https://github.com/NerdoBaggins/agent-orb/issues/153)).
+- The orb skill now says an `.orb-speaker` button holds a word and never an icon, so a panel an agent writes no longer
+  shows two speakers on a button ([#153](https://github.com/NerdoBaggins/agent-orb/issues/153)).
 
 ## 0.5.0 — 2026-10-31
 
