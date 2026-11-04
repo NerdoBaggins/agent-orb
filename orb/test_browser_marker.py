@@ -1,24 +1,24 @@
-import importlib
 from pathlib import Path
 
-import pytest
-
-CHROME_LAUNCHERS = {
-    ("orb.test_panel_bridge", "run_page"),
-    ("orb.test_panel_bridge", "browser"),
-    ("orb.test_transcript_speaker", "transcript_page"),
-}
+ROOT_CONFTEST = Path(__file__).parent.parent / "conftest.py"
+LAUNCH = """
+import asyncio
+from playwright.async_api import async_playwright
 
 
-def launches_chrome(module):
-    return any((getattr(v, "__module__", None), getattr(v, "__name__", None)) in CHROME_LAUNCHERS for v in vars(module).values())
+async def launch():
+    async with async_playwright() as p:
+        await (await p.chromium.launch(channel="chrome", headless=True)).close()
 
 
-def marked_browser(module):
-    marks = getattr(module, "pytestmark", [])
-    return any(m.name == "browser" for m in (marks if isinstance(marks, list) else [marks]))
+def test_launch():
+    asyncio.run(launch())
+"""
 
 
-def test_a_module_is_marked_browser_exactly_when_it_launches_chrome():
-    modules = [importlib.import_module(f"orb.{path.stem}") for path in sorted(Path(__file__).parent.glob("test_*.py"))]
-    assert [m.__name__ for m in modules if launches_chrome(m) != marked_browser(m)] == []
+def test_a_test_without_the_browser_marker_cannot_launch_chrome(pytester):
+    pytester.makeconftest(ROOT_CONFTEST.read_text(encoding="utf-8"))
+    pytester.makepyfile(test_unmarked=LAUNCH)
+    result = pytester.runpytest_subprocess("-p", "no:cacheprovider")
+    result.assert_outcomes(failed=1)
+    result.stdout.fnmatch_lines(["*test_unmarked.py::test_launch launched Chrome without the browser marker*"])
