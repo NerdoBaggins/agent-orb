@@ -10,10 +10,13 @@ that has one adds it under Unreleased.
 ### Upgrading
 
 - `panel_dirs`, `skin_dirs`, `theme_dirs` and `widget_dirs` now add up across your config files, so a folder one file
-  lists stays searched when another file lists more. If you relied on a later file replacing an earlier one's list,
-  remove the folders you no longer want.
+  lists stays searched when another file lists more. A repo's own file can no longer narrow or clear the list in your
+  file for every repo (`~/.config/orb/config.json`): a folder listed there is searched in every repo, and removing it
+  there removes it from all of them. If you relied on a later file replacing an earlier one's list, remove the folders
+  you no longer want from the file that lists them.
 - `settings` is now a built-in panel name. Rename the folder of any saved panel called `settings`: it is listed struck
-  through and cannot be opened.
+  through and cannot be opened. A page shown with `--name settings` now opens the built-in settings panel instead, so
+  give it another name.
 
 ### Added
 
