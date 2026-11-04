@@ -12,9 +12,18 @@ pytestmark = pytest.mark.browser
 
 MIC_OPENS_S = 5
 RELEASES_S = 1
+STAYS_RELEASED_MS = 500
 WIDGET_ROUND_TRIP_MS = 5000
 
 FIELD = "#typed"
+
+
+async def stops_listening(page, server):
+    await wait_for(lambda: server.state != "listening", timeout=RELEASES_S)
+    await page.wait_for_timeout(STAYS_RELEASED_MS)
+    assert server.state != "listening"
+
+
 PANEL = """<!doctype html><body tabindex="0"><button id="b">b</button></body>"""
 FOCUS_PULLER = """<!doctype html><body><input id="i" onkeydown="parent.focus()"></body>"""
 FOCUS_TAKEN_ONCE = """<!doctype html><body><input id="i"><script>setTimeout(() => document.getElementById("i").focus(), 2600);</script></body>"""
@@ -240,7 +249,7 @@ def test_releasing_the_talk_key_after_enter_opened_the_box_stops_listening(tmp_p
         await page.keyboard.press("Enter")
         seen["open"] = await visible(page)
         await page.keyboard.up("Space")
-        await wait_for(lambda: server.state != "listening", timeout=RELEASES_S)
+        await stops_listening(page, server)
 
     asyncio.run(run_page(tmp_path, [], act, server))
     assert seen["open"] is True
@@ -280,7 +289,7 @@ def test_releasing_the_talk_key_after_enter_opened_the_box_while_the_mic_opened_
         await page.keyboard.press("Enter")
         await wait_for(lambda: server.state == "listening", timeout=MIC_OPENS_S)
         await page.keyboard.up("Space")
-        await wait_for(lambda: server.state != "listening", timeout=RELEASES_S)
+        await stops_listening(page, server)
 
     asyncio.run(run_page(tmp_path, [], act, server))
 
@@ -296,7 +305,7 @@ def test_releasing_the_talk_key_after_clicking_into_the_box_stops_listening(tmp_
         await wait_for(lambda: server.state == "listening", timeout=MIC_OPENS_S)
         await page.locator(FIELD).click()
         await page.keyboard.up("Space")
-        await wait_for(lambda: server.state != "listening", timeout=RELEASES_S)
+        await stops_listening(page, server)
 
     asyncio.run(run_page(tmp_path, [], act, server))
 
