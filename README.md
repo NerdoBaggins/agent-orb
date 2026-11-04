@@ -582,8 +582,8 @@ is loaded.
 
 ```
 uv sync --group dev
-uv run pytest -n auto
-uv run pytest -n auto -m "not browser"
+uv run pytest
+uv run pytest -m "not browser"
 ```
 
 Every plugin test runs in a throwaway repo outside this one with the plugin loaded by `--plugin-dir`; the plugin is
