@@ -4,6 +4,7 @@ import shutil
 
 import pytest
 
+from orb import engines
 from orb.config import private_config_path
 from orb.test_server import TOKEN, client_for, make, run, skinned, until_state, user_tts_engine, wait_for
 from orb.test_server_panels import fast, show, watching
@@ -364,7 +365,8 @@ def test_a_theme_naming_a_speech_engine_that_is_not_installed_keeps_the_voice_an
 
 
 @pytest.mark.timeout(60)
-def test_a_theme_naming_a_speech_engine_that_fails_to_load_keeps_the_voice_and_says_why(tmp_path):
+def test_a_theme_naming_a_speech_engine_that_fails_to_load_keeps_the_voice_and_says_why(tmp_path, monkeypatch):
+    monkeypatch.setitem(engines.DEFAULT, "tts", "fake")
     user_tts_engine(tmp_path, "broken")
     hud(tmp_path, tts={"engine": "broken", "broken": {"fail": True}})
 
