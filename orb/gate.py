@@ -73,6 +73,14 @@ def _is_notification(entry: dict) -> bool:
             or (entry.get("attachment") or {}).get("commandMode") == "task-notification")
 
 
+def _origin(entry: dict) -> dict:
+    return entry.get("origin") or (entry.get("attachment") or {}).get("origin") or {}
+
+
+def _joins_running_turn(entry: dict) -> bool:
+    return _is_notification(entry) or (entry.get("type") == "attachment" and _origin(entry).get("kind") != "channel")
+
+
 def _opens_turn(entry: dict) -> bool:
     """A `user` entry that is not a tool result, skill injection or local command echo, or a `queued_command`
     attachment (a message that arrived mid-turn)."""
@@ -96,15 +104,16 @@ def _closes_turn(entry: dict) -> bool:
 
 
 def openers(entries: list[dict]) -> list[dict | None]:
-    """For each entry, the entry that opened the turn it belongs to. A background task's notification opens a turn
-    of its own only once the last one has closed; one that lands mid-turn joins the running turn, whose reply still
-    answers whoever opened it."""
+    """For each entry, the entry that opened the turn it belongs to. A background task's notification, or a message
+    typed into the session, opens a turn of its own only once the last one has closed; one that lands mid-turn joins
+    the running turn, whose reply still answers whoever opened it. A channel message that lands mid-turn takes the
+    turn over."""
     opener, running, out = None, False, []
     for entry in entries:
         if not entry.get("isSidechain"):
             if _closes_turn(entry):
                 running = False
-            elif _opens_turn(entry) and not (running and _is_notification(entry)):
+            elif _opens_turn(entry) and not (running and _joins_running_turn(entry)):
                 opener, running = entry, True
         out.append(opener)
     return out
@@ -119,7 +128,7 @@ def orb_request_id(turn: dict | None, server: str = CHANNEL_SERVER) -> str | Non
     """The request id when the turn came through this plugin's channel, else None."""
     if not turn:
         return None
-    origin = turn.get("origin") or (turn.get("attachment") or {}).get("origin") or {}
+    origin = _origin(turn)
     if origin.get("kind") != "channel" or origin.get("server") != server:
         return None
     text = _text_of(turn) or json.dumps(turn.get("attachment") or {})
