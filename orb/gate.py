@@ -87,8 +87,7 @@ def _is_queued(entry: dict) -> bool:
 
 
 def _joins_running_turn(entry: dict, server: str) -> bool:
-    from_a_channel = _origin(entry).get("kind") == "channel"
-    return _is_notification(entry) or ((_is_queued(entry) or from_a_channel) and not _from_channel(entry, server))
+    return _is_notification(entry) or (_is_queued(entry) and not _from_channel(entry, server))
 
 
 def _opens_turn(entry: dict) -> bool:
