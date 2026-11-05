@@ -164,14 +164,8 @@ def typed_mid_turn_queued_command():
                                                  "prompt": "typed while busy"}}
 
 
-def typed_mid_turn_queued_user_entry():
-    return {"type": "user", "promptSource": "queued", "origin": {"kind": "human"},
-            "message": {"role": "user", "content": "typed while busy"}}
-
-
 def test_a_message_typed_while_the_orbs_turn_runs_leaves_the_turn_to_the_orb():
-    for typed in (typed_mid_turn_queued_command(), typed_mid_turn_queued_user_entry()):
-        assert gate([channel_turn(), assistant(), tool_result(), typed, ended("All done.")], PENDING) == "r7"
+    assert gate([channel_turn(), assistant(), tool_result(), typed_mid_turn_queued_command(), ended("All done.")], PENDING) == "r7"
 
 
 def test_another_channels_message_mid_turn_leaves_the_turn_to_the_orb():
@@ -202,3 +196,10 @@ def test_another_channels_new_turn_after_an_unclosed_orb_turn_is_not_the_orbs():
     voice = {"type": "user", "promptSource": "system", "isMeta": True, "origin": {"kind": "channel", "server": "jarvis-channel"},
              "message": {"role": "user", "content": '<channel source="jarvis-channel">turn the lights off</channel>'}}
     assert gate([channel_turn(), assistant(), voice, ended("Lights are off.")], PENDING) is None
+
+
+def test_a_queued_prompt_after_an_unclosed_orb_turn_is_not_the_orbs():
+    refused = assistant("I can't help with that.")
+    refused["message"]["stop_reason"] = "refusal"
+    fresh = {"type": "user", "promptSource": "queued", "origin": {"kind": "human"}, "message": {"role": "user", "content": "a new question"}}
+    assert gate([channel_turn(), refused, fresh, ended("An answer.")], PENDING) is None
