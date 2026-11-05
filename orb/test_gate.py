@@ -161,11 +161,25 @@ def test_unreadable_lines_are_skipped_and_a_missing_file_is_none(tmp_path):
 
 def typed_attachment():
     """How Claude Code writes a message typed into the session while a turn runs."""
-    return {"type": "attachment", "attachment": {"type": "queued_command", "commandMode": "prompt", "prompt": "typed while busy"}}
+    return {"type": "attachment", "attachment": {"type": "queued_command", "commandMode": "prompt", "origin": {"kind": "human"},
+                                                 "prompt": "typed while busy"}}
+
+
+def typed_queued_turn():
+    """The other shape it writes a mid-turn typed message in: a user entry delivered between tool calls."""
+    return {"type": "user", "promptSource": "queued", "origin": {"kind": "human"},
+            "message": {"role": "user", "content": "typed while busy"}}
 
 
 def test_a_message_typed_while_the_orbs_turn_runs_leaves_the_turn_to_the_orb():
-    assert gate([channel_turn(), assistant(), tool_result(), typed_attachment(), ended("All done.")], PENDING) == "r7"
+    for typed in (typed_attachment(), typed_queued_turn()):
+        assert gate([channel_turn(), assistant(), tool_result(), typed, ended("All done.")], PENDING) == "r7"
+
+
+def test_another_channels_message_mid_turn_leaves_the_turn_to_the_orb():
+    voice = {"type": "attachment", "attachment": {"type": "queued_command", "origin": {"kind": "channel", "server": "jarvis-channel"},
+                                                  "content": '<channel source="jarvis-channel">turn the lights off</channel>'}}
+    assert gate([channel_turn(), assistant(), tool_result(), voice, ended("All done.")], PENDING) == "r7"
 
 
 def test_a_message_typed_after_the_orbs_turn_ended_opens_a_turn_that_is_not_the_orbs():
