@@ -248,8 +248,8 @@ Mic and ask buttons stay disabled until the link is verified.
      ended (Claude Code writes a `user` entry with `origin.kind: "task-notification"`), and that turn is not the
      orb's; one that lands mid-turn (a `queued_command` attachment) joins the running turn. So does a message
      typed into the session mid-turn: a `queued_command` attachment, or a `user` entry with
-     `promptSource: "queued"` whose last step was a tool result or an assistant message that did not end the turn,
-     whatever was typed or injected since. Another channel's `queued_command` joins too;
+     `promptSource: "queued"` after an assistant message that did not end the turn, whatever was typed, injected
+     or returned since. Another channel's `queued_command` joins too;
   2. that turn carries a request id the orb server sent to Claude Code and still has pending.
 
   When the turn that ended is not the orb's but the transcript holds the channel message of a request still
