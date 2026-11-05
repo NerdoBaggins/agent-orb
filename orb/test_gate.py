@@ -157,3 +157,16 @@ def test_unreadable_lines_are_skipped_and_a_missing_file_is_none(tmp_path):
     path.write_text('nope\n[1]\n{"n": 1}\n')
     assert [e["n"] for e in read_transcript_from(str(path), 0)[0]] == [1]
     assert read_transcript_from(str(tmp_path / "gone.jsonl"), 0) is None and read_transcript_from(None, 0) is None
+
+
+def typed_attachment():
+    """How Claude Code writes a message typed into the session while a turn runs."""
+    return {"type": "attachment", "attachment": {"type": "queued_command", "commandMode": "prompt", "prompt": "typed while busy"}}
+
+
+def test_a_message_typed_while_the_orbs_turn_runs_leaves_the_turn_to_the_orb():
+    assert gate([channel_turn(), assistant(), tool_result(), typed_attachment(), ended("All done.")], PENDING) == "r7"
+
+
+def test_a_message_typed_after_the_orbs_turn_ended_opens_a_turn_that_is_not_the_orbs():
+    assert gate([channel_turn(), ended("Started it."), typed_attachment(), ended("Answered.")], PENDING) is None
