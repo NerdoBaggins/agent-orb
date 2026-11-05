@@ -5,6 +5,7 @@ import os
 import pytest
 
 from orb import session_hook, stop_hook, turn_hook
+from orb.gate import CHANNEL_SERVER
 from orb.state import server_file, session_file, session_project, state_dir, turn_file, write_json
 
 
@@ -71,6 +72,26 @@ def test_the_stop_hook_finds_the_orb_of_the_sessions_project_after_the_session_c
     payload = {"hook_event_name": "Stop", "cwd": str(repo / "worktree"), "session_id": "s1", "transcript_path": "/t"}
     stop_hook.run(payload, repo, home)
     assert asked == ["/pending"]
+
+
+def test_the_stop_hook_posts_the_reply_when_recording_the_session_fails(tmp_path, monkeypatch):
+    home, repo = tmp_path / "home", tmp_path / "repo"
+    write_json(server_file(state_dir(home, repo), "claude"), {"pid": os.getpid(), "port": 1, "token": "t"})
+    transcript = tmp_path / "t.jsonl"
+    transcript.write_text(json.dumps({"type": "user", "origin": {"kind": "channel", "server": CHANNEL_SERVER},
+                                      "message": {"content": f'<channel source="{CHANNEL_SERVER}" req="r7">hi</channel>'}}) + "\n",
+                          encoding="utf-8")
+
+    def fail(*args):
+        raise OSError("disk full")
+    monkeypatch.setattr(stop_hook, "record_session", fail)
+    posted = []
+    monkeypatch.setattr(stop_hook, "_call", lambda server, method, path, body=None:
+                        {"pending": ["r7"]} if path == "/pending" else posted.append(body) or {})
+    payload = {"hook_event_name": "Stop", "session_id": "s1", "transcript_path": str(transcript),
+               "last_assistant_message": "Here it is."}
+    assert stop_hook.run(payload, repo, home) == "posted"
+    assert posted == [{"req": "r7", "text": "Here it is."}]
 
 
 @pytest.mark.parametrize("agent", ["claude", "copilot"])
