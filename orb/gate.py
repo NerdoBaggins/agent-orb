@@ -77,8 +77,17 @@ def _origin(entry: dict) -> dict:
     return entry.get("origin") or (entry.get("attachment") or {}).get("origin") or {}
 
 
-def _joins_running_turn(entry: dict) -> bool:
-    return _is_notification(entry) or (entry.get("type") == "attachment" and _origin(entry).get("kind") != "channel")
+def _from_channel(entry: dict, server: str) -> bool:
+    origin = _origin(entry)
+    return origin.get("kind") == "channel" and origin.get("server") == server
+
+
+def _is_queued(entry: dict) -> bool:
+    return entry.get("type") == "attachment" or entry.get("promptSource") == "queued"
+
+
+def _joins_running_turn(entry: dict, server: str) -> bool:
+    return _is_notification(entry) or (_is_queued(entry) and not _from_channel(entry, server))
 
 
 def _opens_turn(entry: dict) -> bool:
@@ -103,33 +112,32 @@ def _closes_turn(entry: dict) -> bool:
     return entry.get("type") == "user" and _text_of(entry).startswith("[Request interrupted")
 
 
-def openers(entries: list[dict]) -> list[dict | None]:
+def openers(entries: list[dict], server: str = CHANNEL_SERVER) -> list[dict | None]:
     """For each entry, the entry that opened the turn it belongs to. A background task's notification, or a message
     typed into the session, opens a turn of its own only once the last one has closed; one that lands mid-turn joins
-    the running turn, whose reply still answers whoever opened it. A channel message that lands mid-turn takes the
-    turn over."""
+    the running turn, whose reply still answers whoever opened it. A message from `server`'s channel that lands
+    mid-turn takes the turn over."""
     opener, running, out = None, False, []
     for entry in entries:
         if not entry.get("isSidechain"):
             if _closes_turn(entry):
                 running = False
-            elif _opens_turn(entry) and not (running and _joins_running_turn(entry)):
+            elif _opens_turn(entry) and not (running and _joins_running_turn(entry, server)):
                 opener, running = entry, True
         out.append(opener)
     return out
 
 
-def last_user_turn(entries: list[dict]) -> dict | None:
+def last_user_turn(entries: list[dict], server: str = CHANNEL_SERVER) -> dict | None:
     """The entry that opened the newest turn."""
-    return openers(entries)[-1] if entries else None
+    return openers(entries, server)[-1] if entries else None
 
 
 def orb_request_id(turn: dict | None, server: str = CHANNEL_SERVER) -> str | None:
     """The request id when the turn came through this plugin's channel, else None."""
     if not turn:
         return None
-    origin = _origin(turn)
-    if origin.get("kind") != "channel" or origin.get("server") != server:
+    if not _from_channel(turn, server):
         return None
     text = _text_of(turn) or json.dumps(turn.get("attachment") or {})
     match = REQ_ATTR.search(text)
@@ -146,5 +154,5 @@ def gate(entries: list[dict] | None, pending: set[str], server: str = CHANNEL_SE
     """The pending request id this turn answers, or None for every turn that is not the orb's."""
     if not entries:
         return None
-    request_id = orb_request_id(last_user_turn(entries), server)
+    request_id = orb_request_id(last_user_turn(entries, server), server)
     return request_id if request_id in pending else None
