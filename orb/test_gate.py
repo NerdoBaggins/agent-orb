@@ -222,7 +222,7 @@ def test_a_queued_prompt_after_an_unclosed_orb_turn_is_not_the_orbs():
     refused = assistant("I can't help with that.")
     refused["message"]["stop_reason"] = "refusal"
     fresh = {"type": "user", "promptSource": "queued", "origin": {"kind": "human"}, "message": {"role": "user", "content": "a new question"}}
-    assert gate([channel_turn(), refused, fresh, ended("An answer.")], PENDING) is None
+    assert gate([channel_turn(), refused, {"type": "file-history-snapshot"}, fresh, ended("An answer.")], PENDING) is None
 
 
 def test_delivered_names_the_channel_requests_the_session_was_handed_not_ones_only_enqueued():
