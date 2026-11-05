@@ -141,6 +141,11 @@ def orb_request_id(turn: dict | None, server: str = CHANNEL_SERVER) -> str | Non
     return match.group(1) if match else None
 
 
+def delivered(entries: list[dict] | None, server: str = CHANNEL_SERVER) -> set[str]:
+    """The request ids of the channel messages Claude Code has delivered into the session."""
+    return {request_id for entry in entries or () if (request_id := orb_request_id(entry, server))}
+
+
 def custom_title(entries: list[dict] | None) -> str | None:
     """The name `/rename` gave the session; the last rename wins."""
     titles = [e.get("customTitle") for e in entries or () if e.get("type") == "custom-title"]

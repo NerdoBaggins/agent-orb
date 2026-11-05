@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from orb.gate import gate, read_transcript  # noqa: E402
+from orb.gate import delivered, gate, read_transcript  # noqa: E402
 from orb.state import hook_agent, pid_alive, project_root, read_json, record_session, server_file, state_dir  # noqa: E402
 
 TIMEOUT_S = 5
@@ -39,14 +39,23 @@ def run(payload: dict, project: Path, home: Path) -> str:
         pending = set(_call(server, "GET", "/pending").get("pending", []))
     except (urllib.error.URLError, OSError, ValueError):
         return "no-orb"
-    request_id = gate(read_transcript(payload.get("transcript_path")), pending)
-    if not request_id:
+    entries = read_transcript(payload.get("transcript_path"))
+    request_id = gate(entries, pending)
+    if request_id:
+        return _post(server, "/reply", {"req": request_id, "text": payload.get("last_assistant_message") or ""}, "posted")
+    unanswered = sorted(pending & delivered(entries))
+    if not unanswered:
         return "not-ours"
+    outcomes = [_post(server, "/ended", {"req": request_id}, "ended") for request_id in unanswered]
+    return "post-failed" if "post-failed" in outcomes else "ended"
+
+
+def _post(server: dict, path: str, body: dict, outcome: str) -> str:
     try:
-        _call(server, "POST", "/reply", {"req": request_id, "text": payload.get("last_assistant_message") or ""})
+        _call(server, "POST", path, body)
     except (urllib.error.URLError, OSError, ValueError):
         return "post-failed"
-    return "posted"
+    return outcome
 
 
 def main() -> int:

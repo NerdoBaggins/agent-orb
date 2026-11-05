@@ -94,6 +94,37 @@ def test_the_stop_hook_posts_the_reply_when_recording_the_session_fails(tmp_path
     assert posted == [{"req": "r7", "text": "Here it is."}]
 
 
+def stop_hook_with(tmp_path, monkeypatch, pending, entries):
+    home, repo = tmp_path / "home", tmp_path / "repo"
+    write_json(server_file(state_dir(home, repo), "claude"), {"pid": os.getpid(), "port": 1, "token": "t"})
+    transcript = tmp_path / "t.jsonl"
+    transcript.write_text("".join(json.dumps(e) + "\n" for e in entries), encoding="utf-8")
+    posted = []
+    monkeypatch.setattr(stop_hook, "_call", lambda server, method, path, body=None:
+                        {"pending": pending} if path == "/pending" else posted.append((path, body)) or {})
+    outcome = stop_hook.run({"hook_event_name": "Stop", "session_id": "s1", "transcript_path": str(transcript),
+                             "last_assistant_message": "An answer."}, repo, home)
+    return outcome, posted
+
+
+def orb_message(req):
+    return {"type": "user", "isMeta": True, "origin": {"kind": "channel", "server": CHANNEL_SERVER},
+            "message": {"content": f'<channel source="{CHANNEL_SERVER}" req="{req}">hi</channel>'}}
+
+
+def test_the_stop_hook_ends_a_delivered_orb_request_the_turn_did_not_answer(tmp_path, monkeypatch):
+    refused = {"type": "assistant", "message": {"content": [{"type": "text", "text": "No."}], "stop_reason": "refusal"}}
+    typed = {"type": "user", "promptSource": "queued", "origin": {"kind": "human"}, "message": {"content": "a new question"}}
+    outcome, posted = stop_hook_with(tmp_path, monkeypatch, ["r7"], [orb_message("r7"), refused, typed])
+    assert (outcome, posted) == ("ended", [("/ended", {"req": "r7"})])
+
+
+def test_the_stop_hook_leaves_a_pending_request_the_session_has_not_been_handed(tmp_path, monkeypatch):
+    typed = {"type": "user", "origin": {"kind": "human"}, "message": {"content": "a question"}}
+    outcome, posted = stop_hook_with(tmp_path, monkeypatch, ["r8"], [typed])
+    assert (outcome, posted) == ("not-ours", [])
+
+
 @pytest.mark.parametrize("agent", ["claude", "copilot"])
 def test_the_turn_hook_records_the_sessions_project_after_the_session_changes_folder(tmp_path, monkeypatch, agent):
     home, repo = tmp_path / "home", tmp_path / "repo"

@@ -1,7 +1,7 @@
 import json
 
 from orb import gate as gate_module
-from orb.gate import CHANNEL_SERVER, gate, read_transcript, read_transcript_from
+from orb.gate import CHANNEL_SERVER, delivered, gate, read_transcript, read_transcript_from
 
 PENDING = {"r7"}
 
@@ -203,3 +203,10 @@ def test_a_queued_prompt_after_an_unclosed_orb_turn_is_not_the_orbs():
     refused["message"]["stop_reason"] = "refusal"
     fresh = {"type": "user", "promptSource": "queued", "origin": {"kind": "human"}, "message": {"role": "user", "content": "a new question"}}
     assert gate([channel_turn(), refused, fresh, ended("An answer.")], PENDING) is None
+
+
+def test_delivered_names_the_channel_requests_the_session_was_handed_not_ones_only_enqueued():
+    enqueued = {"type": "queue-operation", "operation": "enqueue", "content": f'<channel source="{CHANNEL_SERVER}" req="r9">soon</channel>'}
+    mid_turn = {"type": "attachment", "attachment": {"type": "queued_command", "origin": {"kind": "channel", "server": CHANNEL_SERVER},
+                                                     "prompt": f'<channel source="{CHANNEL_SERVER}" req="r8">later</channel>'}}
+    assert delivered([channel_turn(), assistant(), mid_turn, enqueued, channel_turn(server="plugin:other:chat", req="r6")]) == {"r7", "r8"}
