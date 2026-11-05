@@ -175,9 +175,12 @@ def test_a_message_typed_while_the_orbs_turn_runs_leaves_the_turn_to_the_orb():
 
 
 def test_another_channels_message_mid_turn_leaves_the_turn_to_the_orb():
-    voice = {"type": "attachment", "attachment": {"type": "queued_command", "origin": {"kind": "channel", "server": "jarvis-channel"},
-                                                  "content": '<channel source="jarvis-channel">turn the lights off</channel>'}}
-    assert gate([channel_turn(), assistant(), tool_result(), voice, ended("All done.")], PENDING) == "r7"
+    origin = {"kind": "channel", "server": "jarvis-channel"}
+    text = '<channel source="jarvis-channel">turn the lights off</channel>'
+    as_attachment = {"type": "attachment", "attachment": {"type": "queued_command", "origin": origin, "content": text}}
+    as_user_entry = {"type": "user", "promptSource": "system", "isMeta": True, "origin": origin, "message": {"role": "user", "content": text}}
+    for voice in (as_attachment, as_user_entry):
+        assert gate([channel_turn(), assistant(), tool_result(), voice, ended("All done.")], PENDING) == "r7"
 
 
 def test_a_message_typed_after_the_orbs_turn_ended_opens_a_turn_that_is_not_the_orbs():
