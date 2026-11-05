@@ -14,7 +14,7 @@ def read_transcript(path: str | None) -> list[dict] | None:
     if not path:
         return None
     try:
-        lines = Path(path).read_text(encoding="utf-8").splitlines()
+        lines = Path(path).read_bytes().decode("utf-8", "replace").splitlines()
     except OSError:
         return None
     entries = []
