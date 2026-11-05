@@ -28,7 +28,10 @@ def _call(server: dict, method: str, path: str, body: dict | None = None):
 def run(payload: dict, project: Path, home: Path) -> str:
     """Returns a one-word outcome for logging/tests; every path exits 0."""
     # A session that started before the plugin loaded had no SessionStart hook; its transcript is recorded here.
-    record_session(payload, project, home)
+    try:
+        record_session(payload, project, home)
+    except OSError:
+        pass
     server = read_json(server_file(state_dir(home, project), "claude"))
     if not server or not pid_alive(server.get("pid", 0)):
         return "no-orb"
