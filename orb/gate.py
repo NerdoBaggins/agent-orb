@@ -83,7 +83,7 @@ def _from_channel(entry: dict, server: str) -> bool:
 
 
 def _is_queued(entry: dict) -> bool:
-    return (entry.get("attachment") or {}).get("type") == "queued_command" or entry.get("promptSource") == "queued"
+    return (entry.get("attachment") or {}).get("type") == "queued_command"
 
 
 def _joins_running_turn(entry: dict, server: str) -> bool:

@@ -247,8 +247,8 @@ Mic and ask buttons stay disabled until the link is verified.
      turn. A background task's notification opens a turn of its own when it arrives after the last turn
      ended (Claude Code writes a `user` entry with `origin.kind: "task-notification"`), and that turn is not the
      orb's; one that lands mid-turn (a `queued_command` attachment) joins the running turn. So does a message
-     typed into the session mid-turn, and so does another channel's message; only a message from this channel
-     takes a running turn over;
+     typed into the session, or sent from another channel, that Claude Code writes as a `queued_command`
+     attachment mid-turn;
   2. that turn carries a request id the orb server sent to Claude Code and still has pending.
 
   Every other turn in every session is left to the session watcher (Speaking). The hook exits 0 and does nothing when no orb server is running,
