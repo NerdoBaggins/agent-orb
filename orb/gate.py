@@ -83,7 +83,7 @@ def _from_channel(entry: dict, server: str) -> bool:
 
 
 def _is_queued(entry: dict) -> bool:
-    return entry.get("type") == "attachment" or entry.get("promptSource") == "queued"
+    return (entry.get("attachment") or {}).get("type") == "queued_command" or entry.get("promptSource") == "queued"
 
 
 def _joins_running_turn(entry: dict, server: str) -> bool:
@@ -113,10 +113,7 @@ def _closes_turn(entry: dict) -> bool:
 
 
 def openers(entries: list[dict], server: str = CHANNEL_SERVER) -> list[dict | None]:
-    """For each entry, the entry that opened the turn it belongs to. A background task's notification, or a message
-    typed into the session, opens a turn of its own only once the last one has closed; one that lands mid-turn joins
-    the running turn, whose reply still answers whoever opened it. A message from `server`'s channel that lands
-    mid-turn takes the turn over."""
+    """For each entry, the entry that opened the turn it belongs to."""
     opener, running, out = None, False, []
     for entry in entries:
         if not entry.get("isSidechain"):

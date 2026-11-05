@@ -159,20 +159,18 @@ def test_unreadable_lines_are_skipped_and_a_missing_file_is_none(tmp_path):
     assert read_transcript_from(str(tmp_path / "gone.jsonl"), 0) is None and read_transcript_from(None, 0) is None
 
 
-def typed_attachment():
-    """How Claude Code writes a message typed into the session while a turn runs."""
+def typed_mid_turn_queued_command():
     return {"type": "attachment", "attachment": {"type": "queued_command", "commandMode": "prompt", "origin": {"kind": "human"},
                                                  "prompt": "typed while busy"}}
 
 
-def typed_queued_turn():
-    """The other shape it writes a mid-turn typed message in: a user entry delivered between tool calls."""
+def typed_mid_turn_queued_user_entry():
     return {"type": "user", "promptSource": "queued", "origin": {"kind": "human"},
             "message": {"role": "user", "content": "typed while busy"}}
 
 
 def test_a_message_typed_while_the_orbs_turn_runs_leaves_the_turn_to_the_orb():
-    for typed in (typed_attachment(), typed_queued_turn()):
+    for typed in (typed_mid_turn_queued_command(), typed_mid_turn_queued_user_entry()):
         assert gate([channel_turn(), assistant(), tool_result(), typed, ended("All done.")], PENDING) == "r7"
 
 
@@ -183,10 +181,18 @@ def test_another_channels_message_mid_turn_leaves_the_turn_to_the_orb():
 
 
 def test_a_message_typed_after_the_orbs_turn_ended_opens_a_turn_that_is_not_the_orbs():
-    assert gate([channel_turn(), ended("Started it."), typed_attachment(), ended("Answered.")], PENDING) is None
+    assert gate([channel_turn(), ended("Started it."), typed_mid_turn_queued_command(), ended("Answered.")], PENDING) is None
 
 
 def test_a_transcript_cut_mid_character_still_reads(tmp_path):
     path = tmp_path / "t.jsonl"
     path.write_bytes(json.dumps(channel_turn()).encode() + b"\n" + '{"t": "é'.encode()[:-1])
     assert gate(read_transcript(str(path)), PENDING) == "r7"
+
+
+def test_the_gate_answers_for_the_channel_it_is_given():
+    other = "plugin:other:chat"
+    ours_mid_turn = {"type": "attachment", "attachment": {"type": "queued_command", "origin": {"kind": "channel", "server": CHANNEL_SERVER},
+                                                          "content": f'<channel source="{CHANNEL_SERVER}" req="r8">later</channel>'}}
+    entries = [channel_turn(server=other), assistant(), ours_mid_turn, ended("All done.")]
+    assert gate(entries, {"r7", "r8"}, server=other) == "r7"
