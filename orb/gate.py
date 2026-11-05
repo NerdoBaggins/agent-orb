@@ -86,17 +86,21 @@ def _is_queued(entry: dict) -> bool:
     return (entry.get("attachment") or {}).get("type") == "queued_command"
 
 
-def _is_a_step(entry: dict | None) -> bool:
-    """A tool call, its result, or an assistant message that did not end the turn."""
-    if not entry:
+def _is_step(entry: dict) -> bool:
+    return entry.get("type") == "assistant" or _is_tool_result(entry)
+
+
+def _continues(step: dict | None) -> bool:
+    """A tool result, or an assistant message that did not end the turn."""
+    if not step:
         return False
-    if entry.get("type") == "assistant":
-        return (entry.get("message") or {}).get("stop_reason") in (None, "tool_use")
-    return _is_tool_result(entry)
+    if step.get("type") == "assistant":
+        return (step.get("message") or {}).get("stop_reason") in (None, "tool_use")
+    return _is_tool_result(step)
 
 
-def _joins_running_turn(entry: dict, last_message: dict | None, server: str) -> bool:
-    typed_between_steps = entry.get("promptSource") == "queued" and _is_a_step(last_message)
+def _joins_running_turn(entry: dict, last_step: dict | None, server: str) -> bool:
+    typed_between_steps = entry.get("promptSource") == "queued" and _continues(last_step)
     return _is_notification(entry) or typed_between_steps or (_is_queued(entry) and not _from_channel(entry, server))
 
 
@@ -124,15 +128,15 @@ def _closes_turn(entry: dict) -> bool:
 
 def openers(entries: list[dict], server: str = CHANNEL_SERVER) -> list[dict | None]:
     """For each entry, the entry that opened the turn it belongs to."""
-    opener, running, last_message, out = None, False, None, []
+    opener, running, last_step, out = None, False, None, []
     for entry in entries:
         if not entry.get("isSidechain"):
             if _closes_turn(entry):
                 running = False
-            elif _opens_turn(entry) and not (running and _joins_running_turn(entry, last_message, server)):
+            elif _opens_turn(entry) and not (running and _joins_running_turn(entry, last_step, server)):
                 opener, running = entry, True
-            if entry.get("type") in ("user", "assistant"):
-                last_message = entry
+            if _is_step(entry):
+                last_step = entry
         out.append(opener)
     return out
 
