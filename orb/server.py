@@ -243,6 +243,7 @@ class OrbServer:
         self.app.router.add_get("/health", self.health)
         self.app.router.add_get("/pending", self.pending_ids)
         self.app.router.add_post("/reply", self.reply)
+        self.app.router.add_post("/ended", self.ended)
         self.app.router.add_get("/panels", self.panels_list)
         self.app.router.add_post("/panels/reveal", self.panels_reveal)
         self.app.router.add_get("/settings/folders", self.settings_folders)
@@ -1021,17 +1022,34 @@ class OrbServer:
     async def pending_ids(self, request: web.Request) -> web.Response:
         return web.json_response({"pending": sorted(self.pending)})
 
-    async def reply(self, request: web.Request) -> web.Response:
+    async def pending_request(self, request: web.Request) -> tuple[str, dict]:
         try:
             body = await request.json()
         except json.JSONDecodeError:
             raise web.HTTPBadRequest(text="JSON body expected")
-        request_id, text = str(body.get("req", "")), str(body.get("text", ""))
+        request_id = str(body.get("req", ""))
         if request_id not in self.pending:
             raise web.HTTPNotFound(text="no such pending request")
+        return request_id, body
+
+    async def reply(self, request: web.Request) -> web.Response:
+        request_id, body = await self.pending_request(request)
         self.pending.pop(request_id)
-        await self.deliver_reply(request_id, text)
+        await self.deliver_reply(request_id, str(body.get("text", "")))
         return web.json_response({"ok": True})
+
+    async def ended(self, request: web.Request) -> web.Response:
+        request_id, _ = await self.pending_request(request)
+        await self.end_interrupted(request_id, f"{self.link.name}'s turn ended without a reply for the orb")
+        return web.json_response({"ok": True})
+
+    async def end_interrupted(self, request_id: str, reason: str) -> None:
+        self.pending.pop(request_id)
+        entry = self.entry(request_id)
+        entry["status"] = "interrupted"
+        await self.broadcast({"type": "interrupted", "req": request_id, "ref": entry.get("ref")})
+        await self.notify("info", reason, entry.get("ref"))
+        await self.set_state("idle")
 
     async def watch_wait(self, request_id: str) -> None:
         """While the request is out, says what the agent is in the middle of whenever that holds for a few polls."""
@@ -1229,11 +1247,7 @@ class OrbServer:
             reply = await asyncio.to_thread(self.link.send, f"{sender} {text}" if sender else text, request_id)
         except agents.RequestEnded as e:
             if request_id in self.pending:
-                self.pending.pop(request_id)
-                self.entry(request_id)["status"] = "interrupted"
-                await self.broadcast({"type": "interrupted", "req": request_id, "ref": ref})
-                await self.notify("info", str(e), ref)
-                await self.set_state("idle")
+                await self.end_interrupted(request_id, str(e))
             return
         except agents.LinkError as e:
             if request_id in self.pending:
