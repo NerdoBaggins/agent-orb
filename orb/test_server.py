@@ -250,6 +250,7 @@ def test_an_ended_request_settles_without_a_reply_and_the_next_one_is_sent(tmp_p
             await wait_for(lambda: len(server.link.sent) == 2)
             assert server.link.sent[1][0].endswith("two")
             assert server.entry(first)["status"] == "interrupted" and server.entry(first)["reply"] is None
+            assert first not in server.pending
     run(go())
 
 
