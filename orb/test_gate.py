@@ -165,10 +165,26 @@ def typed_mid_turn_queued_command():
 
 
 def test_a_message_typed_while_the_orbs_turn_runs_leaves_the_turn_to_the_orb():
-    typed_between_steps = {"type": "user", "promptSource": "queued", "origin": {"kind": "human"},
-                           "message": {"role": "user", "content": "typed while busy"}}
-    for typed in (typed_mid_turn_queued_command(), typed_between_steps):
+    for typed in (typed_mid_turn_queued_command(), typed_between_steps()):
         assert gate([channel_turn(), assistant(), tool_result(), typed, ended("All done.")], PENDING) == "r7"
+
+
+def typed_between_steps(text="typed while busy"):
+    return {"type": "user", "promptSource": "queued", "origin": {"kind": "human"}, "message": {"role": "user", "content": text}}
+
+
+def test_a_message_typed_while_the_agent_is_still_writing_leaves_the_turn_to_the_orb():
+    writing = assistant("Building the deck now.")
+    writing["message"]["stop_reason"] = None
+    assert gate([channel_turn(), writing, typed_between_steps(), ended("All done.")], PENDING) == "r7"
+
+
+def test_messages_typed_in_a_row_between_steps_leave_the_turn_to_the_orb():
+    skill = {"type": "user", "isMeta": True, "sourceToolAssistantUUID": "a1", "message": {"role": "user", "content": "Base directory for this skill: x"}}
+    snapshot = {"type": "file-history-snapshot"}
+    entries = [channel_turn(), assistant(), tool_result(), skill, snapshot, typed_between_steps("No"),
+               typed_between_steps("Computer is under heavy load"), ended("All done.")]
+    assert gate(entries, PENDING) == "r7"
 
 
 def test_another_channels_message_mid_turn_leaves_the_turn_to_the_orb():
