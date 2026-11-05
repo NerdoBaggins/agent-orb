@@ -182,8 +182,9 @@ def test_a_message_typed_while_the_agent_is_still_writing_leaves_the_turn_to_the
 def test_messages_typed_in_a_row_between_steps_leave_the_turn_to_the_orb():
     skill = {"type": "user", "isMeta": True, "sourceToolAssistantUUID": "a1", "message": {"role": "user", "content": "Base directory for this skill: x"}}
     snapshot = {"type": "file-history-snapshot"}
-    entries = [channel_turn(), assistant(), tool_result(), skill, snapshot, typed_between_steps("No"),
-               typed_between_steps("Computer is under heavy load"), ended("All done.")]
+    calling = {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "t1"}], "stop_reason": "tool_use"}}
+    entries = [channel_turn(), calling, skill, snapshot, typed_between_steps("No"),
+               typed_between_steps("Computer is under heavy load"), tool_result(), ended("All done.")]
     assert gate(entries, PENDING) == "r7"
 
 
