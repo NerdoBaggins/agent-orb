@@ -184,3 +184,9 @@ def test_another_channels_message_mid_turn_leaves_the_turn_to_the_orb():
 
 def test_a_message_typed_after_the_orbs_turn_ended_opens_a_turn_that_is_not_the_orbs():
     assert gate([channel_turn(), ended("Started it."), typed_attachment(), ended("Answered.")], PENDING) is None
+
+
+def test_a_transcript_cut_mid_character_still_reads(tmp_path):
+    path = tmp_path / "t.jsonl"
+    path.write_bytes(json.dumps(channel_turn()).encode() + b"\n" + '{"t": "é'.encode()[:-1])
+    assert gate(read_transcript(str(path)), PENDING) == "r7"
