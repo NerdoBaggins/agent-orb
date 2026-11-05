@@ -165,7 +165,10 @@ def typed_mid_turn_queued_command():
 
 
 def test_a_message_typed_while_the_orbs_turn_runs_leaves_the_turn_to_the_orb():
-    assert gate([channel_turn(), assistant(), tool_result(), typed_mid_turn_queued_command(), ended("All done.")], PENDING) == "r7"
+    typed_between_steps = {"type": "user", "promptSource": "queued", "origin": {"kind": "human"},
+                           "message": {"role": "user", "content": "typed while busy"}}
+    for typed in (typed_mid_turn_queued_command(), typed_between_steps):
+        assert gate([channel_turn(), assistant(), tool_result(), typed, ended("All done.")], PENDING) == "r7"
 
 
 def test_another_channels_message_mid_turn_leaves_the_turn_to_the_orb():
