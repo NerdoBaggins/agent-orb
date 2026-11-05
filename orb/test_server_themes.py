@@ -366,7 +366,8 @@ def test_a_theme_naming_a_speech_engine_that_is_not_installed_keeps_the_voice_an
 
 @pytest.mark.timeout(60)
 def test_a_theme_naming_a_speech_engine_that_fails_to_load_keeps_the_voice_and_says_why(tmp_path, monkeypatch):
-    monkeypatch.setitem(engines.DEFAULT, "tts", "fake")
+    user_tts_engine(tmp_path, "standin")
+    monkeypatch.setitem(engines.DEFAULT, "tts", "standin")
     user_tts_engine(tmp_path, "broken")
     hud(tmp_path, tts={"engine": "broken", "broken": {"fail": True}})
 

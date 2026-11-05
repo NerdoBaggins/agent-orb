@@ -681,7 +681,8 @@ def test_switching_transcription_loads_the_engine_saves_it_for_this_repo_and_tel
 
 @pytest.mark.timeout(60)
 def test_a_transcription_engine_that_fails_to_load_leaves_the_current_one_listening_and_says_why(tmp_path, monkeypatch):
-    monkeypatch.setitem(engines.DEFAULT, "stt", "fake")
+    user_stt_engine(tmp_path, "standin")
+    monkeypatch.setitem(engines.DEFAULT, "stt", "standin")
     user_stt_engine(tmp_path, "broken")
     (tmp_path / "home" / ".config" / "orb").mkdir(parents=True)
     (tmp_path / "home" / ".config" / "orb" / "config.json").write_text(
@@ -732,7 +733,8 @@ def test_switching_the_voice_loads_the_engine_saves_it_for_this_repo_and_tells_e
 
 @pytest.mark.timeout(60)
 def test_a_voice_that_fails_to_load_leaves_the_current_one_speaking_and_says_why(tmp_path, monkeypatch):
-    monkeypatch.setitem(engines.DEFAULT, "tts", "fake")
+    user_tts_engine(tmp_path, "standin")
+    monkeypatch.setitem(engines.DEFAULT, "tts", "standin")
     user_tts_engine(tmp_path, "broken")
     (tmp_path / "home" / ".config" / "orb").mkdir(parents=True)
     (tmp_path / "home" / ".config" / "orb" / "config.json").write_text(
