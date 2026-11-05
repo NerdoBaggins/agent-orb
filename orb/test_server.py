@@ -234,6 +234,34 @@ def test_claude_link_reads_the_rename_the_hooks_recorded(tmp_path, monkeypatch):
     assert link.describe(True) == "Attached: Claude Code · Kitchen-Laptop"
 
 
+def test_an_ended_request_settles_without_a_reply_and_the_next_one_is_sent(tmp_path):
+    async def go():
+        server = make(tmp_path)
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            await ws.send_json({"type": "ask", "active": True, "text": "one"})
+            await wait_for(lambda: server.link.sent)
+            await ws.send_json({"type": "ask", "active": True, "text": "two"})
+            await wait_for(lambda: server.queue)
+            first = server.link.sent[0][1]
+            ended = await c.post("/ended", params={"token": TOKEN}, json={"req": first})
+            assert ended.status == 200
+            await wait_for(lambda: len(server.link.sent) == 2)
+            assert server.link.sent[1][0].endswith("two")
+            assert server.entry(first)["status"] == "interrupted" and server.entry(first)["reply"] is None
+    run(go())
+
+
+def test_ending_an_unknown_request_is_404(tmp_path):
+    async def go():
+        server = make(tmp_path)
+        async with await client_for(server) as c:
+            r = await c.post("/ended", params={"token": TOKEN}, json={"req": "nope"})
+            assert r.status == 404
+    run(go())
+
+
 def test_reply_for_an_unknown_request_is_404(tmp_path):
     async def go():
         server = make(tmp_path)

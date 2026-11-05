@@ -251,6 +251,10 @@ Mic and ask buttons stay disabled until the link is verified.
      attachment mid-turn;
   2. that turn carries a request id the orb server sent to Claude Code and still has pending.
 
+  When the turn that ended is not the orb's but the transcript holds the channel message of a request still
+  pending, that request's turn is over unanswered. The hook ends it without a reply (`POST /ended`), so the orb
+  stops thinking and sends what it queued. A request not yet in the transcript is left pending.
+
   Every other turn in every session is left to the session watcher (Speaking). The hook exits 0 and does nothing when no orb server is running,
   and treats a missing or unreadable transcript as a turn that is not the orb's. It takes the repo from
   `CLAUDE_PROJECT_DIR`, the folder the session started in, and from the `cwd` in its stdin payload only when that is
