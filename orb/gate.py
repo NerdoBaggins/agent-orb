@@ -86,8 +86,18 @@ def _is_queued(entry: dict) -> bool:
     return (entry.get("attachment") or {}).get("type") == "queued_command"
 
 
-def _joins_running_turn(entry: dict, server: str) -> bool:
-    return _is_notification(entry) or (_is_queued(entry) and not _from_channel(entry, server))
+def _is_a_step(entry: dict | None) -> bool:
+    """A tool call, its result, or an assistant message that did not end the turn."""
+    if not entry:
+        return False
+    if entry.get("type") == "assistant":
+        return (entry.get("message") or {}).get("stop_reason") in (None, "tool_use")
+    return _is_tool_result(entry)
+
+
+def _joins_running_turn(entry: dict, last_message: dict | None, server: str) -> bool:
+    typed_between_steps = entry.get("promptSource") == "queued" and _is_a_step(last_message)
+    return _is_notification(entry) or typed_between_steps or (_is_queued(entry) and not _from_channel(entry, server))
 
 
 def _opens_turn(entry: dict) -> bool:
@@ -114,13 +124,15 @@ def _closes_turn(entry: dict) -> bool:
 
 def openers(entries: list[dict], server: str = CHANNEL_SERVER) -> list[dict | None]:
     """For each entry, the entry that opened the turn it belongs to."""
-    opener, running, out = None, False, []
+    opener, running, last_message, out = None, False, None, []
     for entry in entries:
         if not entry.get("isSidechain"):
             if _closes_turn(entry):
                 running = False
-            elif _opens_turn(entry) and not (running and _joins_running_turn(entry, server)):
+            elif _opens_turn(entry) and not (running and _joins_running_turn(entry, last_message, server)):
                 opener, running = entry, True
+            if entry.get("type") in ("user", "assistant"):
+                last_message = entry
         out.append(opener)
     return out
 
