@@ -326,21 +326,22 @@ def test_a_copilot_abort_logged_before_the_turn_opened_does_not_close_it():
     assert not aborted_since([written(ABORT, 30)], NOW - timedelta(seconds=20))
 
 
-# ---- built-in commands that ran ----
-
 SENT = datetime(2026, 11, 6, 9, 0, 0, tzinfo=timezone.utc)
 
 
 def _echo(name, at):
-    """As Claude Code 2.1.319 logs a built-in it ran."""
     return {"type": "system", "subtype": "local_command", "timestamp": at, "level": "info",
             "content": f"<command-name>{name}</command-name>\n            <command-message>{name[1:]}</command-message>\n"
                        "            <command-args></command-args>"}
 
 
-def _quoted_echo(name, at, origin):
-    return {"type": "user", "timestamp": at, "origin": origin,
-            "message": {"role": "user", "content": f"<command-name>{name}</command-name>"}}
+def _user_entry(text, at, origin=None, **extra):
+    return {"type": "user", "timestamp": at, "origin": origin, "message": {"role": "user", "content": text}, **extra}
+
+
+def _user_echo(name, at, origin=None, **extra):
+    return _user_entry(f"<command-name>{name}</command-name>\n            <command-message>{name[1:]}</command-message>",
+                       at, origin, **extra)
 
 
 def test_a_command_echoed_after_it_was_sent_ran():
@@ -356,8 +357,28 @@ def test_a_command_that_completed_to_a_longer_name_did_not_run():
 
 
 def test_a_channel_message_quoting_an_echo_is_not_a_run():
-    quoted = _quoted_echo("/context", "2026-11-06T09:00:01Z", {"kind": "channel", "server": CHANNEL_SERVER})
+    quoted = _user_echo("/context", "2026-11-06T09:00:01Z", {"kind": "channel", "server": CHANNEL_SERVER})
     assert not command_ran_since([quoted], "context", SENT)
+
+
+@pytest.mark.parametrize("origin", [None, {"kind": "human"}])
+def test_a_command_echoed_as_the_users_own_entry_ran(origin):
+    assert command_ran_since([_user_echo("/compact", "2026-11-06T09:00:01Z", origin)], "compact", SENT)
+
+
+def test_a_command_line_that_reached_the_agent_as_text_did_not_run_whatever_its_argument_says():
+    typed = _user_entry("/compact <command-name>/compact</command-name>", "2026-11-06T09:00:01Z")
+    assert not command_ran_since([typed], "compact", SENT)
+
+
+def test_a_subagents_echo_is_not_a_run():
+    assert not command_ran_since([_user_echo("/compact", "2026-11-06T09:00:01Z", isSidechain=True)], "compact", SENT)
+
+
+def test_a_manual_compaction_is_not_a_run_of_another_command():
+    boundary = {"type": "system", "subtype": "compact_boundary", "timestamp": "2026-11-06T09:00:30Z",
+                "compactMetadata": {"trigger": "manual"}}
+    assert not command_ran_since([boundary], "context", SENT)
 
 
 @pytest.mark.parametrize("trigger, ran", [("manual", True), ("auto", False)])
