@@ -1,7 +1,11 @@
 import json
+import types
 
-from orb import server as server_module, terminal
+import pytest
+
+from orb import commands, server as server_module, terminal
 from orb.test_server import TOKEN, FakeLink, client_for, make, run, wait_for
+from orb.test_server_side import next_json, of_type
 
 
 class CommandLink(FakeLink):
@@ -169,3 +173,74 @@ def test_commands_are_refused_under_copilot(tmp_path, monkeypatch):
             r = await c.post("/command", json={"name": "context"}, headers={"X-Orb-Token": TOKEN})
             assert r.status == 400 and "only under Claude Code" in (await r.json())["error"]
     run(go())
+
+
+@pytest.mark.parametrize("runs, level, text", [(True, "info", "/compact ran"), (False, "error", "does not show it ran")])
+def test_the_agents_own_command_reports_how_it_went_as_a_notice(tmp_path, monkeypatch, runs, level, text):
+    quick(monkeypatch)
+
+    async def go():
+        server = make(tmp_path)
+        server.link = CommandLink(runs=runs)
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await c.post("/command", json={"name": "compact"}, headers={"X-Orb-Token": TOKEN})
+            said = await next_json(ws, of_type("notice"))
+            assert said["level"] == level and text in said["text"]
+    run(go())
+
+
+class SlowLink(CommandLink):
+    def __init__(self):
+        super().__init__()
+        self.looks = 0
+
+    def ran_since(self, name, since):
+        self.looks += 1
+        return self.looks >= 5
+
+
+def test_a_command_with_its_own_confirm_window_is_waited_for_that_long(tmp_path, monkeypatch):
+    quick(monkeypatch)
+    monkeypatch.setattr(server_module, "COMMAND_CONFIRM_DEFAULT_S", 0.02)
+    monkeypatch.setattr(server_module, "COMMAND_CONFIRM_S", {"compact": 5})
+
+    async def go():
+        server = make(tmp_path)
+        server.link = SlowLink()
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.send_json(page_command())
+            assert (await command_result(ws))["ok"]
+    run(go())
+
+
+def test_a_command_whose_turn_never_ends_is_dropped_untyped(tmp_path, monkeypatch):
+    quick(monkeypatch)
+    monkeypatch.setattr(server_module, "COMMAND_HOLD_S", 0.05)
+
+    async def go():
+        server = make(tmp_path)
+        server.link = CommandLink(open_turns=10 ** 6)
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.send_json(page_command())
+            result = await command_result(ws)
+            assert "stayed busy" in result["error"] and server.link.typed == []
+    run(go())
+
+
+def test_the_session_link_types_the_commands_parts_into_the_sessions_terminal(tmp_path, monkeypatch):
+    sent = []
+    monkeypatch.setattr(terminal, "target_for", lambda pid: terminal.Target(pid, "claude") if pid else None)
+    monkeypatch.setattr(terminal, "send_line", lambda target, parts: sent.append((target.pid, parts)))
+    link = server_module.ClaudeLink(tmp_path)
+    link.info = types.SimpleNamespace(session_pid=4242)
+    link.type_command(commands.Command("compact", "keep the plan"))
+    assert sent == [(4242, ("/compact ", "keep the plan"))]
+
+
+def test_the_session_link_without_a_session_process_types_nothing(tmp_path, monkeypatch):
+    monkeypatch.setattr(terminal, "send_line", lambda target, parts: pytest.fail("typed"))
+    with pytest.raises(terminal.NoAdapter, match="no session process"):
+        server_module.ClaudeLink(tmp_path).type_command(commands.Command("context", ""))
