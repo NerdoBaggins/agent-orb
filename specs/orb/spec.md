@@ -297,6 +297,34 @@ Mic and ask buttons stay disabled until the link is verified.
 - The `Stop` hook fires under Copilot too, at every turn end (test 0.1). Its transcript is Copilot's own
   `events.jsonl`, in which the gate finds no channel turn, so it stays silent.
 
+## Built-in commands
+
+Under Claude Code the orb runs a built-in command (`/compact <instructions>`, `/context`) in the attached session by
+typing it into the session's own terminal, through the adapters that send Stop's Escape. No supported interface
+reaches a running interactive session otherwise (2026-11-05): a channel injects text, the Agent SDK controls only
+processes it starts, and Remote Control's command path is open only to Anthropic's own clients.
+
+- **Who asks.** The agent, with `orb command <name> [argument]`, which the server answers at once (`202`) and runs
+  after the agent's turn ends; or a page, with `orb.command(name, argument)` from a click, which resolves when the
+  command ran and rejects with the reason when it did not.
+- **What may run.** Only a name in the `commands` config list, user layers only, default `compact` and `context`. The
+  argument is one line: no C0 or C1 control character, DEL, or Unicode line or paragraph separator, at most 4000
+  characters. Only `color`, `compact`, `effort`, `fast`, `model` and `rename` take one; Claude Code sends any other
+  built-in typed with text after it to the model as a prompt (verified live with `/context <text>`, 2026-11-06). Under Copilot every command is refused.
+- **When.** Held while the session's turn is open, up to ten minutes; one at a time.
+- **How it is typed.** The command (`/compact `), then its argument, then Return, each a write of its own 0.3 s
+  apart. Claude Code takes a long write as a paste, and a whole line that arrives as one goes to the agent as text;
+  the command typed first is dispatched with the pasted argument (verified live with a 1900-character `/compact`,
+  2026-11-06). iTerm2 writes into the session's pty. Terminal: the session's tab selected and frontmost, then
+  System Events keystrokes. Windows: a key event pair per UTF-16 unit by `WriteConsoleInput` into the session's
+  console. The parts reach AppleScript as arguments, never as script source.
+- **Confirmed by the transcript.** It ran when an entry newer than the send echoes `<command-name>/<name>` (a
+  `local_command` system entry for a built-in, the user's entry for a skill), or,
+  for `/compact`, a manual `compact_boundary` follows. A command that does not appear within 20 s (`/compact`: 300 s)
+  is reported as not run. Text the user left in the terminal's prompt is typed in front of it, and a dialog open in
+  the terminal takes the Return as its highlighted choice; neither is detected before typing. A permission prompt
+  opens only inside a turn, which the hold waits out.
+
 ## Panels
 
 A panel is any HTML page the agent writes. The orb imposes no data format: the agent fetches whatever it needs with
@@ -477,7 +505,9 @@ owned by this repo; each selected engine loads; browser found.
    channel's MCP `instructions` for Claude Code and as a prompt prefix for Copilot.
 5. Whether a slash command sent through the channel or Copilot's SDK runs as a command or arrives as text. Resolved
    by test 0.4: text on both. A skill name is still honoured, because the model invokes the skill. Typing into the
-   agent's console (Windows `WriteConsoleInput`) and Copilot's `commands.enqueue` do run commands; neither is used.
+   agent's console (Windows `WriteConsoleInput`) and Copilot's `commands.enqueue` do run commands. Claude Code's
+   built-ins are now typed into the session's terminal (`orb command`, `orb.command`; see Built-in commands);
+   Copilot's `commands.enqueue` is still unused.
 6. How the skill reaches the `orb` command. Resolved: through the skill's base directory (Packaging), 2026-10-06.
 7. Which hooks mark a turn open and closed. Resolved by the hooks spike, 2026-10-20:
    `UserPromptSubmit` opens one in both agents; `Stop`, `StopFailure` and `SessionEnd` close it. No hook fires on an

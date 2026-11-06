@@ -21,6 +21,11 @@ that has one adds it under Unreleased.
 
 ### Added
 
+- `orb command <name> [argument]`, and `orb.command(name, argument)` for panels and widgets, run a built-in Claude Code
+  command such as `/compact keep the open questions` in the attached session. The orb types it into the session's
+  terminal once its turn ends and checks the transcript that it ran. Only the commands in your new `commands` config
+  list run, `compact` and `context` unless you add more
+  ([#181](https://github.com/NerdoBaggins/agent-orb/issues/181)).
 - A `panels` menu in the bar lists every panel you can open, sorted by title: the built-in transcript, release notes and
   settings, and your saved panels. Each shows where it comes from (built in, yours for this repo, a custom folder, or
   global) and its folder, with an `open folder` button; a panel hidden by an earlier one of the same name is struck
