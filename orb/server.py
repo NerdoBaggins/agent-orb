@@ -69,9 +69,9 @@ PANEL_POST_MAX_BYTES = (len(json.dumps(panels.post_body("n" * pages.MAX_NAME_CHA
                         + JSON_ENTRY_BYTES + len("index.html")
                         + (pages.MAX_FILES - 1) * (JSON_ENTRY_BYTES + pages.MAX_PATH_CHARS * JSON_CHAR_MAX_BYTES)
                         + files_base64_max(pages.MAX_TOTAL_BYTES, pages.MAX_FILES))
-COMMAND_HOLD_S = 600  # how long a command waits for the session's turn to end before it is dropped
+COMMAND_HOLD_S = 600
 COMMAND_POLL_S = 0.5
-COMMAND_CONFIRM_S = {"compact": 300}  # a compaction summarises the whole conversation first
+COMMAND_CONFIRM_S = {"compact": 300}
 COMMAND_CONFIRM_DEFAULT_S = 20
 ACTIONS_AT_ONCE = 4  # per panel; a panel that fires more waits for an answer first
 WINDOW_GRACE_S = float(os.environ.get("ORB_WINDOW_GRACE_S", 20))  # a server with no window this long exits: closing the window ends the orb; covers a reload
@@ -155,7 +155,6 @@ class ClaudeLink:
         return f"Attached: Claude Code · {self.session_name}" if self.session_name else "Attached: Claude Code"
 
     def type_command(self, command: commands.Command) -> None:
-        """Raises terminal.NoAdapter when the line could not be typed into the session's terminal."""
         target = terminal.target_for(self.info.session_pid if self.info else None)
         if not target:
             raise terminal.NoAdapter("no session process recorded by the channel")
@@ -616,7 +615,6 @@ class OrbServer:
         await answer(True, result)
 
     async def allowed_command(self, name, argument) -> commands.Command:
-        """Raises CommandError for an agent without commands, or a command the user's allowlist does not name."""
         if self.agent != "claude":
             raise commands.CommandError("built-in commands run only under Claude Code")
         try:
@@ -626,8 +624,7 @@ class OrbServer:
         return commands.parse(name, argument, allowed)
 
     async def run_command(self, command: commands.Command) -> str | None:
-        """Holds the command until the session's turn ends, types it into the session's terminal, and waits for its
-        transcript to show it ran: None then, otherwise why not. One command at a time."""
+        """None once the transcript shows it ran, otherwise why not."""
         if self.command_lock.locked():
             return "another command is already waiting to run"
         async with self.command_lock:
@@ -652,8 +649,7 @@ class OrbServer:
                     "if its prompt already held text, the command was typed after that text")
 
     async def command_endpoint(self, request: web.Request) -> web.Response:
-        """For the agent's own `orb command`: answers once the command is checked, and runs it after the agent's turn
-        ends, which this request must not wait for. How it went is a notice."""
+        """Answers before the command runs: the agent asking is the turn the command waits for."""
         body = await request.json()
         try:
             command = await self.allowed_command(body.get("name"), body.get("argument"))
@@ -667,7 +663,6 @@ class OrbServer:
         return web.json_response({"queued": command.line}, status=202)
 
     async def page_command(self, message: dict) -> None:
-        """`orb.command` from an open panel or widget, which needs a click; answers with whether the command ran."""
         ref = message.get("ref")
 
         async def answer(failed: str | None) -> None:
