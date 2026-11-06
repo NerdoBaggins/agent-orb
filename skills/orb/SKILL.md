@@ -199,13 +199,13 @@ A built-in Claude Code command (`/compact`, `/context`) in a request reaches you
 answering. When the user asks for one, such as "compact, and keep the review findings", run:
 
 ```
-uv run --project "<ORB_ROOT>" orb command <name> [argument...]
+uv run --project "<ORB_ROOT>" orb command <name> ['<argument>']
 ```
 
 It returns at once and the orb types the command into this session's terminal when your turn ends, so say you have
 queued it and end your turn. For `/compact`, the argument is the instructions for what the summary keeps: one line,
-written for this session. Only the names in the user's `commands` list run (`compact` and `context` unless they set
-more); the orb says whether it ran. Under Copilot it is refused.
+written for this session, in single quotes so the shell passes it as it is. Only the names in the user's `commands`
+list run (`compact` and `context` unless they set more); the orb says whether it ran. Under Copilot it is refused.
 
 ## Answering orb requests
 
