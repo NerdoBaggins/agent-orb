@@ -95,6 +95,19 @@ function harness({ active = true } = {}) {
   h.deliver({ orb: "reject", id: h.posted[1].id, error: "reauth works only during a click or key press" });
   await assert.rejects(p2, /only during a click/);
 }
+// a command needs a click, posts its name and argument, and resolves once the orb says it ran
+{
+  const idle = harness({ active: false });
+  await assert.rejects(idle.api.command("compact", "keep x"), /click or key press/);
+  assert.equal(idle.posted.length, 0);
+  const h = harness();
+  const p = h.api.command("compact", "keep x");
+  assert.deepEqual(h.posted, [{ orb: "command", id: h.posted[0].id, name: "compact", argument: "keep x" }]);
+  h.deliver({ orb: "result", id: h.posted[0].id, result: { ran: true } });
+  assert.deepEqual(await p, { ran: true });
+  h.api.command("context");
+  assert.equal(h.posted[1].argument, "");
+}
 console.log("panel api ok");
 // Escape pressed inside the panel reaches the orb, unless the panel handled it or the user is typing
 {

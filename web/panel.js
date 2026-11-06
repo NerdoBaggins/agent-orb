@@ -1,4 +1,4 @@
-// Injected into every panel by the orb server. Gives the panel `orb.send`, `orb.speak`, `orb.stop`, `orb.action`, `orb.state`,
+// Injected into every panel by the orb server. Gives the panel `orb.send`, `orb.speak`, `orb.stop`, `orb.action`, `orb.command`, `orb.state`,
 // `orb.data` (what the user's feed for this panel last wrote) and `orb.on("state" | "data", fn)`;
 // the only way out of the sandbox is postMessage to the orb page. `createOrbApi` is exported for tests.
 // The sandbox gives the panel no origin, so the browser's storage throws on first touch; a page written for a normal
@@ -97,6 +97,16 @@ if (typeof window !== "undefined") {
       },
       stop() {
         post({ orb: "stop" });
+      },
+      // Types a built-in agent command the user's allowlist names, such as ("compact", "keep the open questions"),
+      // into the attached session once its turn ends; resolves with {ran: true} once its transcript shows it ran.
+      command(name, argument) {
+        if (!isActive()) return Promise.reject(new Error("orb.command works only during a click or key press"));
+        const id = `${load}:${++seq}`;
+        return new Promise((resolve, reject) => {
+          pending.set(id, { resolve, reject });
+          post({ orb: "command", id, name: String(name), argument: argument === undefined ? "" : String(argument) });
+        });
       },
       // Runs one of the user's own commands for this panel (actions.json in their actions folder) with `args` as
       // JSON and resolves with its JSON answer. Whether it needs a click is the action's, checked by the orb.

@@ -132,6 +132,34 @@ def interrupted_since(entries: list[dict] | None, since: datetime) -> bool:
     return False
 
 
+def command_ran_since(entries: list[dict] | None, name: str, since: datetime) -> bool:
+    """True when the transcript logged built-in `/name` run after `since`: its command echo, or for `/compact` the
+    boundary a manual compaction writes. A channel message that quotes an echo is not one."""
+    for entry in reversed(entries or []):
+        written = _written_at(entry)
+        if written and written <= since:
+            return False
+        if entry.get("isSidechain"):
+            continue
+        if (name == "compact" and entry.get("type") == "system" and entry.get("subtype") == "compact_boundary"
+                and (entry.get("compactMetadata") or {}).get("trigger") == "manual"):
+            return True
+        echo = COMMAND_NAME.search(_command_echo(entry))
+        if echo and echo.group(1) == f"/{name}":
+            return True
+    return False
+
+
+def _command_echo(entry: dict) -> str:
+    """Where Claude Code logs a command it ran: a built-in as a `local_command` system entry, a skill or custom
+    command as the user's own entry."""
+    if entry.get("type") == "system" and entry.get("subtype") == "local_command":
+        return str(entry.get("content") or "")
+    if entry.get("type") == "user" and (entry.get("origin") or {}).get("kind") in (None, "human"):
+        return _text(entry)
+    return ""
+
+
 def claude_busy(entries: list[dict] | None, *, now: datetime) -> bool:
     """True while a turn is open: the newest thing in the transcript is a prompt, a tool call or its result, rather
     than the agent's closing message, the turn's duration record, or an interrupt. A command Claude Code ran itself
