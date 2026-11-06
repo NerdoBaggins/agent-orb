@@ -406,8 +406,6 @@ def test_the_folders_the_users_file_lists_are_read_as_written_and_a_file_that_ca
     assert own_dirs("panel_dirs", home, repo) == []
 
 
-# ---- built-in commands ----
-
 def test_only_compact_and_context_may_run_until_the_user_lists_more():
     assert load_layers(Path("/nonexistent"))["commands"] == ["compact", "context"]
 

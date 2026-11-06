@@ -98,8 +98,6 @@ if (typeof window !== "undefined") {
       stop() {
         post({ orb: "stop" });
       },
-      // Types a built-in agent command the user's allowlist names, such as ("compact", "keep the open questions"),
-      // into the attached session once its turn ends; resolves with {ran: true} once its transcript shows it ran.
       command(name, argument) {
         if (!isActive()) return Promise.reject(new Error("orb.command works only during a click or key press"));
         const id = `${load}:${++seq}`;
