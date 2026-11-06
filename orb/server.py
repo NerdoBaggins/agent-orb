@@ -221,6 +221,7 @@ class OrbServer:
         self.wake_restarted_at: float | None = None
         self.interrupted_at: float | None = None
         self.command_lock = asyncio.Lock()
+        self.command_typed = False
         self.voice_menu: dict | None = None  # the tts engine's voices, when it offers a choice
         self.enrolling: dict | None = None
         self.enroll_engine: Voiceprint | None = None
@@ -635,24 +636,32 @@ class OrbServer:
             return "another command is already waiting to run"
         async with self.command_lock:
             held_until = time.monotonic() + COMMAND_HOLD_S
-            while await asyncio.to_thread(self.link.turn_open):
+            while await asyncio.to_thread(self.link.turn_open) or self.busy:
                 if time.monotonic() > held_until:
                     return f"the session stayed busy for {COMMAND_HOLD_S // 60} minutes; /{command.name} was not sent"
                 await asyncio.sleep(COMMAND_POLL_S)
-            since = datetime.now(timezone.utc)
+            self.command_typed = True
             try:
-                await asyncio.to_thread(self.link.type_command, command)
-            except terminal.NoAdapter as e:
-                return str(e)
-            log.info("command /%s typed into the session", command.name)
-            confirm_until = time.monotonic() + COMMAND_CONFIRM_S.get(command.name, COMMAND_CONFIRM_DEFAULT_S)
-            while time.monotonic() < confirm_until:
-                await asyncio.sleep(COMMAND_POLL_S)
-                if await asyncio.to_thread(self.link.ran_since, command.name, since):
-                    log.info("command /%s ran", command.name)
-                    return None
-            return (f"/{command.name} was typed into the session's terminal, but its transcript does not show it ran; "
-                    "if its prompt already held text, the command was typed after that text")
+                return await self.type_and_confirm(command)
+            finally:
+                self.command_typed = False
+                self.spawn(self.send_queued())
+
+    async def type_and_confirm(self, command: commands.Command) -> str | None:
+        since = datetime.now(timezone.utc)
+        try:
+            await asyncio.to_thread(self.link.type_command, command)
+        except terminal.NoAdapter as e:
+            return str(e)
+        log.info("command /%s typed into the session", command.name)
+        confirm_until = time.monotonic() + COMMAND_CONFIRM_S.get(command.name, COMMAND_CONFIRM_DEFAULT_S)
+        while time.monotonic() < confirm_until:
+            await asyncio.sleep(COMMAND_POLL_S)
+            if await asyncio.to_thread(self.link.ran_since, command.name, since):
+                log.info("command /%s ran", command.name)
+                return None
+        return (f"/{command.name} was typed into the session's terminal, but its transcript does not show it ran; "
+                "if its prompt already held text, the command was typed after that text")
 
     async def command_endpoint(self, request: web.Request) -> web.Response:
         """Answers before the command runs: the agent asking is the turn the command waits for."""
@@ -1273,7 +1282,7 @@ class OrbServer:
             await self.submit(Request(text, ref=ref, from_user=True))
 
     def blocked(self) -> bool:
-        return self.busy or self.session["busy"]
+        return self.busy or self.session["busy"] or self.command_typed
 
     def must_wait(self) -> bool:
         return self.blocked() or bool(self.queue)
