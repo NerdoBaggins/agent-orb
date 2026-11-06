@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TypedDict
 
+from orb.commands import is_name
 from orb.state import AGENTS, private_root
 
 DEFAULTS = {
@@ -28,10 +29,11 @@ DEFAULTS = {
     "skin_dirs": [],
     "widget_dirs": [],
     "widgets": {},
+    "commands": ["compact", "context"],
 }
 TYPES = {"ptt_key": str, "skin": str, "skin_options": dict, "skin_sizes": dict, "speak": bool, "mute_key": str, "skin_key": str, "panels_key": str, "theme": str, "stt": dict, "tts": dict,
          "wake": dict, "panel_dirs": list,
-         "theme_dirs": list, "skin_dirs": list, "widget_dirs": list, "widgets": dict}
+         "theme_dirs": list, "skin_dirs": list, "widget_dirs": list, "widgets": dict, "commands": list}
 FOLDER_KEYS = ("panel_dirs", "theme_dirs", "skin_dirs", "widget_dirs")
 REPO_KEYS = ("ptt_key", "mute_key", "skin_key", "panels_key", "speak")
 # How far a layer's value overlays the one beneath: a section merges per key, its blocks (one per engine, skin
@@ -146,6 +148,9 @@ def validate_types(data: dict, label: str) -> None:
             raise ConfigError(f"{label} config: skin_sizes.{skin} must be a number, the orb's scale with that skin")
     for name, entry in data.get("widgets", {}).items():
         validate_widget_entry(entry, f"{label} config: widgets.{name}")
+    for name in data.get("commands", []):
+        if not is_name(name):
+            raise ConfigError(f"{label} config: commands holds command names without the slash, got {name!r}")
 
 
 def validate_widget_entry(entry, at: str) -> None:

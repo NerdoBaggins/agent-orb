@@ -404,3 +404,24 @@ def test_the_folders_the_users_file_lists_are_read_as_written_and_a_file_that_ca
     assert own_dirs("panel_dirs", home, repo) == []
     path.unlink()
     assert own_dirs("panel_dirs", home, repo) == []
+
+
+# ---- built-in commands ----
+
+def test_only_compact_and_context_may_run_until_the_user_lists_more():
+    assert load_layers(Path("/nonexistent"))["commands"] == ["compact", "context"]
+
+
+def test_the_users_commands_list_replaces_the_default(tmp_path):
+    assert load_layers(tmp_path, user={"commands": ["context"]})["commands"] == ["context"]
+
+
+def test_a_repos_file_cannot_add_a_command(tmp_path):
+    config = load_layers(tmp_path, repo={"commands": ["clear"]})
+    assert config["commands"] == ["compact", "context"]
+    assert any("commands ignored" in w for w in config.warnings)
+
+
+def test_a_command_written_with_its_slash_is_refused(tmp_path):
+    with pytest.raises(ConfigError, match="command names without the slash"):
+        load_layers(tmp_path, user={"commands": ["/compact"]})
