@@ -1,5 +1,5 @@
 """Writes key events into another process's console input without focusing its window (AttachConsole +
-WriteConsoleInputW, proven for Escape in test 0.2). Usage: win_console.py <pid> escape, or win_console.py <pid> line
+WriteConsoleInputW). Usage: win_console.py <pid> escape, or win_console.py <pid> line
 <part>... to type each part as a write of its own, a pause apart, then press Return. Stdlib only."""
 import ctypes
 import sys
@@ -46,7 +46,6 @@ SETTLE_S = 0.3
 
 
 def text_records(text: str) -> list[INPUT_RECORD]:
-    """One key press per UTF-16 unit of `text`, carried as the character with no virtual key."""
     units = text.encode("utf-16-le")
     chars = [units[i:i + 2].decode("utf-16-le", "surrogatepass") for i in range(0, len(units), 2)]
     return [record for char in chars for record in press(0, 0, char)]
