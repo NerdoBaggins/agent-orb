@@ -311,7 +311,8 @@ processes it starts, and Remote Control's command path is open only to Anthropic
   argument is one line: no C0 or C1 control character, DEL, or Unicode line or paragraph separator, at most 4000
   characters. The orb passes one only to `color`, `compact`, `effort`, `fast`, `model` and `rename`, and refuses one
   for any other name, since Claude Code can send a built-in typed with text after it to the model as a prompt (verified live with `/context <text>`, 2026-11-06). Under Copilot every command is refused.
-- **When.** Held while the session's turn is open, up to ten minutes; one at a time.
+- **When.** Held while the session's turn is open or the orb is busy, up to ten minutes; one at a time. From
+  typing until it ran or was given up, the orb sends no queued request.
 - **How it is typed.** The command (`/compact `), then its argument, then Return, each a write of its own 0.3 s
   apart. Claude Code takes a long write as a paste, and a whole line that arrives as one goes to the agent as text;
   the command typed first is dispatched with the pasted argument (verified live with a 1900-character `/compact`,
