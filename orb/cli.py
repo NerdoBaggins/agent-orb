@@ -368,9 +368,10 @@ def main(argv=None) -> int:
     p_widget.add_argument("name")
     common(p_widget)
     p_command = sub.add_parser("command", help="run one of the built-in agent commands your `commands` allowlist names "
-                                              "(compact, context) in the attached session, once its turn ends")
+                                              "in the attached session, once its turn ends")
     p_command.add_argument("name")
-    p_command.add_argument("argument", nargs="*", help="the rest of the command's line, such as compact's instructions")
+    p_command.add_argument("argument", nargs=argparse.REMAINDER,
+                           help="the rest of the command's line, such as compact's instructions, options and all")
     common(p_command)
     p_voice = sub.add_parser("voice", help="mute or unmute the orb's speech, or enroll your voiceprint")
     p_voice.add_argument("setting", choices=("on", "off", "toggle", "enroll"))
