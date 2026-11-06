@@ -160,6 +160,27 @@ def test_macos_passes_each_part_to_the_script_as_an_argument_not_as_source(monke
     assert args[-3:] == ["/dev/ttys006", *parts] and parts[1] not in args[2] and args[2] == terminal.LINE_SCRIPTS[app]
 
 
+@pytest.mark.parametrize("hangs, says", [("osascript", "osascript did not finish within 15 s; part of the input may"),
+                                         ("tty=", "ps did not finish within 5 s$"),
+                                         ("ppid=,comm=", "ps did not finish within 5 s$")])
+def test_a_macos_step_that_hangs_becomes_no_adapter_saying_whether_anything_was_typed(monkeypatch, hangs, says):
+    ps = _ps_tree({41019: (39933, "claude"), 39933: (1, "Terminal")})
+
+    def run(args, **kw):
+        if hangs in args[:3]:
+            raise subprocess.TimeoutExpired(args[0], kw["timeout"])
+        if args[0] == "osascript":
+            return type("R", (), {"stdout": "sent\n", "stderr": "", "returncode": 0})()
+        if args[1:3] == ["-o", "tty="]:
+            return type("R", (), {"stdout": "ttys006\n", "stderr": "", "returncode": 0})()
+        return ps(args, **kw)
+
+    monkeypatch.setattr(terminal.sys, "platform", "darwin")
+    monkeypatch.setattr(terminal.subprocess, "run", run)
+    with pytest.raises(NoAdapter, match=says):
+        send_line(Target(41019, "claude"), ("/context",))
+
+
 def test_windows_types_each_part_as_its_own_write_one_character_at_a_time_then_return():
     from orb.win_console import VK_RETURN, line_writes
 

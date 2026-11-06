@@ -82,19 +82,19 @@ def send_line(target: Target, parts: tuple[str, ...]) -> bool:
     raise NoAdapter(f"no command adapter for {sys.platform}")
 
 
-def _run_adapter(command: list[str], timeout: float) -> subprocess.CompletedProcess:
+def _run_adapter(command: list[str], timeout: float, types: bool = False) -> subprocess.CompletedProcess:
     try:
         return subprocess.run(command, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
-        raise NoAdapter(f"{Path(command[0]).name} did not finish within {timeout:g} s; part of the input may have been "
-                        "typed into the session's prompt")
+        typed = "; part of the input may have been typed into the session's prompt" if types else ""
+        raise NoAdapter(f"{Path(command[0]).name} did not finish within {timeout:g} s{typed}")
     except OSError as e:
         raise NoAdapter(f"cannot run {command[0]}: {e}")
 
 
 def _windows_console(pid: int, *what: str) -> bool:
     # The attach/detach dance runs in a child so the server process never swaps its own console.
-    result = _run_adapter([sys.executable, str(PLUGIN_ROOT / "orb" / "win_console.py"), str(pid), *what], 10)
+    result = _run_adapter([sys.executable, str(PLUGIN_ROOT / "orb" / "win_console.py"), str(pid), *what], 10, types=True)
     if result.returncode != 0:
         raise NoAdapter(result.stderr.strip() or result.stdout.strip() or f"console input failed ({result.returncode})")
     return True
@@ -210,7 +210,7 @@ def _macos_terminal(pid: int, scripts: dict[str, str], *args: str) -> bool:
     if app is None:
         raise NoAdapter(f"pid {pid} runs under no terminal app with an adapter (iTerm, Terminal)")
     device = f"/dev/{tty}"
-    result = _run_adapter(["osascript", "-e", scripts[app], device, *args], 15)
+    result = _run_adapter(["osascript", "-e", scripts[app], device, *args], 15, types=True)
     outcome = result.stdout.strip() if result.returncode == 0 else result.stderr.strip()
     if outcome == "sent":
         return True
