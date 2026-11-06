@@ -1,9 +1,11 @@
 import json
+import threading
 import types
 
 import pytest
 
 from orb import commands, server as server_module, terminal
+from orb.state import session_file, write_json
 from orb.test_server import TOKEN, FakeLink, client_for, make, run, wait_for
 from orb.test_server_side import next_json, of_type
 
@@ -244,3 +246,31 @@ def test_the_session_link_without_a_session_process_types_nothing(tmp_path, monk
     monkeypatch.setattr(terminal, "send_line", lambda target, parts: pytest.fail("typed"))
     with pytest.raises(terminal.NoAdapter, match="no session process"):
         server_module.ClaudeLink(tmp_path).type_command(commands.Command("context", ""))
+
+
+def test_two_threads_reading_the_transcript_at_once_take_its_new_entries_once(tmp_path, monkeypatch):
+    transcript = tmp_path / "t.jsonl"
+    transcript.write_text(json.dumps({"type": "user", "n": 0}) + "\n", encoding="utf-8")
+    write_json(session_file(tmp_path), {"transcriptPath": str(transcript), "sessionId": "s"})
+    link = server_module.ClaudeLink(tmp_path)
+    link.refresh()
+    with transcript.open("a", encoding="utf-8") as f:
+        f.write(json.dumps({"type": "user", "n": 1}) + "\n")
+    both_read = threading.Barrier(2)
+    read = server_module.read_transcript_from
+
+    def read_together(path, offset=0):
+        found = read(path, offset)
+        try:
+            both_read.wait(0.5)
+        except threading.BrokenBarrierError:
+            pass
+        return found
+
+    monkeypatch.setattr(server_module, "read_transcript_from", read_together)
+    readers = [threading.Thread(target=link.refresh) for _ in range(2)]
+    for reader in readers:
+        reader.start()
+    for reader in readers:
+        reader.join()
+    assert [entry["n"] for entry in link.transcript] == [0, 1]

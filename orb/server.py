@@ -18,6 +18,7 @@ import re
 import secrets
 import struct
 import sys
+import threading
 import time
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
@@ -90,10 +91,15 @@ class ClaudeLink:
         self.signature = None
         self.offset = 0
         self.shown = None  # (signature, feed, doing) as last built, so a poll that finds no new write builds nothing
+        self.reading = threading.Lock()
 
     def refresh(self) -> None:
         """Reads what the transcript gained since the last look; the whole file only the first time, or when it
         was replaced or shrank. A long session's transcript is megabytes."""
+        with self.reading:
+            self._refresh()
+
+    def _refresh(self) -> None:
         record = read_json(session_file(self.state)) or {}
         path = record.get("transcriptPath")
         self.session_id = record.get("sessionId")
