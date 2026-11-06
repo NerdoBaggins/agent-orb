@@ -445,3 +445,13 @@ def test_listing_panels_with_a_broken_widget_dirs_says_so_and_exits_2(tmp_path, 
     (home / ".config" / "orb" / "config.json").write_text(json.dumps({"widget_dirs": ["relative"]}), encoding="utf-8")
     assert cli.main(["panels", "list", "--repo", str(tmp_path / "repo"), "--home", str(home)]) == 2
     assert "widget_dirs" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("words, argument", [(["compact"], ""), (["compact", "keep", "the", "plan"], "keep the plan"),
+                                              (["compact", "--agent", "copilot", "--keep"], "--agent copilot --keep")])
+def test_a_command_sends_every_word_after_its_name_as_its_argument(tmp_path, monkeypatch, words, argument):
+    sent = []
+    monkeypatch.setattr(cli, "pick_server", lambda state, agent: {})
+    monkeypatch.setattr(cli, "post", lambda server, path, body: sent.append((path, body)) or {"queued": "/compact"})
+    assert cli.main(["command", "--repo", str(tmp_path / "repo"), "--home", str(tmp_path / "home"), *words]) == 0
+    assert sent == [("/command", {"name": "compact", "argument": argument})]
