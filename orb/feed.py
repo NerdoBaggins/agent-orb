@@ -10,6 +10,7 @@ FEED_LIMIT = 80
 STEP_LIMIT = 100
 RESULT_LIMIT = 1500
 CHANNEL_BODY = re.compile(r"<channel\b[^>]*>\n?(.*?)\n?</channel>", re.S)
+ECHO_START = "<command-"
 COMMAND_NAME = re.compile(r"<command-name>\s*(/?[^<\s]+)\s*</command-name>")
 INTERRUPTED = "[Request interrupted"
 NOTIFICATION_TURN_GRACE_S = 15.0
@@ -151,13 +152,13 @@ def command_ran_since(entries: list[dict] | None, name: str, since: datetime) ->
 
 
 def _command_echo(entry: dict) -> str:
-    """Where Claude Code logs a command it ran: a built-in as a `local_command` system entry, a skill or custom
-    command as the user's own entry."""
     if entry.get("type") == "system" and entry.get("subtype") == "local_command":
-        return str(entry.get("content") or "")
-    if entry.get("type") == "user" and (entry.get("origin") or {}).get("kind") in (None, "human"):
-        return _text(entry)
-    return ""
+        text = str(entry.get("content") or "")
+    elif entry.get("type") == "user" and (entry.get("origin") or {}).get("kind") in (None, "human"):
+        text = _text(entry)
+    else:
+        return ""
+    return text if text.lstrip().startswith(ECHO_START) else ""
 
 
 def claude_busy(entries: list[dict] | None, *, now: datetime) -> bool:
