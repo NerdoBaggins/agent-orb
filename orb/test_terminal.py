@@ -1,4 +1,5 @@
 import os
+import subprocess
 import sys
 
 import pytest
@@ -45,6 +46,18 @@ def test_helper_failure_becomes_no_adapter(monkeypatch):
     monkeypatch.setattr(terminal.subprocess, "run", lambda args, **kw: Result())
     with pytest.raises(NoAdapter, match="AttachConsole"):
         send_escape(Target(9, "claude.exe"))
+
+
+@pytest.mark.parametrize("failure, says", [(subprocess.TimeoutExpired("python", 10), "part of the input may have been typed"),
+                                            (FileNotFoundError(2, "No such file"), "cannot run")])
+def test_an_adapter_that_hangs_or_cannot_start_becomes_no_adapter(monkeypatch, failure, says):
+    def run(args, **kw):
+        raise failure
+
+    monkeypatch.setattr(terminal.sys, "platform", "win32")
+    monkeypatch.setattr(terminal.subprocess, "run", run)
+    with pytest.raises(NoAdapter, match=says):
+        send_line(Target(9, "claude.exe"), ("/compact ", "keep the plan"))
 
 
 def _ps_tree(tree):
@@ -156,3 +169,8 @@ def test_windows_types_each_part_as_its_own_write_one_character_at_a_time_then_r
         [(1, 0, "/"), (0, 0, "/"), (1, 0, "c"), (0, 0, "c"), (1, 0, " "), (0, 0, " ")],
         [(1, 0, "\ud83d"), (0, 0, "\ud83d"), (1, 0, "\ude00"), (0, 0, "\ude00")],
         [(1, VK_RETURN, "\r"), (0, VK_RETURN, "\r")]]
+
+
+def test_both_adapters_pause_the_same_time_between_writes():
+    from orb import win_console
+    assert win_console.SETTLE_S == terminal.SETTLE_S

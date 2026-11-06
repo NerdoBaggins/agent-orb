@@ -6,6 +6,7 @@ import ntpath
 import subprocess
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 from orb import PLUGIN_ROOT
 
@@ -62,7 +63,7 @@ def _checked(target: Target) -> None:
 
 
 def send_escape(target: Target) -> bool:
-    """True when the Escape was delivered. Raises NoAdapter where no adapter exists or none can be verified."""
+    """Raises NoAdapter where no adapter exists, none can be verified, or the adapter failed."""
     _checked(target)
     if sys.platform == "win32":
         return _windows_console(target.pid, "escape")
@@ -72,9 +73,7 @@ def send_escape(target: Target) -> bool:
 
 
 def send_line(target: Target, parts: tuple[str, ...]) -> bool:
-    """Types each part as a write of its own, a pause apart, then presses Return, as if typed at the session's prompt.
-    True when delivered; raises NoAdapter where no adapter exists or none can be verified. The caller makes the parts
-    one line of text."""
+    """Types each part as a write of its own, then presses Return. Raises NoAdapter as send_escape does."""
     _checked(target)
     if sys.platform == "win32":
         return _windows_console(target.pid, "line", *parts)
@@ -83,18 +82,26 @@ def send_line(target: Target, parts: tuple[str, ...]) -> bool:
     raise NoAdapter(f"no command adapter for {sys.platform}")
 
 
+def _run_adapter(command: list[str], timeout: float) -> subprocess.CompletedProcess:
+    try:
+        return subprocess.run(command, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise NoAdapter(f"{Path(command[0]).name} did not finish within {timeout:g} s; part of the input may have been "
+                        "typed into the session's prompt")
+    except OSError as e:
+        raise NoAdapter(f"cannot run {command[0]}: {e}")
+
+
 def _windows_console(pid: int, *what: str) -> bool:
     # The attach/detach dance runs in a child so the server process never swaps its own console.
-    result = subprocess.run([sys.executable, str(PLUGIN_ROOT / "orb" / "win_console.py"), str(pid), *what],
-                            capture_output=True, text=True, timeout=10)
+    result = _run_adapter([sys.executable, str(PLUGIN_ROOT / "orb" / "win_console.py"), str(pid), *what], 10)
     if result.returncode != 0:
         raise NoAdapter(result.stderr.strip() or result.stdout.strip() or f"console input failed ({result.returncode})")
     return True
 
 
 def _once_selected(process: str, selected_tty: str, keys: str) -> str:
-    # `select` and `activate` both return before they take effect; keys sent in that gap go to whatever tab and app
-    # were in front. `selected_tty` is the app's own expression for the tty of its selected tab.
+    # `selected_tty` is the app's own expression for the tty of its selected tab.
     return f'''
 repeat 30 times
   if ({selected_tty}) is device then exit repeat
@@ -111,7 +118,7 @@ tell application "System Events"
 end tell'''
 
 
-SETTLE_S = 0.3  # between writes, so Claude Code reads each as its own input
+SETTLE_S = 0.3
 
 
 def _iterm(write: str) -> str:
@@ -179,8 +186,7 @@ MACOS_TERMINAL_APPS = {"iTerm2": "iTerm", "iTermServer": "iTerm", "Terminal": "T
 def _terminal_app_of(pid: int) -> str | None:
     """Which terminal app hosts this process, read off its ancestors (claude ← zsh ← login ← Terminal.app)."""
     for _ in range(12):
-        line = subprocess.run(["ps", "-o", "ppid=,comm=", "-p", str(pid)], capture_output=True, text=True,
-                              timeout=5).stdout.split(None, 1)
+        line = _run_adapter(["ps", "-o", "ppid=,comm=", "-p", str(pid)], 5).stdout.split(None, 1)
         if len(line) < 2:
             return None
         ppid, image = line
@@ -196,17 +202,15 @@ def _terminal_app_of(pid: int) -> str | None:
 def _macos_terminal(pid: int, scripts: dict[str, str], *args: str) -> bool:
     """iTerm2 writes into the session's pty, which touches no window. Terminal has no such call, so there the
     session's tab is selected and the keys go through System Events once the app is frontmost: Terminal takes focus.
-    The app is read off the session's ancestors, because enumerating iTerm's sessions over AppleScript costs seconds.
-    Escape verified on both on macOS 26 (test 0.2). The tty and any text reach the script as arguments, never as
-    script source."""
-    tty = subprocess.run(["ps", "-o", "tty=", "-p", str(pid)], capture_output=True, text=True, timeout=5).stdout.strip()
+    The app is read off the session's ancestors, because enumerating iTerm's sessions over AppleScript costs seconds."""
+    tty = _run_adapter(["ps", "-o", "tty=", "-p", str(pid)], 5).stdout.strip()
     if not tty or tty == "??":
         raise NoAdapter(f"pid {pid} has no terminal; cannot type into it")
     app = _terminal_app_of(pid)
     if app is None:
         raise NoAdapter(f"pid {pid} runs under no terminal app with an adapter (iTerm, Terminal)")
     device = f"/dev/{tty}"
-    result = subprocess.run(["osascript", "-e", scripts[app], device, *args], capture_output=True, text=True, timeout=15)
+    result = _run_adapter(["osascript", "-e", scripts[app], device, *args], 15)
     outcome = result.stdout.strip() if result.returncode == 0 else result.stderr.strip()
     if outcome == "sent":
         return True
