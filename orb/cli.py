@@ -218,6 +218,14 @@ def cmd_panel(args) -> int:
     return 0
 
 
+def cmd_command(args) -> int:
+    repo, home = repo_and_home(args, os.environ)
+    server = pick_server(state_dir(home, repo), args.agent)
+    queued = post(server, "/command", {"name": args.name, "argument": " ".join(args.argument)})["queued"]
+    print(f"queued {queued}: it is typed into the session once its turn ends; the orb says whether it ran")
+    return 0
+
+
 def cmd_voice(args) -> int:
     """Through the running orb when there is one; otherwise the user's config for this repo, for the next one."""
     repo, home = repo_and_home(args, os.environ)
@@ -359,6 +367,11 @@ def main(argv=None) -> int:
     p_widget.add_argument("setting", choices=("on", "off"))
     p_widget.add_argument("name")
     common(p_widget)
+    p_command = sub.add_parser("command", help="run one of the built-in agent commands your `commands` allowlist names "
+                                              "(compact, context) in the attached session, once its turn ends")
+    p_command.add_argument("name")
+    p_command.add_argument("argument", nargs="*", help="the rest of the command's line, such as compact's instructions")
+    common(p_command)
     p_voice = sub.add_parser("voice", help="mute or unmute the orb's speech, or enroll your voiceprint")
     p_voice.add_argument("setting", choices=("on", "off", "toggle", "enroll"))
     common(p_voice)
@@ -377,6 +390,8 @@ def main(argv=None) -> int:
         return cmd_panel(args)
     if args.cmd == "voice":
         return cmd_voice(args)
+    if args.cmd == "command":
+        return cmd_command(args)
     if args.cmd == "widgets":
         return cmd_widgets_list(args)
     if args.cmd == "widget":

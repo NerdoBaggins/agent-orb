@@ -27,7 +27,7 @@ import numpy as np
 from aiohttp import WSMsgType, web
 
 from orb import PLUGIN_ROOT, actions, agents, engines, feeds, folders, logs, pages, panels, releases, skins, themes, widgets
-from orb import interrupt as interrupt_adapter
+from orb import commands, terminal
 from orb.audio import SAMPLE_RATE, TAP_S, speakable, split_sentences
 from orb.side import side_intent, status_sentence
 from orb.config import (WIDGET_PANE_KEYS, WIDGET_PLACE_KEYS, ConfigError, WidgetEntry, clamp_size, clamp_speed, engine_settings, expand_dirs, load_for,
@@ -37,7 +37,7 @@ from orb import waking
 from orb.engines import EngineError, Stt, Tts, Voiceprint
 from orb.wake import ENROLL_PHRASES, voiceprint_from
 from orb.background import claude_running_tasks, same
-from orb.feed import claude_busy, claude_doing, claude_feed, interrupted_since, newest_final, turn_since, unread, undelivered_final
+from orb.feed import claude_busy, claude_doing, claude_feed, command_ran_since, interrupted_since, newest_final, turn_since, unread, undelivered_final
 from orb.gate import custom_title, read_transcript_from
 from orb.state import copilot_channel_file, port_file, read_json, read_turn, server_file, session_file, state_dir, write_json
 
@@ -69,6 +69,10 @@ PANEL_POST_MAX_BYTES = (len(json.dumps(panels.post_body("n" * pages.MAX_NAME_CHA
                         + JSON_ENTRY_BYTES + len("index.html")
                         + (pages.MAX_FILES - 1) * (JSON_ENTRY_BYTES + pages.MAX_PATH_CHARS * JSON_CHAR_MAX_BYTES)
                         + files_base64_max(pages.MAX_TOTAL_BYTES, pages.MAX_FILES))
+COMMAND_HOLD_S = 600  # how long a command waits for the session's turn to end before it is dropped
+COMMAND_POLL_S = 0.5
+COMMAND_CONFIRM_S = {"compact": 300}  # a compaction summarises the whole conversation first
+COMMAND_CONFIRM_DEFAULT_S = 20
 ACTIONS_AT_ONCE = 4  # per panel; a panel that fires more waits for an answer first
 WINDOW_GRACE_S = float(os.environ.get("ORB_WINDOW_GRACE_S", 20))  # a server with no window this long exits: closing the window ends the orb; covers a reload
 log = logging.getLogger("orb")
@@ -150,14 +154,29 @@ class ClaudeLink:
             return "Not attached: start Claude Code in this repo with " + agents.restart_command()
         return f"Attached: Claude Code · {self.session_name}" if self.session_name else "Attached: Claude Code"
 
+    def type_command(self, command: commands.Command) -> None:
+        """Raises terminal.NoAdapter when the line could not be typed into the session's terminal."""
+        target = terminal.target_for(self.info.session_pid if self.info else None)
+        if not target:
+            raise terminal.NoAdapter("no session process recorded by the channel")
+        terminal.send_line(target, command.parts)
+
+    def ran_since(self, name: str, since: datetime) -> bool:
+        self.refresh()
+        return command_ran_since(self.transcript, name, since)
+
+    def turn_open(self) -> bool:
+        self.refresh()
+        return self.busy()
+
     def interrupt(self) -> agents.Stopped:
-        target = interrupt_adapter.target_for(self.info.session_pid if self.info else None)
+        target = terminal.target_for(self.info.session_pid if self.info else None)
         if not target:
             log.warning("interrupt: no session process recorded by the channel")
             return agents.Stopped.STILL_WAITING
         try:
-            return agents.Stopped.ABORTED if interrupt_adapter.send_escape(target) else agents.Stopped.STILL_WAITING
-        except interrupt_adapter.NoAdapter as e:
+            return agents.Stopped.ABORTED if terminal.send_escape(target) else agents.Stopped.STILL_WAITING
+        except terminal.NoAdapter as e:
             log.warning("interrupt: %s", e)
             return agents.Stopped.STILL_WAITING
 
@@ -196,6 +215,7 @@ class OrbServer:
         self.wake_lock = asyncio.Lock()  # two windows may both stream frames; the waker takes them one at a time
         self.wake_restarted_at: float | None = None
         self.interrupted_at: float | None = None
+        self.command_lock = asyncio.Lock()
         self.voice_menu: dict | None = None  # the tts engine's voices, when it offers a choice
         self.enrolling: dict | None = None
         self.enroll_engine: Voiceprint | None = None
@@ -254,6 +274,7 @@ class OrbServer:
         self.app.router.add_post("/panel/close", self.panel_close)
         self.app.router.add_post("/widget", self.widget_endpoint)
         self.app.router.add_post("/stop", self.stop_server)
+        self.app.router.add_post("/command", self.command_endpoint)
         self.app.router.add_post("/voice", self.voice_endpoint)
         self.app.router.add_post("/enroll", self.enroll_endpoint)
         self.app.router.add_get("/skin/{path:.+}", self.skin_file)
@@ -593,6 +614,74 @@ class OrbServer:
         finally:
             self.action_runs[page] -= 1
         await answer(True, result)
+
+    async def allowed_command(self, name, argument) -> commands.Command:
+        """Raises CommandError for an agent without commands, or a command the user's allowlist does not name."""
+        if self.agent != "claude":
+            raise commands.CommandError("built-in commands run only under Claude Code")
+        try:
+            allowed = (await asyncio.to_thread(load_for, self.repo_root, self.home))["commands"]
+        except ConfigError as e:
+            raise commands.CommandError(str(e))
+        return commands.parse(name, argument, allowed)
+
+    async def run_command(self, command: commands.Command) -> str | None:
+        """Holds the command until the session's turn ends, types it into the session's terminal, and waits for its
+        transcript to show it ran: None then, otherwise why not. One command at a time."""
+        if self.command_lock.locked():
+            return "another command is already waiting to run"
+        async with self.command_lock:
+            held_until = time.monotonic() + COMMAND_HOLD_S
+            while await asyncio.to_thread(self.link.turn_open):
+                if time.monotonic() > held_until:
+                    return f"the session stayed busy for {COMMAND_HOLD_S // 60} minutes; /{command.name} was not sent"
+                await asyncio.sleep(COMMAND_POLL_S)
+            since = datetime.now(timezone.utc)
+            try:
+                await asyncio.to_thread(self.link.type_command, command)
+            except terminal.NoAdapter as e:
+                return str(e)
+            log.info("command /%s typed into the session", command.name)
+            confirm_until = time.monotonic() + COMMAND_CONFIRM_S.get(command.name, COMMAND_CONFIRM_DEFAULT_S)
+            while time.monotonic() < confirm_until:
+                await asyncio.sleep(COMMAND_POLL_S)
+                if await asyncio.to_thread(self.link.ran_since, command.name, since):
+                    log.info("command /%s ran", command.name)
+                    return None
+            return (f"/{command.name} was typed into the session's terminal, but its transcript does not show it ran; "
+                    "if its prompt already held text, the command was typed after that text")
+
+    async def command_endpoint(self, request: web.Request) -> web.Response:
+        """For the agent's own `orb command`: answers once the command is checked, and runs it after the agent's turn
+        ends, which this request must not wait for. How it went is a notice."""
+        body = await request.json()
+        try:
+            command = await self.allowed_command(body.get("name"), body.get("argument"))
+        except commands.CommandError as e:
+            return web.json_response({"error": str(e)}, status=400)
+
+        async def run() -> None:
+            failed = await self.run_command(command)
+            await (self.notify("error", failed) if failed else self.notify("info", f"/{command.name} ran"))
+        self.spawn(run())
+        return web.json_response({"queued": command.line}, status=202)
+
+    async def page_command(self, message: dict) -> None:
+        """`orb.command` from an open panel or widget, which needs a click; answers with whether the command ran."""
+        ref = message.get("ref")
+
+        async def answer(failed: str | None) -> None:
+            await self.broadcast({"type": "command_result", "ref": ref, "ok": failed is None,
+                                  **({"result": {"ran": True}} if failed is None else {"error": failed})})
+
+        if not message.get("active"):
+            return await answer("orb.command works only during a click or key press")
+        try:
+            command = await self.allowed_command(message.get("name"), message.get("argument"))
+        except commands.CommandError as e:
+            return await answer(str(e))
+        log.info("command /%s asked for by the %s %s", command.name, message.get("kind"), message.get("page"))
+        await answer(await self.run_command(command))
 
     async def feed_status(self, kind: str, name: str, page: dict, error: str | None) -> None:
         """Marks the page from a failure until new data arrives or the feed is removed, and says why when it first
@@ -1731,6 +1820,8 @@ class OrbServer:
             await self.set_stt_engine(str(message.get("name", "")))
         elif kind == "action":
             self.spawn(self.page_action(message))
+        elif kind == "command":
+            self.spawn(self.page_command(message))
         elif kind == "theme":
             await self.set_theme(str(message.get("name", "")))
         elif kind == "skin":

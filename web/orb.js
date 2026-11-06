@@ -350,6 +350,7 @@
         panelsUi.show(m);
         break;
       case "action_result":
+      case "command_result":
         panelsBridge.answer(m);
         break;
       case "panel_close":
@@ -601,7 +602,7 @@
     },
     handle(ev) {
       const m = ev.data || {};
-      if (!["send", "speak", "stop", "action", "key"].includes(m.orb)) return;
+      if (!["send", "speak", "stop", "action", "command", "key"].includes(m.orb)) return;
       const frame = this.frameOf(ev.source);
       if (!frame) return;
       if (m.orb === "stop") { stopNow(); return; }
@@ -611,6 +612,13 @@
         const ref = `action:${this.window}:${++this.seq}`;
         this.pending.set(ref, { source: ev.source, id: m.id });
         send({ type: "action", kind: frame.kind, page: frame.name, name: String(m.name || ""), args: m.args ?? null, active, ref });
+        return;
+      }
+      if (m.orb === "command") {
+        if (!active) { ev.source.postMessage({ orb: "reject", id: m.id, error: "orb.command works only during a click or key press" }, "*"); return; }
+        const ref = `command:${this.window}:${++this.seq}`;
+        this.pending.set(ref, { source: ev.source, id: m.id });
+        send({ type: "command", kind: frame.kind, page: frame.name, name: String(m.name || ""), argument: String(m.argument || ""), active, ref });
         return;
       }
       if (m.orb === "speak") { if (active && orb.state === "idle") send({ type: "speak_text", text: String(m.text || ""), active }); return; }
