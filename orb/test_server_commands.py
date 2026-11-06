@@ -1,3 +1,4 @@
+import asyncio
 import json
 import threading
 import types
@@ -274,3 +275,49 @@ def test_two_threads_reading_the_transcript_at_once_take_its_new_entries_once(tm
     for reader in readers:
         reader.join()
     assert [entry["n"] for entry in link.transcript] == [0, 1]
+
+
+class HeldLink(CommandLink):
+    def __init__(self):
+        super().__init__()
+        self.done = False
+
+    def ran_since(self, name, since):
+        return self.done
+
+
+def test_a_request_made_while_a_command_is_typed_waits_until_the_command_ran(tmp_path, monkeypatch):
+    quick(monkeypatch)
+    monkeypatch.setattr(server_module, "COMMAND_CONFIRM_DEFAULT_S", 5)
+
+    async def go():
+        server = make(tmp_path)
+        server.link = HeldLink()
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.send_json(page_command())
+            await wait_for(lambda: server.link.typed)
+            await ws.send_json({"type": "ask", "active": True, "text": "What time is it?"})
+            await asyncio.sleep(0.2)
+            assert server.link.sent == []
+            server.link.done = True
+            assert (await command_result(ws))["ok"]
+            await wait_for(lambda: server.link.sent)
+    run(go())
+
+
+def test_a_command_waits_while_the_orb_is_busy(tmp_path, monkeypatch):
+    quick(monkeypatch)
+
+    async def go():
+        server = make(tmp_path)
+        server.link = CommandLink()
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            server.state = "thinking"
+            await ws.send_json(page_command())
+            await asyncio.sleep(0.1)
+            assert server.link.typed == []
+            server.state = "idle"
+            assert (await command_result(ws))["ok"]
+    run(go())
