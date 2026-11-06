@@ -209,12 +209,35 @@ plugin's folder (the skill tells the agent where that is).
 | `orb panels list` | saved panels |
 | `orb widgets list` | installed widgets, with their scope, which are on, and which names are also panels |
 | `orb widget on\|off <name>` | show or hide one of your widgets over the orb, saved for this repo; with no orb open, sets it for the next one |
+| `orb command <name> [argument…]` | run a built-in Claude Code command your `commands` list allows, such as `orb command compact keep the open questions`, in the attached session once its turn ends; the orb says whether it ran (see [Built-in commands](#built-in-commands)) |
 | `orb voice on\|off\|toggle [--agent claude\|copilot]` | mute or unmute the orb's speech without closing it; with no orb open, sets it for the next one |
 | `orb voice enroll [--agent claude\|copilot]` | enroll your voiceprint in the open orb (five phrases, hold to read) |
 | `orb log [-n N] [--agent claude\|copilot]` | the newest lines (60 unless you say) of this repo's orb log |
 | `orb doctor [--no-engines]` | read-only checks: tools, browser, config, skin, theme, actions, widgets, agent links, engines, wake word |
 
 Every command also takes `--repo <path>` to act on another repo than the current one.
+
+### Built-in commands
+
+A built-in Claude Code command such as `/compact` sent as a request reaches the agent as text, not the command. So
+`orb command`, and `orb.command` from a panel or widget, types the command into the session's own terminal instead,
+the way Stop sends Escape, and then watches the session's transcript for the command having run:
+
+- Only a command your `commands` list names runs (`compact` and `context` unless you say otherwise; a repo's own
+  file cannot add one). `/clear` and `/model` are left off on purpose: `/model` from here also changes your
+  default model.
+- The argument is one line of text, at most 4000 characters, with no control or line-break characters, so it cannot
+  add a keystroke of its own. A command that takes none, such as `context`, refuses one: Claude Code would hand the
+  whole line to the agent as your own words.
+- The command waits for the session's turn to end, up to ten minutes, so the agent can ask for a compaction in the
+  middle of its own reply. One waits at a time.
+- It is typed after anything already in the terminal's prompt, so a half-typed line goes with it; the transcript
+  check then reports that it did not run. Its Return answers a dialog Claude Code has open in that terminal, such as
+  a picker you opened by hand, with the dialog's highlighted choice.
+- Under Copilot it is refused.
+
+Where it types: iTerm2 writes into the session's pty and leaves the windows alone; Terminal brings the session's tab
+to the front and types through System Events; Windows writes key events into the session's console.
 
 ## Where your things live
 
@@ -300,6 +323,7 @@ a choice made in one repo stays there.
 | `theme_dirs` | `[]` — extra folders for themes, absolute or `~/…`, searched first; only your own two files may set it |
 | `skin_dirs` | `[]` — extra folders for skins, absolute or `~/…`, searched first; only your own two files may set it |
 | `widget_dirs` | `[]` — extra folders for widgets, absolute or `~/…`; only your own two files may set it |
+| `commands` | `["compact", "context"]` — the built-in Claude Code commands `orb command` and `orb.command` may run, without the slash; replaces rather than adds; only your own files may set it |
 | `widgets` | `{}` — per widget, `{"on": true, "x": 0.02, "y": 0.04, "width": 180, "height": 44}`: whether it shows and where, with `pane_width` and `pane_height` (the orb pane's size when it was placed, written by the orb) so the widget's size scales with the pane afterwards; merges per widget; only your own files may set it |
 
 The four `*_dirs` lists add up across your files: a folder one file lists stays searched when another lists more.
@@ -326,6 +350,7 @@ session.
 | `orb.speak(text)` | reads text aloud, with no agent turn |
 | `orb.stop()` | stops the speech, or the turn in flight |
 | `orb.action(name, args)` | runs one of your actions (below) and resolves with its answer |
+| `orb.command(name, argument)` | from a click, runs a built-in command your `commands` list allows ([Built-in commands](#built-in-commands)) and resolves once it ran |
 | `orb.state`, `orb.on("state", fn)` | what the orb is doing: `idle`, `listening`, `transcribing`, `thinking`, `speaking` |
 | `orb.data`, `orb.on("data", fn)` | the latest output of the panel's feed (below) |
 
@@ -401,7 +426,7 @@ An installed widget is off until you tick it on in the bar's `widgets` menu (or 
 appears at its corner, drags by any of its edges, resizes by its bottom-right grip, and the orb remembers where you put it
 for this repo. It hides with the orb when a panel takes the whole window.
 
-A widget's page gets what a panel's gets: the theme, `orb.send`, `orb.speak`, `orb.action`, `orb.state` and
+A widget's page gets what a panel's gets: the theme, `orb.send`, `orb.speak`, `orb.action`, `orb.command`, `orb.state` and
 `orb.data`. Its data comes from your own feed under the same name a panel's would
 ([Feeds and actions](#feeds-and-actions)), so one feed serves a name as a widget and as a panel. A widget brings only
 a page; the orb runs no code from its folder.

@@ -122,6 +122,7 @@ orb.send(text, {speak = true})   // sends text into this session as a request, m
 orb.speak(text)                  // reads text aloud in the orb's voice, no agent turn (a click, while idle)
 orb.stop()                       // stops the orb: speech, or the turn in flight
 orb.action(name, args)           // runs the user's action for this panel; resolves with its JSON answer
+orb.command(name, argument)      // from a click: runs a built-in agent command (below); resolves once it ran
 orb.state                        // "idle" | "listening" | "transcribing" | "thinking" | "speaking"
 orb.on("state", fn)              // follow it, e.g. to show what the orb is doing
 ```
@@ -178,7 +179,7 @@ tab. When the user asks for one ("put a meter on the orb", "I want a clock in th
   this repo only, a folder in the user's
   `widget_dirs`, or `~/.config/orb/widgets/<name>/` for every repo. Run `orb widgets list` first: a widget with a
   matching description already exists, or the name is taken by one in a narrower scope.
-- The page gets exactly what a panel gets (the theme tokens, `orb.send`, `orb.speak`, `orb.action`, `orb.state`,
+- The page gets exactly what a panel gets (the theme tokens, `orb.send`, `orb.speak`, `orb.action`, `orb.command`, `orb.state`,
   `orb.data`, `orb.on`), so build it the same way. Keep it small and legible at its size; show the data's age.
 - **An installed widget is off until the user turns it on**: the bar's `widgets` menu, or
   `uv run --project "<ORB_ROOT>" orb widget on <name>` when the user asks you to. `orb widget off <name>` hides it.
@@ -191,6 +192,20 @@ tab. When the user asks for one ("put a meter on the orb", "I want a clock in th
   `ORB_OUTPUT` instead of `data.json`, so two orbs on one repo each get their own reading; a feed whose answer is the
   same for every orb keeps writing `data.json`, which they share.
 - A widget whose files change reloads in place; a feed failure marks its edge and is said once.
+
+## Built-in commands
+
+A built-in Claude Code command (`/compact`, `/context`) in a request reaches you as text; you cannot run it by
+answering. When the user asks for one, such as "compact, and keep the review findings", run:
+
+```
+uv run --project "<ORB_ROOT>" orb command <name> [argument...]
+```
+
+It returns at once and the orb types the command into this session's terminal when your turn ends, so say you have
+queued it and end your turn. For `/compact`, the argument is the instructions for what the summary keeps: one line,
+written for this session. Only the names in the user's `commands` list run (`compact` and `context` unless they set
+more); the orb says whether it ran. Under Copilot it is refused.
 
 ## Answering orb requests
 
