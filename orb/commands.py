@@ -1,6 +1,4 @@
-"""A built-in agent command the orb types into the attached session's own terminal, such as `/compact <focus>`.
-Built only from a name on the user's `commands` allowlist and a one-line argument, so nothing typed can add a
-keystroke of its own."""
+"""A built-in agent command the orb types into the attached session's own terminal, such as `/compact <focus>`."""
 import re
 from dataclasses import dataclass
 
@@ -26,8 +24,7 @@ class Command:
 
     @property
     def parts(self) -> tuple[str, ...]:
-        """What is typed, write by write. Claude Code takes a long write as a paste, and a line that arrives as one
-        goes to the agent as text; the command typed on its own first is dispatched with the paste as its argument."""
+        """What is typed, write by write: a line that arrives as one long write is a paste, which goes to the agent."""
         return (f"/{self.name} ", self.argument) if self.argument else (f"/{self.name}",)
 
 
@@ -40,7 +37,6 @@ def control_characters(text: str) -> list[str]:
 
 
 def parse(name, argument, allowed: list[str]) -> Command:
-    """Raises CommandError for a name off the allowlist, or an argument that is not one line of text."""
     name = name[1:] if isinstance(name, str) and name.startswith("/") else name
     if not is_name(name):
         raise CommandError(f"{name!r} is not a command name")

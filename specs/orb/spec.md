@@ -238,7 +238,7 @@ Mic and ask buttons stay disabled until the link is verified.
   reference.
 - **Slash commands are text.** A request is always delivered as text, never run as a command. Through the channel,
   a built-in such as `/compact` is answered ("I can't run that"), while a skill's slash name is recognised by the
-  model, which invokes the skill itself (test 0.4). The orb does not type into the agent's console to run commands.
+  model, which invokes the skill itself (test 0.4). The orb runs a built-in another way (Built-in commands).
 - **Return.** The plugin's `Stop` hook (Python, `uv`) reads the reply from the transcript and posts it to the orb
   server. It acts only when both hold:
   1. the last real user turn came through this channel:
@@ -309,8 +309,8 @@ processes it starts, and Remote Control's command path is open only to Anthropic
   command ran and rejects with the reason when it did not.
 - **What may run.** Only a name in the `commands` config list, user layers only, default `compact` and `context`. The
   argument is one line: no C0 or C1 control character, DEL, or Unicode line or paragraph separator, at most 4000
-  characters. Only `color`, `compact`, `effort`, `fast`, `model` and `rename` take one; Claude Code sends any other
-  built-in typed with text after it to the model as a prompt (verified live with `/context <text>`, 2026-11-06). Under Copilot every command is refused.
+  characters. The orb passes one only to `color`, `compact`, `effort`, `fast`, `model` and `rename`, and refuses one
+  for any other name, since Claude Code can send a built-in typed with text after it to the model as a prompt (verified live with `/context <text>`, 2026-11-06). Under Copilot every command is refused.
 - **When.** Held while the session's turn is open, up to ten minutes; one at a time.
 - **How it is typed.** The command (`/compact `), then its argument, then Return, each a write of its own 0.3 s
   apart. Claude Code takes a long write as a paste, and a whole line that arrives as one goes to the agent as text;
@@ -319,7 +319,8 @@ processes it starts, and Remote Control's command path is open only to Anthropic
   System Events keystrokes. Windows: a key event pair per UTF-16 unit by `WriteConsoleInput` into the session's
   console. The parts reach AppleScript as arguments, never as script source.
 - **Confirmed by the transcript.** It ran when an entry newer than the send echoes `<command-name>/<name>` (a
-  `local_command` system entry for a built-in, the user's entry for a skill), or,
+  `local_command` system entry or the user's own entry, by command: `/context` the first, `/compact` the second; an
+  entry counts only when it starts with the echo, so an argument quoting one does not), or,
   for `/compact`, a manual `compact_boundary` follows. A command that does not appear within 20 s (`/compact`: 300 s)
   is reported as not run. Text the user left in the terminal's prompt is typed in front of it, and a dialog open in
   the terminal takes the Return as its highlighted choice; neither is detected before typing. A permission prompt
