@@ -156,8 +156,6 @@ def cancelled(events: list[dict], message_id: str) -> bool:
 
 
 def turn_failure(events: list[dict], message_id: str) -> str | None:
-    """Copilot's reason when it gave up on this request's turn, such as a model it could not reach; None while it
-    has not."""
     origin = answering_id(events, message_id)
     return next((str(_data(event).get("message") or "no reason given") for event in events
                  if origin and failed_request(event) == origin), None)
@@ -257,8 +255,7 @@ class CopilotLink:
     def send(self, text: str, request_id: str) -> str | None:
         """Blocks until Copilot has answered this request, following it in the session's event log, so background
         work Copilot carries on with afterwards does not hold the orb. None once Stop has let go of it; RequestEnded
-        when it was cancelled in Copilot's own window, its turn failed, or its session was cleared before it
-        answered."""
+        when it was cancelled in Copilot's own window or its session was cleared before it answered."""
         if not self.session_id and not self.probe():
             raise agents.LinkError(self.describe(False))
         try:
