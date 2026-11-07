@@ -16,7 +16,7 @@ def test_python_dash_m_orb_runs_the_orb_command():
     assert r.returncode == 0 and r.stdout.startswith("usage: orb"), r.stdout + r.stderr
 
 
-def test_every_uv_run_the_docs_give_launches_python_dash_m_orb():
+def test_every_uv_run_project_launch_the_docs_give_is_python_dash_m_orb():
     for name, (doc, root) in LAUNCH_DOCS.items():
         launches = re.findall(rf"uv run --project {re.escape(root)} (\S+(?: \S+ \S+)?)", doc.read_text(encoding="utf-8"))
         assert launches, name
