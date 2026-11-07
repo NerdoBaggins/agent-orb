@@ -161,7 +161,7 @@ def test_a_failure_logged_before_a_steered_message_arrived_is_not_its_failure():
 
 
 def test_a_request_copilot_has_not_logged_yet_has_not_failed():
-    assert turn_failure([user("other"), START, END], "m1") is None
+    assert turn_failure([user("other"), START, END, failed("other")], "m1") is None
 
 
 def test_a_failed_turn_copilot_gave_no_reason_for_still_ends_the_wait(tmp_path, monkeypatch):
