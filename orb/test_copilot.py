@@ -150,9 +150,15 @@ def test_a_failed_turn_of_another_request_does_not_end_the_orbs_wait():
     assert turn_failure(events, "m1") is None
 
 
-def test_an_error_copilot_carried_on_after_does_not_end_the_orbs_wait():
-    events = [user("m1"), START, {"type": "session.error", "data": {"errorType": "notification", "message": "x"}}]
-    assert turn_failure(events, "m1") is None
+def test_a_request_copilot_has_not_logged_yet_has_not_failed():
+    assert turn_failure([user("other"), START, END], "m1") is None
+
+
+def test_a_failed_turn_copilot_gave_no_reason_for_still_ends_the_wait(tmp_path, monkeypatch):
+    silent = {"type": "session.error", "data": {"errorType": "query", "originatingMessageId": "m1"}}
+    link, _ = link_with_log(tmp_path, monkeypatch, [user("m1"), START, END, silent], [])
+    with pytest.raises(agents.RequestEnded, match="Copilot's turn failed: no reason given"):
+        link.send("Run the tests", "r1")
 
 
 def test_an_abort_that_ended_another_requests_turn_does_not_end_the_orbs_wait():

@@ -318,7 +318,6 @@ def test_an_interrupt_still_closes_the_turn_after_a_command_run_in_the_terminal(
 ABORT = {"type": "abort", "data": {"reason": "user_abort"}}
 
 
-# As Copilot 1.0.105 logs them: giving up on a turn names the message it was answering; carrying on names none.
 FAILED_TURN = {"type": "session.error", "data": {"errorType": "query", "originatingMessageId": "u1",
                                                   "message": "Failed to get response from the AI model"}}
 ERROR_CARRIED_ON = {"type": "session.error", "data": {"errorType": "notification", "message": "a hook failed"}}
@@ -342,6 +341,11 @@ def test_a_copilot_error_it_carried_on_after_does_not_close_the_turn():
 
 def test_copilot_is_idle_once_the_turn_fails():
     assert not copilot_busy([typed("go"), {"type": "assistant.turn_start"}, {"type": "assistant.turn_end"}, FAILED_TURN])
+
+
+def test_an_assistant_message_answering_a_request_does_not_end_the_turn():
+    answer = {"type": "assistant.message", "data": {"originatingMessageId": "u1", "content": "", "toolRequests": [{}]}}
+    assert not turn_ended_since([written(answer, 10)], NOW - timedelta(seconds=20))
 
 
 def test_copilot_stays_busy_through_an_error_it_carried_on_after():
