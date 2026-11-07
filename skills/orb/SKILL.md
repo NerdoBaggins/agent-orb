@@ -18,8 +18,7 @@ as:
 uv run --project "<ORB_ROOT>" python -m orb <subcommand> ...
 ```
 
-Do not put anything on PATH and do not look for the command anywhere else. Never run the `orb` launcher uv builds
-in the plugin's `.venv`: Windows Smart App Control blocks it, and Python runs everywhere.
+Do not put anything on PATH and do not look for the command anywhere else.
 
 The orb needs `uv`, `node` 24 or later, and Chrome on the machine. Every orb command runs through `uv`, so
 when `uv` itself is missing, tell the user to install it (https://docs.astral.sh/uv/) before anything else.
