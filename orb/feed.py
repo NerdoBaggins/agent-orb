@@ -265,8 +265,6 @@ def copilot_feed(events: list[dict] | None, orb_message_ids: frozenset = frozens
 
 
 def failed_request(event: dict) -> str | None:
-    """The message whose turn Copilot gave up on, when `event` is the session error it logs for that; None for any
-    other event, including the errors it logs and carries on after, which name no message."""
     return _data(event).get("originatingMessageId") if event.get("type") == "session.error" else None
 
 
@@ -275,14 +273,12 @@ def ends_turn(event: dict) -> bool:
 
 
 def turn_ended_since(events: list[dict] | None, since: datetime) -> bool:
-    """True when Copilot logged an abort or a failed turn after `since`. No hook fires on either, so a turn the hooks
-    opened is closed by this instead."""
     return any(ends_turn(event) and (_written_at(event) or since) > since for event in events or ())
 
 
 def copilot_busy(events: list[dict] | None) -> bool:
     """True from a user message until the turn that ended with a message asking for no tools or completing the task,
-    an abort, or a failed turn."""
+    or an abort."""
     busy, closing = False, False
     for event in events or ():
         kind, data = event.get("type"), _data(event)
