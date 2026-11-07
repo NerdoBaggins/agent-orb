@@ -18,9 +18,9 @@ that has one adds it under Unreleased.
 - The agent now runs the orb as `python -m orb`, so Windows Smart App Control no longer blocks every orb
   command ("An Application Control policy has blocked this file"). The `orb` command still works where nothing
   blocks it.
-- When a Copilot turn fails, for example because Copilot can't reach its model, the orb now ends the request and
-  shows Copilot's reason. It no longer stays thinking for up to 30 minutes and shows the session as busy until the
-  next prompt ([#184](https://github.com/NerdoBaggins/agent-orb/issues/184)).
+- With Copilot 1.0.105 or later, when a Copilot turn fails, for example because Copilot can't reach its model, the
+  orb now ends the request and shows Copilot's reason. It no longer stays thinking for up to 30 minutes and shows the
+  session as busy until the next prompt ([#184](https://github.com/NerdoBaggins/agent-orb/issues/184)).
 
 ## 0.6.0 — 2026-11-03
 
