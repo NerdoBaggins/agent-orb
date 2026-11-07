@@ -10,7 +10,7 @@ from orb import agents
 from orb.agents import Stopped
 from orb.feed import ORB_TAG
 from orb.copilot import (CopilotLink, cancelled, open_work, read_events, reply_to, request_running, session_name,
-                         SessionMoved, waiting_on)
+                         SessionMoved, turn_failure, waiting_on)
 from orb.copilot import Door
 
 DOOR = Path("copilot-channel.json")
@@ -133,6 +133,26 @@ def test_a_request_cancelled_in_copilots_window_ends_the_wait(tmp_path, monkeypa
                                                     {"type": "abort", "data": {"reason": "user_initiated"}}, END], [])
     with pytest.raises(agents.RequestEnded, match="cancelled"):
         link.send("Run the tests", "r1")
+
+
+def failed(origin, reason="Failed to get response from the AI model; retried 5 times"):
+    return {"type": "session.error", "data": {"errorType": "query", "message": reason, "originatingMessageId": origin}}
+
+
+def test_a_request_whose_turn_copilot_gave_up_on_ends_the_wait_with_copilots_reason(tmp_path, monkeypatch):
+    link, _ = link_with_log(tmp_path, monkeypatch, [user("m1"), START, END, failed("m1", "dns error")], [])
+    with pytest.raises(agents.RequestEnded, match="Copilot's turn failed: dns error"):
+        link.send("Run the tests", "r1")
+
+
+def test_a_failed_turn_of_another_request_does_not_end_the_orbs_wait():
+    events = [user("other"), START, user("m1", delivery="queued"), END, failed("other")]
+    assert turn_failure(events, "m1") is None
+
+
+def test_an_error_copilot_carried_on_after_does_not_end_the_orbs_wait():
+    events = [user("m1"), START, {"type": "session.error", "data": {"errorType": "notification", "message": "x"}}]
+    assert turn_failure(events, "m1") is None
 
 
 def test_an_abort_that_ended_another_requests_turn_does_not_end_the_orbs_wait():
@@ -365,6 +385,12 @@ def test_a_copilot_turn_the_hooks_opened_is_idle_once_the_log_records_an_abort_a
     from datetime import datetime, timedelta, timezone
     later = (datetime.now(timezone.utc) + timedelta(seconds=5)).isoformat()
     assert not copilot_link(tmp_path, turn="UserPromptSubmit").busy([{"type": "abort", "timestamp": later}])
+
+
+def test_a_copilot_turn_the_hooks_opened_is_idle_once_the_log_records_it_failed_after_it(tmp_path):
+    from datetime import datetime, timedelta, timezone
+    later = (datetime.now(timezone.utc) + timedelta(seconds=5)).isoformat()
+    assert not copilot_link(tmp_path, turn="UserPromptSubmit").busy([{**failed("m1"), "timestamp": later}])
 
 
 def test_a_copilot_session_the_hooks_never_reached_is_judged_from_its_log(tmp_path):
