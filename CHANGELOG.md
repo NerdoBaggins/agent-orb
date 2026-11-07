@@ -13,6 +13,12 @@ that has one adds it under Unreleased.
   list run, `compact` and `context` unless you add more
   ([#181](https://github.com/NerdoBaggins/agent-orb/issues/181)).
 
+### Fixed
+
+- The agent now runs the orb as `python -m orb`, so Windows Smart App Control no longer blocks every orb
+  command ("An Application Control policy has blocked this file"). The `orb` command still works where nothing
+  blocks it.
+
 ## 0.6.0 — 2026-11-03
 
 ### Upgrading

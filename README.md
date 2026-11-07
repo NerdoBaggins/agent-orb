@@ -197,7 +197,7 @@ next one.
 
 ### Commands
 
-You rarely type these; the agent runs them as `uv run --project <agent-orb> orb ...`, where `<agent-orb>` is the
+You rarely type these; the agent runs them as `uv run --project <agent-orb> python -m orb ...`, where `<agent-orb>` is the
 plugin's folder (the skill tells the agent where that is).
 
 | Command | What |
@@ -553,7 +553,7 @@ shows it), and the orb listens for the phrase while idle:
 
 ## Troubleshooting
 
-**Start with `orb doctor`**: ask the agent to run it, or run `uv run --project <agent-orb> orb doctor` yourself,
+**Start with `orb doctor`**: ask the agent to run it, or run `uv run --project <agent-orb> python -m orb doctor` yourself,
 where `<agent-orb>` is the plugin's folder. It checks, without changing anything: `uv` and `node`, the browser,
 your config, the skin and theme, panel actions, widgets, the Claude channel, the Copilot door, the speech
 engines, and the wake word when one is on. Each failing line says what to do. `--no-engines` skips loading the

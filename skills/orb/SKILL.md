@@ -15,10 +15,11 @@ The `orb` command lives in the plugin folder, which is **two folders above this 
 as:
 
 ```
-uv run --project "<ORB_ROOT>" orb <subcommand> ...
+uv run --project "<ORB_ROOT>" python -m orb <subcommand> ...
 ```
 
-Do not put anything on PATH and do not look for the command anywhere else.
+Do not put anything on PATH and do not look for the command anywhere else. Never run the `orb` launcher uv builds
+in the plugin's `.venv`: Windows Smart App Control blocks it, and Python runs everywhere.
 
 The orb needs `uv`, `node` 24 or later, and Chrome on the machine. Every orb command runs through `uv`, so
 when `uv` itself is missing, tell the user to install it (https://docs.astral.sh/uv/) before anything else.
@@ -27,18 +28,18 @@ when `uv` itself is missing, tell the user to install it (https://docs.astral.sh
 
 Run, from the repo the user is working in:
 
-- Claude Code: `uv run --project "<ORB_ROOT>" orb open --agent claude`
-- GitHub Copilot CLI: `uv run --project "<ORB_ROOT>" orb open --agent copilot`
+- Claude Code: `uv run --project "<ORB_ROOT>" python -m orb open --agent claude`
+- GitHub Copilot CLI: `uv run --project "<ORB_ROOT>" python -m orb open --agent copilot`
 
 It starts this session's orb server if none is running and opens the window. It prints the URL and the attach
 state. Tell the user what it printed, in one sentence. If it says an orb is already open for this agent in this repo,
 say so; there is one orb per agent per repo. If the server was running with no window, it reopens one.
 
-If `orb open` fails, run `uv run --project "<ORB_ROOT>" orb doctor` and walk the user through each failing check it
-reports, one at a time, until `orb open` succeeds.
+If `orb open` fails, run `uv run --project "<ORB_ROOT>" python -m orb doctor` and walk the user through each failing
+check it reports, one at a time, until `orb open` succeeds.
 
-To close the orb ("close the orb", "stop the orb"), run `uv run --project "<ORB_ROOT>" orb stop`: it ends this repo's
-orb and closes its window at once. Closing the window by hand does the same after 20 seconds.
+To close the orb ("close the orb", "stop the orb"), run `uv run --project "<ORB_ROOT>" python -m orb stop`: it ends
+this repo's orb and closes its window at once. Closing the window by hand does the same after 20 seconds.
 
 If it reports **Not attached** under Claude Code, the session was not started with the channel flag. Tell the user to
 quit and restart Claude Code in this repo as:
@@ -59,11 +60,11 @@ show it. A panel is any HTML page you write; the orb imposes no data format. Fet
 own tools, write the numbers into the HTML, and show it:
 
 ```
-uv run --project "<ORB_ROOT>" orb panel show <file.html> [--title "<title>"] [--name <name>]
-uv run --project "<ORB_ROOT>" orb panel close <name>
-uv run --project "<ORB_ROOT>" orb panels list
-uv run --project "<ORB_ROOT>" orb panel show transcript      # the built-in transcript panel
-uv run --project "<ORB_ROOT>" orb panel show releases
+uv run --project "<ORB_ROOT>" python -m orb panel show <file.html> [--title "<title>"] [--name <name>]
+uv run --project "<ORB_ROOT>" python -m orb panel close <name>
+uv run --project "<ORB_ROOT>" python -m orb panels list
+uv run --project "<ORB_ROOT>" python -m orb panel show transcript      # the built-in transcript panel
+uv run --project "<ORB_ROOT>" python -m orb panel show releases
 ```
 
 - **Before writing a new panel, run `orb panels list`.** A saved panel with a matching description is reused:
@@ -182,7 +183,8 @@ tab. When the user asks for one ("put a meter on the orb", "I want a clock in th
 - The page gets exactly what a panel gets (the theme tokens, `orb.send`, `orb.speak`, `orb.action`, `orb.command`, `orb.state`,
   `orb.data`, `orb.on`), so build it the same way. Keep it small and legible at its size; show the data's age.
 - **An installed widget is off until the user turns it on**: the bar's `widgets` menu, or
-  `uv run --project "<ORB_ROOT>" orb widget on <name>` when the user asks you to. `orb widget off <name>` hides it.
+  `uv run --project "<ORB_ROOT>" python -m orb widget on <name>` when the user asks you to. `orb widget off <name>`
+  hides it.
 - **Its data is the user's feed, in the same place a panel's goes**, `~/.config/orb/feeds/<name>/` (or the
   per-repo folder), with the same `feed.json`; one feed serves a name as a widget and as a panel. The widget folder
   never holds code the orb runs. Offer to write the feed and show the user the script first, as for a panel.
@@ -199,7 +201,7 @@ A built-in Claude Code command (`/compact`, `/context`) in a request reaches you
 answering. When the user asks for one, such as "compact, and keep the review findings", run:
 
 ```
-uv run --project "<ORB_ROOT>" orb command <name> ['<argument>']
+uv run --project "<ORB_ROOT>" python -m orb command <name> ['<argument>']
 ```
 
 It returns at once and the orb types the command into this session's terminal when your turn ends, so say you have
