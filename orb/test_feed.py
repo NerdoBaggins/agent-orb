@@ -1,8 +1,8 @@
 import pytest
 from datetime import datetime, timedelta, timezone
 
-from orb.feed import (INTERRUPTED, NOTIFICATION_TURN_GRACE_S, ORB_TAG, RESULT_LIMIT, aborted_since, claude_busy, claude_doing, claude_feed, command_ran_since,
-                      copilot_busy, copilot_feed, interrupted_since, turn_since, unread)
+from orb.feed import (INTERRUPTED, NOTIFICATION_TURN_GRACE_S, ORB_TAG, RESULT_LIMIT, claude_busy, claude_doing, claude_feed, command_ran_since,
+                      copilot_busy, copilot_feed, interrupted_since, turn_ended_since, turn_since, unread)
 from orb.gate import CHANNEL_SERVER
 
 
@@ -318,12 +318,34 @@ def test_an_interrupt_still_closes_the_turn_after_a_command_run_in_the_terminal(
 ABORT = {"type": "abort", "data": {"reason": "user_abort"}}
 
 
+# As Copilot 1.0.105 logs them: giving up on a turn names the message it was answering; carrying on names none.
+FAILED_TURN = {"type": "session.error", "data": {"errorType": "query", "originatingMessageId": "u1",
+                                                  "message": "Failed to get response from the AI model"}}
+ERROR_CARRIED_ON = {"type": "session.error", "data": {"errorType": "notification", "message": "a hook failed"}}
+
+
 def test_a_copilot_abort_logged_after_the_turn_opened_closes_it():
-    assert aborted_since([written(ABORT, 10)], NOW - timedelta(seconds=20))
+    assert turn_ended_since([written(ABORT, 10)], NOW - timedelta(seconds=20))
 
 
 def test_a_copilot_abort_logged_before_the_turn_opened_does_not_close_it():
-    assert not aborted_since([written(ABORT, 30)], NOW - timedelta(seconds=20))
+    assert not turn_ended_since([written(ABORT, 30)], NOW - timedelta(seconds=20))
+
+
+def test_a_failed_copilot_turn_logged_after_the_turn_opened_closes_it():
+    assert turn_ended_since([written(FAILED_TURN, 10)], NOW - timedelta(seconds=20))
+
+
+def test_a_copilot_error_it_carried_on_after_does_not_close_the_turn():
+    assert not turn_ended_since([written(ERROR_CARRIED_ON, 10)], NOW - timedelta(seconds=20))
+
+
+def test_copilot_is_idle_once_the_turn_fails():
+    assert not copilot_busy([typed("go"), {"type": "assistant.turn_start"}, {"type": "assistant.turn_end"}, FAILED_TURN])
+
+
+def test_copilot_stays_busy_through_an_error_it_carried_on_after():
+    assert copilot_busy([typed("go"), {"type": "assistant.turn_start"}, ERROR_CARRIED_ON])
 
 
 SENT = datetime(2026, 11, 6, 9, 0, 0, tzinfo=timezone.utc)

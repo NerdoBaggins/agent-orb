@@ -264,15 +264,25 @@ def copilot_feed(events: list[dict] | None, orb_message_ids: frozenset = frozens
     return items[-FEED_LIMIT:]
 
 
-def aborted_since(events: list[dict] | None, since: datetime) -> bool:
-    """True when Copilot logged an abort after `since`. No hook fires on one, so a turn the hooks opened is closed by
-    this instead."""
-    return any(event.get("type") == "abort" and (_written_at(event) or since) > since for event in events or ())
+def failed_request(event: dict) -> str | None:
+    """The message whose turn Copilot gave up on, when `event` is the session error it logs for that; None for any
+    other event, including the errors it logs and carries on after, which name no message."""
+    return _data(event).get("originatingMessageId") if event.get("type") == "session.error" else None
+
+
+def ends_turn(event: dict) -> bool:
+    return event.get("type") == "abort" or failed_request(event) is not None
+
+
+def turn_ended_since(events: list[dict] | None, since: datetime) -> bool:
+    """True when Copilot logged an abort or a failed turn after `since`. No hook fires on either, so a turn the hooks
+    opened is closed by this instead."""
+    return any(ends_turn(event) and (_written_at(event) or since) > since for event in events or ())
 
 
 def copilot_busy(events: list[dict] | None) -> bool:
     """True from a user message until the turn that ended with a message asking for no tools or completing the task,
-    or an abort."""
+    an abort, or a failed turn."""
     busy, closing = False, False
     for event in events or ():
         kind, data = event.get("type"), _data(event)
@@ -283,7 +293,7 @@ def copilot_busy(events: list[dict] | None) -> bool:
             busy = True
         elif kind == "assistant.turn_end" and closing:
             busy = False
-        elif kind == "abort":
+        elif ends_turn(event):
             busy, closing = False, False
     return busy
 
