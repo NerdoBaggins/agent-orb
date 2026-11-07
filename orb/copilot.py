@@ -11,7 +11,7 @@ from pathlib import Path
 
 from orb import agents
 from orb.background import copilot_running_tasks
-from orb.feed import ORB_TAG, aborted_since, copilot_busy, copilot_feed, task_summary, turn_since
+from orb.feed import ORB_TAG, copilot_busy, copilot_feed, failed_request, task_summary, turn_ended_since, turn_since
 from orb.state import read_turn
 
 SEND_TIMEOUT_S = 30
@@ -155,6 +155,14 @@ def cancelled(events: list[dict], message_id: str) -> bool:
                for i, event in enumerate(events))
 
 
+def turn_failure(events: list[dict], message_id: str) -> str | None:
+    """Copilot's reason when it gave up on this request's turn, such as a model it could not reach; None while it
+    has not."""
+    origin = answering_id(events, message_id)
+    return next((str(_data(event).get("message") or "no reason given") for event in events
+                 if origin and failed_request(event) == origin), None)
+
+
 def request_running(events: list[dict], message_id: str) -> bool:
     """True when the turn running now is this request's, which is the only time Stop may abort: an abort ends the
     running turn whoever it belongs to, and the attached background shells with it."""
@@ -249,7 +257,8 @@ class CopilotLink:
     def send(self, text: str, request_id: str) -> str | None:
         """Blocks until Copilot has answered this request, following it in the session's event log, so background
         work Copilot carries on with afterwards does not hold the orb. None once Stop has let go of it; RequestEnded
-        when it was cancelled in Copilot's own window or its session was cleared before it answered."""
+        when it was cancelled in Copilot's own window, its turn failed, or its session was cleared before it
+        answered."""
         if not self.session_id and not self.probe():
             raise agents.LinkError(self.describe(False))
         try:
@@ -279,6 +288,9 @@ class CopilotLink:
                 return reply
             if cancelled(events, message_id):
                 raise agents.RequestEnded("cancelled in Copilot's own window")
+            failure = turn_failure(events, message_id)
+            if failure is not None:
+                raise agents.RequestEnded(f"Copilot's turn failed: {failure}")
             door = read_door(self.record)
             if door and door.session_id != session:
                 raise agents.RequestEnded("Copilot's session was cleared before it answered")
@@ -322,7 +334,7 @@ class CopilotLink:
         turn = read_turn(self.turns, "copilot", self.session_id) if self.turns else None
         if turn is None:
             return copilot_busy(events)
-        return turn.busy and not aborted_since(events, turn.at)
+        return turn.busy and not turn_ended_since(events, turn.at)
 
     def background_tasks(self) -> list[dict]:
         if not self.session_id:
