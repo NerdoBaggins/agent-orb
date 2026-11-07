@@ -13,6 +13,12 @@ that has one adds it under Unreleased.
   list run, `compact` and `context` unless you add more
   ([#181](https://github.com/NerdoBaggins/agent-orb/issues/181)).
 
+### Fixed
+
+- When a Copilot turn fails, for example because Copilot can't reach its model, the orb now ends the request and
+  shows Copilot's reason. It no longer stays thinking for up to 30 minutes and shows the session as busy until the
+  next prompt ([#184](https://github.com/NerdoBaggins/agent-orb/issues/184)).
+
 ## 0.6.0 — 2026-11-03
 
 ### Upgrading
