@@ -150,6 +150,16 @@ def test_a_failed_turn_of_another_request_does_not_end_the_orbs_wait():
     assert turn_failure(events, "m1") is None
 
 
+def test_a_message_steered_into_a_turn_that_fails_before_replying_ends_with_that_failure():
+    events = [user("other"), START, user("m1", delivery="steering"), END, failed("other", "dns error")]
+    assert turn_failure(events, "m1") == "dns error"
+
+
+def test_a_failure_logged_before_a_steered_message_arrived_is_not_its_failure():
+    events = [user("earlier"), START, END, failed("earlier"), user("other"), START, user("m1", delivery="steering")]
+    assert turn_failure(events, "m1") is None
+
+
 def test_a_request_copilot_has_not_logged_yet_has_not_failed():
     assert turn_failure([user("other"), START, END], "m1") is None
 

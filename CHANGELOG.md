@@ -15,7 +15,7 @@ that has one adds it under Unreleased.
 
 ### Fixed
 
-- With Copilot 1.0.105 or later, when a Copilot turn fails, for example because Copilot can't reach its model, the
+- With Copilot 1.0.105 or later, when Copilot gives up on a turn because it can't get a response from its model, the
   orb now ends the request and shows Copilot's reason. It no longer stays thinking for up to 30 minutes and shows the
   session as busy until the next prompt ([#184](https://github.com/NerdoBaggins/agent-orb/issues/184)).
 
