@@ -156,9 +156,16 @@ def cancelled(events: list[dict], message_id: str) -> bool:
 
 
 def turn_failure(events: list[dict], message_id: str) -> str | None:
+    logged = next((i for i, event in enumerate(events)
+                   if event.get("type") == "user.message" and _data(event).get("messageId") == message_id), None)
+    if logged is None:
+        return None
     origin = answering_id(events, message_id)
-    return next((str(_data(event).get("message") or "no reason given") for event in events
-                 if origin and failed_request(event) == origin), None)
+    for event in events[logged + 1:]:
+        failed = failed_request(event)
+        if failed is not None and origin in (failed, None):
+            return str(_data(event).get("message") or "no reason given")
+    return None
 
 
 def request_running(events: list[dict], message_id: str) -> bool:
