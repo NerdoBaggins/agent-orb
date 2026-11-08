@@ -15,6 +15,9 @@ that has one adds it under Unreleased.
 
 ### Fixed
 
+- When a push-to-talk or wake-word clip arrives with stretches of lost audio, the orb now says so ("your mic audio
+  is arriving with gaps (50% of it lost)") instead of "didn't catch that". Chrome loses audio this way from a
+  Remote Desktop microphone ([#195](https://github.com/NerdoBaggins/agent-orb/issues/195)).
 - The agent now runs the orb as `python -m orb`, so Windows Smart App Control no longer blocks every orb
   command ("An Application Control policy has blocked this file"). The `orb` command still works where nothing
   blocks it.
