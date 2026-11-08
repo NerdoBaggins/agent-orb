@@ -120,9 +120,9 @@ sent it, unless that window has since reloaded. The draft survives a reload. Whi
    WebSocket while held. The orb shows **listening**, driven by the mic level.
 3. On release the server takes the clip. A clip under about 0.3 s is dropped as a tap; there is no upper limit, and a long clip is transcribed in pieces of at most 20 s cut at quiet points.
    The orb shows **transcribing**.
-4. The speech-to-text engine returns text. A clip a tenth or more of which is runs of exact zeros 20 ms or longer, the
-   audio a browser failed to capture, shows "your mic audio is arriving with gaps (N% of it lost)". An empty result
-   shows that notice, or "didn't catch that" for a clip without such gaps, and nothing is sent.
+4. The speech-to-text engine returns text. A clip with enough of its audio lost, as runs of exact zeros where the
+   browser failed to capture, shows "your mic audio is arriving with gaps (N% of it lost)". An empty result shows
+   that notice, or "didn't catch that" for a clip without such gaps, and nothing is sent.
 5. The text is added to the transcript and goes to the agent as a request with a request id. The orb shows
    **thinking**.
 6. The reply is rendered and played (Speaking, below). The orb shows **speaking**, then **idle**.
