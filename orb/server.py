@@ -1511,7 +1511,6 @@ class OrbServer:
         lost = lost_share(samples)
         lossy = lost >= LOSSY_SHARE
         if lossy:
-            log.warning("clip of %.1fs: %s", samples.size / SAMPLE_RATE, gap_notice(lost))
             await self.notify("info", gap_notice(lost))
         if not text.strip():
             if not lossy:
