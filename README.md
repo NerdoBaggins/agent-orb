@@ -607,6 +607,7 @@ is loaded.
 
 ```
 uv sync --group dev
+uv run playwright install chromium-headless-shell
 uv run pytest
 uv run pytest -m "not browser"
 ```

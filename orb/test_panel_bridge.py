@@ -18,11 +18,17 @@ SCRIPTED = """<!doctype html><body><script>setInterval(() => {
 }, 100);</script></body>"""
 
 
+INSTALL_BROWSER = "uv run playwright install chromium-headless-shell"
+
+
 async def browser(p):
     try:
-        return await p.chromium.launch(channel="chrome", headless=True, args=["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"])
-    except Exception as e:
-        pytest.skip(f"Chrome is not available to Playwright: {e}")
+        return await p.chromium.launch(headless=True, args=["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"])
+    except playwright.Error as e:
+        if "Executable doesn't exist" not in str(e):
+            raise
+        pytest.fail(f"Playwright's headless Chromium is not installed: run `{INSTALL_BROWSER}`, or deselect the browser "
+                    f"tests with -m \"not browser\"", pytrace=False)
 
 
 async def run_page(tmp_path, panels, act, server=None):
