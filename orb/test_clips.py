@@ -21,7 +21,7 @@ def test_a_clip_of_live_noise_has_lost_nothing():
 
 
 def test_a_long_run_of_near_silence_that_is_not_exactly_zero_has_lost_nothing():
-    assert lost_share(np.full(SAMPLE_RATE, 1e-4, dtype=np.float32)) == 0.0
+    assert lost_share(np.full(SAMPLE_RATE, 1e-9, dtype=np.float32)) == 0.0
 
 
 def test_an_empty_clip_has_lost_nothing():
