@@ -1,10 +1,27 @@
-"""Reading a reply's markdown and splitting it into sentences before speaking."""
+"""Measuring a recorded clip, and reading a reply's markdown and splitting it into sentences before speaking."""
 import re
 
+import numpy as np
 from markdown_it import MarkdownIt
 
 SAMPLE_RATE = 16_000
 TAP_S = 0.3
+GAP_S = 0.02
+LOSSY_SHARE = 0.1
+
+
+def lost_share(samples: np.ndarray) -> float:
+    """The share of a clip in runs of exact zeros at least GAP_S long. A live microphone's noise is never exactly zero
+    for that long; the browser pads the audio it failed to capture with zeros."""
+    if samples.size == 0:
+        return 0.0
+    edges = np.flatnonzero(np.diff(np.concatenate(([0], (samples == 0).astype(np.int8), [0]))))
+    runs = edges[1::2] - edges[::2]
+    return float(runs[runs >= GAP_S * SAMPLE_RATE].sum() / samples.size)
+
+
+def gap_notice(lost: float) -> str:
+    return f"your mic audio is arriving with gaps ({lost:.0%} of it lost)"
 
 
 CODE_BLOCK = "There's a code block here; it's in the transcript."

@@ -422,6 +422,47 @@ def test_empty_transcription_says_didnt_catch_that(tmp_path):
     run(go())
 
 
+def chrome_over_remote_desktop(seconds):
+    beat = np.concatenate([np.frombuffer(pcm(0.25), dtype="<f4"), np.zeros(int(0.25 * SAMPLE_RATE), dtype="<f4")])
+    return np.tile(beat, int(seconds / 0.5)).tobytes()
+
+
+def test_an_empty_transcription_of_a_clip_with_gaps_names_the_gaps_instead_of_didnt_catch_that(tmp_path):
+    async def go():
+        server = make(tmp_path, voice=True, stt_text="")
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            await ws.send_json({"type": "ptt_start"})
+            await ws.receive_json()
+            await ws.send_bytes(chrome_over_remote_desktop(2.0))
+            await ws.send_json({"type": "ptt_stop"})
+            await ws.receive_json()
+            notice = await ws.receive_json()
+            assert notice == {"type": "notice", "level": "info", "text": "your mic audio is arriving with gaps (50% of it lost)", "ref": None}
+            assert (await ws.receive_json()) == {"type": "state", "state": "idle"}
+            assert server.link.sent == []
+    run(go())
+
+
+def test_a_clip_with_gaps_that_transcribes_is_still_sent_after_naming_the_gaps(tmp_path):
+    async def go():
+        server = make(tmp_path, voice=True, stt_text="what time is it")
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            await ws.send_json({"type": "ptt_start"})
+            await ws.receive_json()
+            await ws.send_bytes(chrome_over_remote_desktop(2.0))
+            await ws.send_json({"type": "ptt_stop"})
+            await ws.receive_json()
+            notice = await ws.receive_json()
+            assert notice["type"] == "notice" and "gaps" in notice["text"]
+            await wait_for(lambda: server.link.sent)
+            assert server.link.sent[0][0] == "what time is it"
+    run(go())
+
+
 def test_a_long_hold_is_not_cut_off_and_is_transcribed_whole_on_release(tmp_path):
     async def go():
         server = make(tmp_path, voice=True)
@@ -1013,8 +1054,11 @@ class FakeVoiceprintEngine:
         pass
 
 
-def wake_frame(first=0.0, second=0.0, third=0.0) -> bytes:
-    f = np.zeros(1280, dtype=np.float32)
+ROOM_NOISE = 1e-4
+
+
+def wake_frame(first=ROOM_NOISE, second=ROOM_NOISE, third=ROOM_NOISE) -> bytes:
+    f = np.full(1280, ROOM_NOISE, dtype=np.float32)
     f[0], f[1], f[2] = first, second, third
     return f.tobytes()
 
