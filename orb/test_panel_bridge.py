@@ -65,7 +65,6 @@ FOCUS_TAKER = """<!doctype html><body><button id="b">b</button><script>setInterv
 }, 50);</script></body>"""
 
 
-@pytest.mark.timeout(60)
 def test_a_missing_browser_fails_the_test_naming_the_install_command(tmp_path, monkeypatch):
     async def launch():
         async with playwright.async_playwright() as p:
@@ -76,6 +75,7 @@ def test_a_missing_browser_fails_the_test_naming_the_install_command(tmp_path, m
         asyncio.run(launch())
 
 
+@pytest.mark.timeout(60)
 def test_a_panel_that_takes_focus_itself_sends_and_speaks_nothing_while_nobody_has_clicked(tmp_path):
     async def nothing(page):
         pass
