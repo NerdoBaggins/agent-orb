@@ -28,7 +28,7 @@ async def browser(p):
         if "Executable doesn't exist" not in str(e):
             raise
         pytest.fail(f"Playwright's headless Chromium is not installed: run `{INSTALL_BROWSER}`, or deselect the browser "
-                    f"tests with -m \"not browser\"", pytrace=False)
+                    f"tests with -m \"not {pytestmark.name}\"", pytrace=False)
 
 
 async def run_page(tmp_path, panels, act, server=None):
@@ -66,6 +66,16 @@ FOCUS_TAKER = """<!doctype html><body><button id="b">b</button><script>setInterv
 
 
 @pytest.mark.timeout(60)
+def test_a_missing_browser_fails_the_test_naming_the_install_command(tmp_path, monkeypatch):
+    async def launch():
+        async with playwright.async_playwright() as p:
+            await browser(p)
+
+    monkeypatch.setenv("PLAYWRIGHT_BROWSERS_PATH", str(tmp_path))
+    with pytest.raises(pytest.fail.Exception, match=INSTALL_BROWSER):
+        asyncio.run(launch())
+
+
 def test_a_panel_that_takes_focus_itself_sends_and_speaks_nothing_while_nobody_has_clicked(tmp_path):
     async def nothing(page):
         pass
