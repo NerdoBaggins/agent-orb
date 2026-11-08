@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from orb.audio import SAMPLE_RATE
-from orb.clips import GAP_S, lost_share
+from orb.clips import lost_share
 
 
 def noise(seconds):
@@ -13,7 +13,7 @@ def zeros(samples):
     return np.zeros(samples, dtype=np.float32)
 
 
-GAP = int(GAP_S * SAMPLE_RATE)
+GAP = SAMPLE_RATE // 50
 
 
 def test_a_clip_of_live_noise_has_lost_nothing():
