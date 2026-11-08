@@ -427,6 +427,12 @@ def chrome_over_remote_desktop(seconds):
     return np.tile(beat, int(seconds / 0.5)).tobytes()
 
 
+def clip_losing(share, seconds=2.0):
+    clip = np.frombuffer(pcm(seconds), dtype="<f4").copy()
+    clip[:int(share * clip.size)] = 0.0
+    return clip.tobytes()
+
+
 def test_an_empty_transcription_of_a_clip_with_gaps_names_the_gaps_instead_of_didnt_catch_that(tmp_path):
     async def go():
         server = make(tmp_path, voice=True, stt_text="")
@@ -441,7 +447,6 @@ def test_an_empty_transcription_of_a_clip_with_gaps_names_the_gaps_instead_of_di
             notice = await ws.receive_json()
             assert notice == {"type": "notice", "level": "info", "text": "your mic audio is arriving with gaps (50% of it lost)", "ref": None}
             assert (await ws.receive_json()) == {"type": "state", "state": "idle"}
-            assert server.link.sent == []
     run(go())
 
 
@@ -456,10 +461,25 @@ def test_a_clip_with_gaps_that_transcribes_is_still_sent_after_naming_the_gaps(t
             await ws.send_bytes(chrome_over_remote_desktop(2.0))
             await ws.send_json({"type": "ptt_stop"})
             await ws.receive_json()
-            notice = await ws.receive_json()
-            assert notice["type"] == "notice" and "gaps" in notice["text"]
+            assert (await ws.receive_json())["text"] == "your mic audio is arriving with gaps (50% of it lost)"
             await wait_for(lambda: server.link.sent)
             assert server.link.sent[0][0] == "what time is it"
+    run(go())
+
+
+@pytest.mark.parametrize("share, text", [(0.05, "didn't catch that"), (0.1, "your mic audio is arriving with gaps (10% of it lost)")])
+def test_the_gaps_notice_starts_at_a_tenth_of_the_clip_lost(tmp_path, share, text):
+    async def go():
+        server = make(tmp_path, voice=True, stt_text="")
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            await ws.send_json({"type": "ptt_start"})
+            await ws.receive_json()
+            await ws.send_bytes(clip_losing(share))
+            await ws.send_json({"type": "ptt_stop"})
+            await ws.receive_json()
+            assert (await ws.receive_json())["text"] == text
     run(go())
 
 
@@ -1057,8 +1077,8 @@ class FakeVoiceprintEngine:
 ROOM_NOISE = 1e-4
 
 
-def wake_frame(first=ROOM_NOISE, second=ROOM_NOISE, third=ROOM_NOISE) -> bytes:
-    f = np.full(1280, ROOM_NOISE, dtype=np.float32)
+def wake_frame(first=ROOM_NOISE, second=ROOM_NOISE, third=ROOM_NOISE, floor=ROOM_NOISE) -> bytes:
+    f = np.full(1280, floor, dtype=np.float32)
     f[0], f[1], f[2] = first, second, third
     return f.tobytes()
 
@@ -1099,6 +1119,25 @@ def test_the_wake_word_fires_on_two_frames_records_until_silence_and_sends_the_t
             assert server.link.sent[0][0] == "what time is it"
             assert server.stt.received == [5 * 1280]  # the prebuffer's three frames, then speech and the quiet frame
             assert server.transcript[-1]["woken"] is True
+    run(go())
+
+
+def test_a_wake_word_clip_with_gaps_names_them(tmp_path):
+    async def go():
+        server = make(tmp_path, voice=True, stt_text="hey jarvis what time is it", waker=waker_for())
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            for frame in (wake_frame(third=0.7), HOT, HOT):
+                await ws.send_bytes(frame)
+            await until_state(ws, "wake_word")
+            await ws.send_bytes(wake_frame(second=1.0, floor=0.0))
+            await until_state(ws, "listening")
+            await asyncio.sleep(0.2)
+            await ws.send_bytes(wake_frame(floor=0.0))
+            await until_state(ws, "transcribing")
+            notice = await ws.receive_json()
+            assert notice["type"] == "notice" and notice["text"].startswith("your mic audio is arriving with gaps")
     run(go())
 
 

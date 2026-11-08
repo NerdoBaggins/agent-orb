@@ -29,7 +29,8 @@ from aiohttp import WSMsgType, web
 
 from orb import PLUGIN_ROOT, actions, agents, engines, feeds, folders, logs, pages, panels, releases, skins, themes, widgets
 from orb import commands, terminal
-from orb.audio import LOSSY_SHARE, SAMPLE_RATE, TAP_S, gap_notice, lost_share, speakable, split_sentences
+from orb.audio import SAMPLE_RATE, TAP_S, speakable, split_sentences
+from orb.clips import LOSSY_SHARE, gap_notice, lost_share
 from orb.side import side_intent, status_sentence
 from orb.config import (WIDGET_PANE_KEYS, WIDGET_PLACE_KEYS, ConfigError, WidgetEntry, clamp_size, clamp_speed, engine_settings, expand_dirs, load_for,
                         overlay, save_for_repo, save_skin_size, save_speed, save_widget, size_for, speed_for, tts_settings_for, validate_widget_entry,
@@ -1508,11 +1509,12 @@ class OrbServer:
         if self.state == "transcribing":
             self.state = self.resume_state()
         lost = lost_share(samples)
-        if lost >= LOSSY_SHARE:
-            log.warning("clip of %.1fs lost %.0f%% of its audio in gaps", samples.size / SAMPLE_RATE, lost * 100)
+        lossy = lost >= LOSSY_SHARE
+        if lossy:
+            log.warning("clip of %.1fs: %s", samples.size / SAMPLE_RATE, gap_notice(lost))
             await self.notify("info", gap_notice(lost))
         if not text.strip():
-            if lost < LOSSY_SHARE:
+            if not lossy:
                 await self.notify("info", "didn't catch that")
             if self.state != "speaking":
                 await self.set_state(self.resume_state())
