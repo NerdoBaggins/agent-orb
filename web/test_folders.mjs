@@ -23,8 +23,8 @@ test("a summary counts the extras and the missing ones, and a missing one is a p
 });
 
 test("a path is cut after each separator and the pieces join back to the path", () => {
-  const win = "C:\\Users\\agon2\\panels";
-  assert.deepEqual(pathPieces(win), ["C:\\", "Users\\", "agon2\\", "panels"]);
+  const win = "C:\\Users\\me\\panels";
+  assert.deepEqual(pathPieces(win), ["C:\\", "Users\\", "me\\", "panels"]);
   assert.equal(pathPieces(win).join(""), win);
   assert.deepEqual(pathPieces("~/a/b"), ["~/", "a/", "b"]);
   assert.deepEqual(pathPieces(""), []);
