@@ -213,7 +213,8 @@ plugin's folder (the skill tells the agent where that is).
 | `orb voice on\|off\|toggle [--agent claude\|copilot]` | mute or unmute the orb's speech without closing it; with no orb open, sets it for the next one |
 | `orb voice enroll [--agent claude\|copilot]` | enroll your voiceprint in the open orb (five phrases, hold to read) |
 | `orb log [-n N] [--agent claude\|copilot]` | the newest lines (60 unless you say) of this repo's orb log |
-| `orb doctor [--no-engines]` | read-only checks: tools, browser, config, skin, theme, actions, widgets, agent links, engines, wake word, server capture |
+| `orb engines` | the speech engines the orbs on this machine share, and the servers attached to each (see [Shared engines](#shared-engines)) |
+| `orb doctor [--no-engines]` | read-only checks: tools, browser, config, skin, theme, actions, widgets, agent links, engine host, engines, wake word, server capture |
 
 Every command also takes `--repo <path>` to act on another repo than the current one.
 
@@ -320,6 +321,7 @@ a choice made in one repo stays there.
 | `panels_key` | `KeyP` — hides the open panels, and brings them back as they were |
 | `stt` | `{"engine": "moonshine", "moonshine": {}}` |
 | `tts` | `{"engine": "kokoro", "speed": 1.18, "kokoro": {"voice": {"af_heart": 0.55, "bf_emma": 0.45}, "lang": "en-gb"}}` — `speed` is one number or per agent, `{"claude": 1.1, "copilot": 1.3}` |
+| `engines` | `{"shared": true}` — whether the orbs on this machine share one set of speech engines; `false` gives each orb its own (see [Shared engines](#shared-engines)); only your own files may set it |
 | `wake` | absent (push-to-talk only); see [Wake word](#wake-word) |
 | `capture` | absent (the browser records the microphone); `{"engine": "livekit"}` turns it on; see [Server capture](#server-capture) |
 | `panel_dirs` | `[]` — extra folders for saved panels, absolute or `~/…`; only your own two files may set it |
@@ -506,6 +508,34 @@ entry naming an API key is the usual sign that it talks to one.
 and `speech` menus. Your folder is searched first. An engine that is missing, fails to load or dies gives way to the
 built-in default and the orb says why. A repo can neither name nor provide one.
 
+### Shared engines
+
+Every orb on a machine uses the same speech-to-text and voice engine processes, so a second window costs about
+nothing, where a large local model (Parakeet, a Whisper) would otherwise be loaded again for each one. The first orb
+that needs an engine starts a small per-user engine host (`python -m orb.engine_host`), and later orbs attach to it.
+
+- **What is shared.** An engine process is shared between orbs whose engine, load settings and credentials are
+  identical. A voice engine's `speed` is sent with every render, so orbs that differ only in speed (per agent, or from
+  the slider) still share one process. A different voice, or different engine settings, is a second process. Picking
+  another voice in one orb moves that orb to a process with that voice; the others keep theirs.
+- **When it stops.** Each orb holds a lease on its engines and renews it every few seconds. An engine closes 30 s
+  after the last lease on it goes, so an orb reopened straight away finds it warm, and the host exits once it runs no
+  engines. An orb that dies without saying goodbye (`kill -9`, a crash) stops renewing, and its lease lapses after 20 s.
+- **Requests queue.** One engine process answers one request at a time, so two orbs transcribing at the same moment
+  take turns. A clip is short, so the wait is short.
+- **Fallback stays per orb.** An engine that fails is replaced by the built-in default for the orb that saw it fail,
+  as before; switching engines from the bar's menus moves only that orb.
+- **Only the speech-to-text and voice engines are shared.** The wake word, voice detection, voiceprint and capture
+  engines stay one per orb.
+- **See it.** `orb engines` lists the running engines and the orbs attached to each; `orb doctor` checks that the
+  host answers and that every engine has an orb attached or a grace period running. The host's log is
+  `~/.config/orb/state/engine-host.log`.
+- **Transport.** A Unix socket under `~/.config/orb/state/` where the path fits a socket address, otherwise loopback TCP;
+  both are guarded by a token only you can read.
+- **Opting out.** `"engines": {"shared": false}` in your config gives each orb its own engine processes, as before.
+  Use it to debug an engine or when one cannot be shared. An orb that is killed hard then leaves its engines to notice
+  their closed input, which an engine stuck in the middle of a call does not.
+
 An engine's, skin's or theme's folder name is lowercase letters, digits, `-` and `_` (up to 64); a folder named any
 other way is neither listed nor loaded.
 
@@ -645,7 +675,7 @@ never installed into agent-orb itself.
 | Path | What |
 |---|---|
 | `.claude-plugin/`, `.mcp.json`, `hooks/`, `skills/` | the plugin, read unchanged by both agents |
-| `orb/` | the Python package: CLI, server, config, state, the engine runner, Stop hook, interrupt adapters, doctor (tests beside the code) |
+| `orb/` | the Python package: CLI, server, config, state, the engine runner and the shared engine host, Stop hook, interrupt adapters, doctor (tests beside the code) |
 | `channel/` | the Claude Code channel MCP server (Node, no dependencies) |
 | `copilot/` | the routes of the Copilot extension's door (Node, no dependencies) |
 | `web/` | the orb page, the push-to-talk worklet, the panel API and stylesheet |
