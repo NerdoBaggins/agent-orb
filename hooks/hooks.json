@@ -5,11 +5,13 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run --no-project --python \">=3.11\" python \"${CLAUDE_PLUGIN_ROOT}/orb/session_hook.py\""
+            "command": "uv run --no-project --python \">=3.11\" python \"${CLAUDE_PLUGIN_ROOT}/orb/session_hook.py\"",
+            "timeout": 15
           },
           {
             "type": "command",
-            "command": "uv run --no-project --python \">=3.11\" python \"${CLAUDE_PLUGIN_ROOT}/orb/turn_hook.py\""
+            "command": "uv run --no-project --python \">=3.11\" python \"${CLAUDE_PLUGIN_ROOT}/orb/turn_hook.py\"",
+            "timeout": 15
           }
         ]
       }
@@ -19,11 +21,13 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run --no-project --python \">=3.11\" python \"${CLAUDE_PLUGIN_ROOT}/orb/stop_hook.py\""
+            "command": "uv run --no-project --python \">=3.11\" python \"${CLAUDE_PLUGIN_ROOT}/orb/stop_hook.py\"",
+            "timeout": 15
           },
           {
             "type": "command",
-            "command": "uv run --no-project --python \">=3.11\" python \"${CLAUDE_PLUGIN_ROOT}/orb/turn_hook.py\""
+            "command": "uv run --no-project --python \">=3.11\" python \"${CLAUDE_PLUGIN_ROOT}/orb/turn_hook.py\"",
+            "timeout": 15
           }
         ]
       }
@@ -33,7 +37,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run --no-project --python \">=3.11\" python \"${CLAUDE_PLUGIN_ROOT}/orb/turn_hook.py\""
+            "command": "uv run --no-project --python \">=3.11\" python \"${CLAUDE_PLUGIN_ROOT}/orb/turn_hook.py\"",
+            "timeout": 15
           }
         ]
       }
@@ -43,7 +48,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run --no-project --python \">=3.11\" python \"${CLAUDE_PLUGIN_ROOT}/orb/turn_hook.py\""
+            "command": "uv run --no-project --python \">=3.11\" python \"${CLAUDE_PLUGIN_ROOT}/orb/turn_hook.py\"",
+            "timeout": 15
           }
         ]
       }
@@ -53,7 +59,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run --no-project --python \">=3.11\" python \"${CLAUDE_PLUGIN_ROOT}/orb/turn_hook.py\""
+            "command": "uv run --no-project --python \">=3.11\" python \"${CLAUDE_PLUGIN_ROOT}/orb/turn_hook.py\"",
+            "timeout": 15
           }
         ]
       }
