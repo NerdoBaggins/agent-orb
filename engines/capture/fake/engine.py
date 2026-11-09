@@ -2,8 +2,6 @@
 # requires-python = ">=3.10"
 # dependencies = []
 # ///
-"""Test capture: after `load`, `frames` frames of 1280 samples at `value` (default 0.3), one every `every` seconds
-(default 0.01), then nothing until stdin closes. `fail` set makes the load fail with that reason."""
 import base64
 import json
 import struct
@@ -27,4 +25,8 @@ for _ in range(settings.get("frames", 0)):
     sys.stdout.write(json.dumps({"pcm": pcm, "level": settings.get("value", 0.3)}) + "\n")
     sys.stdout.flush()
     time.sleep(settings.get("every", 0.01))
+while settings.get("notice") and not closed.wait(settings.get("every", 0.01)):
+    sys.stdout.write(json.dumps({"notice": settings["notice"]}) + "\n")
+    sys.stdout.flush()
 closed.wait()
+time.sleep(settings.get("linger", 0))

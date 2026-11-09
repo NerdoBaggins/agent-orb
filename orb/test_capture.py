@@ -54,6 +54,38 @@ def test_a_line_that_is_neither_audio_nor_json_is_a_notice(tmp_path):
     try:
         capture.process.lines.put("not json\n")
         event = capture.next_event()
-        assert isinstance(event, Notice) and "not JSON" in event.text
+        assert isinstance(event, Notice) and "not a JSON object" in event.text
+    finally:
+        capture.close()
+
+
+@pytest.mark.parametrize("line", ["42", "null", "[1]"])
+def test_a_json_line_that_is_not_an_object_is_a_notice(tmp_path, line):
+    capture = fake(tmp_path, frames=0)
+    try:
+        capture.process.lines.put(line + "\n")
+        event = capture.next_event()
+        assert isinstance(event, Notice) and "not a JSON object" in event.text
+    finally:
+        capture.close()
+
+
+@pytest.mark.parametrize("line", ['{"pcm": "AAAA"}', '{"pcm": 5}'])
+def test_a_frame_that_cannot_be_decoded_is_a_notice(tmp_path, line):
+    capture = fake(tmp_path, frames=0)
+    try:
+        capture.process.lines.put(line + "\n")
+        event = capture.next_event()
+        assert isinstance(event, Notice) and "cannot be decoded" in event.text
+    finally:
+        capture.close()
+
+
+def test_an_engine_that_sends_only_notices_still_ends_the_capture(tmp_path, monkeypatch):
+    monkeypatch.setattr(capture_module, "STALL_S", 0.3)
+    capture = fake(tmp_path, notice="the microphone is not available", every=0.05)
+    try:
+        events = [capture.next_event() for _ in range(20)]
+        assert isinstance(events[0], Notice) and any(isinstance(e, Ended) and "no audio" in e.reason for e in events)
     finally:
         capture.close()
