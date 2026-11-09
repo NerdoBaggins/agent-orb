@@ -98,7 +98,7 @@ class StopProgress(NamedTuple):
     delivered: frozenset[str] = frozenset()
     # `orb.gate.Walk`'s fields, in its order.
     walk: tuple[str | None, bool, bool] = (None, False, False)
-    # `orb.gate.transcript_mark` at `offset`.
+    # `orb.gate.MarkedRead.mark` at `offset`.
     mark: str | None = None
 
 
