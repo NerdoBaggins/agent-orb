@@ -146,10 +146,7 @@ def test_stop_after_a_transcription_has_ended_interrupts_the_busy_agent(tmp_path
     async def go():
         server = make(tmp_path, voice=True)
         server.stt, server.link = stt, InterruptibleLink()
-        try:
-            await server.heard_clip(CLIP)
-        except EngineError:
-            pass
+        await server.heard_clip(CLIP)
         server.session = server.session | {"busy": True}
         await server.stop()
         assert server.link.interrupts == 1
@@ -170,4 +167,15 @@ def test_two_clips_transcribing_at_once_both_go_to_the_agent_in_order(tmp_path):
             await second
             await wait_for(lambda: server.link.sent)
             assert [sent[0] for sent in server.link.sent] + [r.text for r in server.queue] == ["the first", "the second"]
+    run(go())
+
+
+def test_a_failed_transcription_says_so_and_returns_the_orb_to_idle(tmp_path):
+    async def go():
+        server = make(tmp_path, voice=True)
+        server.stt = FailingStt("")
+        notices = []
+        server.notify = lambda level, text, ref=None: asyncio.sleep(0, notices.append((level, text)))
+        await server.heard_clip(CLIP)
+        assert server.state == "idle" and notices == [("error", "transcription: the engine died")]
     run(go())
