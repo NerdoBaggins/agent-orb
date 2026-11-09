@@ -250,6 +250,8 @@ class OrbServer:
         self.empty_since: float | None = time.monotonic()
         self.stopping = False
         self.recording: list[np.ndarray] | None = None
+        self.hearing: object | None = None
+        self.stt_in_use = asyncio.Lock()
         self.speaking: asyncio.Task | None = None
         self.tasks: set[asyncio.Task] = set()
         self.played = asyncio.Event()
@@ -941,9 +943,8 @@ class OrbServer:
             reason = stt.fallback_reason
             await asyncio.to_thread(stt.close)
             return reason
-        while self.state == "transcribing":
-            await asyncio.sleep(0.05)
-        old, self.stt = self.stt, stt
+        async with self.stt_in_use:
+            old, self.stt = self.stt, stt
         await asyncio.to_thread(old.close)
         self.config["stt"].update(settings)
         return None
@@ -1551,8 +1552,14 @@ class OrbServer:
         await self.heard_clip(samples, strip=self.waker.strip)
 
     async def heard_clip(self, samples: np.ndarray, strip=None) -> None:
+        clip = self.hearing = object()
         await self.set_state("transcribing")
-        text = await asyncio.to_thread(self.stt.transcribe, samples)
+        async with self.stt_in_use:
+            text = await asyncio.to_thread(self.stt.transcribe, samples)
+        if self.hearing is not clip:
+            log.info("dropped %.1fs heard before stop", samples.size / SAMPLE_RATE)
+            return
+        self.hearing = None
         log.info("heard %.1fs: %r", samples.size / SAMPLE_RATE, text[:200])
         if strip is not None:
             text = strip(text)
@@ -1763,6 +1770,9 @@ class OrbServer:
             self.recording = None
             if self.waker is not None:
                 self.waker.cancel()
+            await self.set_state(self.resume_state())
+        elif self.hearing is not None:
+            self.hearing = None
             await self.set_state(self.resume_state())
         elif self.interrupted_at is not None and time.monotonic() - self.interrupted_at < INTERRUPT_SETTLE_S:
             # A second Escape into a session that has just stopped would open its rewind menu.
