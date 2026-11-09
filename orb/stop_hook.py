@@ -51,7 +51,7 @@ def run(payload: dict, project: Path, home: Path) -> str:
         pending = set(_call(server, "GET", "/pending", until=until).get("pending", []))
     except (urllib.error.URLError, OSError, ValueError):
         return "no-orb"
-    turn, seen = _new_entries(payload, state, pending)
+    turn, seen = _new_entries(payload, state)
     request_id = turn.request_id if turn.request_id in pending else None
     if request_id:
         return _post(server, "/reply", {"req": request_id, "text": payload.get("last_assistant_message") or ""}, "posted", until)
@@ -62,10 +62,10 @@ def run(payload: dict, project: Path, home: Path) -> str:
     return "post-failed" if "post-failed" in outcomes else "ended"
 
 
-def _new_entries(payload: dict, state: Path, pending: set[str]) -> tuple[Walk, set[str]]:
+def _new_entries(payload: dict, state: Path) -> tuple[Walk, set[str]]:
     """Walks the transcript entries written since the last Stop, on from where that Stop's walk ended, so the
     newest turn is known even when the new bytes hold no opener (a second Stop in one turn). Returns the walk and
-    every channel request id delivered so far that is still pending. Only the new bytes are parsed, so the cost
+    every channel request id delivered so far. Only the new bytes are parsed, so the cost
     does not grow with the session; a transcript that no longer holds what the last Stop read before its offset
     (compaction, a rewrite, a file that cannot be read) is walked again from the start."""
     path, session = payload.get("transcript_path"), payload.get("session_id")
@@ -75,7 +75,7 @@ def _new_entries(payload: dict, state: Path, pending: set[str]) -> tuple[Walk, s
         progress = StopProgress()
     entries, end, mark = (read.entries, read.end, read.mark) if read else ([], 0, None)
     turn = walk(entries, Walk(*progress.walk))
-    seen = (progress.delivered | delivered(entries)) & pending
+    seen = progress.delivered | delivered(entries)
     try:
         record_stop_progress(state, session, path, StopProgress(end, frozenset(seen), tuple(turn), mark))
     except OSError:
