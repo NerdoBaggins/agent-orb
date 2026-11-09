@@ -249,3 +249,24 @@ def test_the_plugin_runs_the_turn_hook_on_every_event_that_opens_or_closes_a_tur
     with_turn_hook = {event for event, groups in hooks.items()
                       if any("orb/turn_hook.py" in h["command"] for g in groups for h in g["hooks"])}
     assert with_turn_hook == state.TURN_OPENS | state.TURN_CLOSES
+
+
+def test_stop_progress_comes_back_as_it_was_recorded(tmp_path):
+    folder = state_dir(tmp_path / "home", tmp_path / "repo")
+    state.record_stop_progress(folder, "s1", "/t/x.jsonl", 4096, {"r2", "r1"})
+    assert state.read_stop_progress(folder, "s1", "/t/x.jsonl") == (4096, {"r1", "r2"})
+
+
+@pytest.mark.parametrize("session, transcript", [("s2", "/t/x.jsonl"), ("s1", "/t/y.jsonl"), (None, "/t/x.jsonl"), ("s1", None)])
+def test_stop_progress_recorded_for_another_session_or_transcript_is_not_reused(tmp_path, session, transcript):
+    folder = state_dir(tmp_path / "home", tmp_path / "repo")
+    state.record_stop_progress(folder, "s1", "/t/x.jsonl", 4096, {"r1"})
+    assert state.read_stop_progress(folder, session, transcript) == (0, set())
+
+
+@pytest.mark.parametrize("record", [{"offset": -1, "delivered": []}, {"offset": "9", "delivered": []},
+                                    {"offset": True, "delivered": []}, {"offset": 9, "delivered": "r1"}])
+def test_stop_progress_that_is_malformed_reads_as_none_recorded(tmp_path, record):
+    folder = state_dir(tmp_path / "home", tmp_path / "repo")
+    write_json(state.stop_file(folder), {"sessionId": "s1", "transcriptPath": "/t/x.jsonl", **record})
+    assert state.read_stop_progress(folder, "s1", "/t/x.jsonl") == (0, set())
