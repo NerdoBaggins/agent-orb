@@ -26,22 +26,22 @@ def test_the_chunker_keeps_the_remainder_for_the_next_push():
 
 
 def test_on_windows_the_default_microphone_is_wasapis():
-    assert engine.pick_device(DEVICES, APIS, "win32", None) == 2
+    assert engine.pick_device(DEVICES, APIS, 0, "win32", None) == 2
 
 
 def test_a_named_microphone_is_found_by_part_of_its_name_within_wasapi():
-    assert engine.pick_device(DEVICES, APIS, "win32", "headset") == 3
+    assert engine.pick_device(DEVICES, APIS, 0, "win32", "headset") == 3
 
 
 def test_a_named_microphone_that_is_not_there_says_what_is():
     with pytest.raises(ValueError, match="Remote Audio, Headset Microphone"):
-        engine.pick_device(DEVICES, APIS, "win32", "studio")
+        engine.pick_device(DEVICES, APIS, 0, "win32", "studio")
 
 
-def test_off_windows_any_host_apis_default_input_is_used():
-    assert engine.pick_device(DEVICES[:1], APIS[:1], "darwin", None) == 0
+def test_off_windows_the_systems_default_input_is_used_whichever_host_api_owns_it():
+    assert engine.pick_device(DEVICES, APIS, 2, "linux", None) == 2
 
 
 def test_no_microphone_at_all_is_an_error():
     with pytest.raises(ValueError, match="no microphone"):
-        engine.pick_device(DEVICES[1:2], APIS, "win32", None)
+        engine.pick_device(DEVICES[1:2], APIS, 0, "win32", None)
