@@ -139,6 +139,7 @@ While the orb is busy, the mic button becomes **Stop**; the push-to-talk key doe
 - While **speaking**: playback ends at once and the orb goes idle.
 - While **transcribing**: the orb goes back at once to idle, or to thinking while a request is still out, and the
   words being transcribed are dropped, never sent. An agent at work keeps going.
+- In every state, words still being transcribed when Stop is pressed are dropped, whatever else it stops.
 - While **thinking**: speech ends and the agent's current turn is aborted. The orb server marks the request
   interrupted in the transcript when it sends the abort, and drops it from the pending list; Claude Code's `Stop` hook
   does not fire on an interrupted turn (test 0.2), so no reply is awaited.
