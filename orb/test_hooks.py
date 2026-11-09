@@ -381,3 +381,11 @@ def test_the_stop_hook_does_not_post_for_a_turn_whose_request_is_no_longer_pendi
     transcript = tmp_path / "t.jsonl"
     transcript.write_text(lines(orb_message("r1")), encoding="utf-8")
     assert stop_at(tmp_path, monkeypatch, transcript, ["r2"], []) == ("not-ours", [])
+
+
+def test_a_transcript_that_cannot_be_read_at_a_stop_forgets_the_turn_the_last_stop_carried(tmp_path, monkeypatch):
+    transcript = tmp_path / "t.jsonl"
+    transcript.write_text(lines(orb_message("r1")), encoding="utf-8")
+    stop_at(tmp_path, monkeypatch, transcript, ["r1"], [])
+    transcript.unlink()
+    assert stop_at(tmp_path, monkeypatch, transcript, ["r1"], []) == ("not-ours", [])
