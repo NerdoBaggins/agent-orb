@@ -3,6 +3,7 @@ import pytest
 from orb import capture as capture_module
 from orb.capture import Capture, Ended, Frame, Notice
 from orb.engines import EngineError
+from orb.server import start_capture
 
 
 def fake(tmp_path, **settings):
@@ -37,9 +38,15 @@ def test_an_engine_that_exits_ends_the_capture(tmp_path):
     assert isinstance(event, Ended) and "exited" in event.reason
 
 
-def test_a_capture_engine_that_fails_to_load_raises_its_reason(tmp_path):
+def test_a_capture_engine_that_fails_to_load_leaves_the_browsers_microphone_with_the_reason(tmp_path):
     with pytest.raises(EngineError, match="no microphone"):
         fake(tmp_path, fail="no microphone found")
+    capture, reason = start_capture({"engine": "fake", "fail": "no microphone found"}, tmp_path)
+    assert capture is None and "no microphone found" in reason
+
+
+def test_no_capture_section_means_the_browsers_microphone_and_no_reason(tmp_path):
+    assert start_capture(None, tmp_path) == (None, None)
 
 
 def test_a_line_that_is_neither_audio_nor_json_is_a_notice(tmp_path):

@@ -321,6 +321,7 @@ def test_a_widget_entry_may_name_the_pane_it_was_placed_in(tmp_path):
 @pytest.mark.parametrize("key, value", [
     ("widgets", {"context": {"on": True, "x": 0.1, "y": 0.1}}), ("wake", {"engine": "openwakeword"}),
     ("stt", {"engine": "moonshine", "moonshine": {"model": "someone/else"}}), ("tts", {"engine": "voxtral"}),
+    ("capture", {"engine": "livekit"}),
     ("skin", "neb"), ("skin_options", {"pulse": {"hue": 1}}), ("theme", "jarvis"),
     ("panel_dirs", ["/tmp/x"]), ("widget_dirs", ["/tmp/x"]),
 ])
