@@ -13,7 +13,7 @@ import pytest
 
 from orb import hook_deadline, session_hook, stop_hook, turn_hook
 from orb.gate import CHANNEL_SERVER, read_transcript_after
-from orb.state import read_stop_progress, server_file, session_file, session_project, state_dir, turn_file, write_json
+from orb.state import server_file, session_file, session_project, state_dir, turn_file, write_json
 
 
 @pytest.fixture
@@ -337,15 +337,14 @@ def test_the_stop_hook_reads_the_transcript_again_from_the_start_when_it_has_shr
     assert (reads[1], outcome, posted[-1]) == (0, "ended", ("/ended", {"req": "r2"}))
 
 
-def test_the_stop_hook_stops_carrying_a_request_the_orb_no_longer_has_pending(tmp_path, monkeypatch):
+def test_the_stop_hook_ends_a_request_that_was_not_pending_at_an_earlier_stop_but_is_at_this_one(tmp_path, monkeypatch):
     typed = {"type": "user", "origin": {"kind": "human"}, "message": {"content": "a new question"}}
     transcript = tmp_path / "t.jsonl"
     transcript.write_text(lines(orb_message("r1"), typed), encoding="utf-8")
-    stop_at(tmp_path, monkeypatch, transcript, ["r1"], [])
-    folder = state_dir(tmp_path / "home", tmp_path / "repo")
-    assert read_stop_progress(folder, "s1", str(transcript))[1] == {"r1"}
-    stop_at(tmp_path, monkeypatch, transcript, ["r9"], [])
-    assert read_stop_progress(folder, "s1", str(transcript))[1] == set()
+    stop_at(tmp_path, monkeypatch, transcript, [], [])
+    with transcript.open("a", encoding="utf-8") as f:
+        f.write(lines({"type": "assistant", "message": {"content": "more"}}))
+    assert stop_at(tmp_path, monkeypatch, transcript, ["r1"], []) == ("ended", [("/ended", {"req": "r1"})])
 
 
 def test_a_second_stop_in_the_orbs_turn_posts_its_reply_though_the_new_bytes_hold_no_opener(tmp_path, monkeypatch):
