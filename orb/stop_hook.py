@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from orb.hook_deadline import deadline  # noqa: E402
-from orb.gate import Walk, delivered, read_transcript_from, walk  # noqa: E402
+from orb.gate import Walk, delivered, read_transcript_from, transcript_mark, walk  # noqa: E402
 from orb.state import (  # noqa: E402
     StopProgress, hook_agent, pid_alive, project_root, read_json, read_stop_progress, record_session, record_stop_progress,
     server_file, state_dir)
@@ -66,21 +66,18 @@ def _new_entries(payload: dict, state: Path, pending: set[str]) -> tuple[Walk, s
     """Walks the transcript entries written since the last Stop, on from where that Stop's walk ended, so the
     newest turn is known even when the new bytes hold no opener (a second Stop in one turn). Returns the walk and
     every channel request id delivered so far that is still pending. Only the new bytes are parsed, so the cost
-    does not grow with the session; a transcript that has shrunk below the stored offset (compaction, a rewrite)
-    is walked again from the start."""
+    does not grow with the session; a transcript that no longer holds what the last Stop read before its offset
+    (compaction, a rewrite, a file that cannot be read) is walked again from the start."""
     path, session = payload.get("transcript_path"), payload.get("session_id")
     progress = read_stop_progress(state, session, path)
-    try:
-        if progress.offset > os.path.getsize(path):
-            progress = StopProgress()
-    except (OSError, TypeError):
-        pass
+    if progress.offset and transcript_mark(path, progress.offset) != progress.mark:
+        progress = StopProgress()
     read = read_transcript_from(path, progress.offset)
     entries, end = read if read else ([], progress.offset)
     turn = walk(entries, Walk(*progress.walk))
     seen = (progress.delivered | delivered(entries)) & pending
     try:
-        record_stop_progress(state, session, path, StopProgress(end, frozenset(seen), tuple(turn)))
+        record_stop_progress(state, session, path, StopProgress(end, frozenset(seen), tuple(turn), transcript_mark(path, end)))
     except OSError:
         pass
     return turn, seen

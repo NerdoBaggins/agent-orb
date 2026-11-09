@@ -98,18 +98,20 @@ class StopProgress(NamedTuple):
     delivered: frozenset[str] = frozenset()
     # `orb.gate.Walk`'s fields, in its order.
     walk: tuple[str | None, bool, bool] = (None, False, False)
+    # `orb.gate.transcript_mark` at `offset`.
+    mark: str | None = None
 
 
 def read_stop_progress(state: Path, session_id: str | None, transcript: str | None) -> StopProgress:
     """What the Stop hook recorded for this session's transcript; a fresh start when it recorded none for it."""
     record = read_json(stop_file(state)) or {}
-    offset, ids, turn = record.get("offset"), record.get("delivered"), record.get("walk")
+    offset, ids, turn, mark = record.get("offset"), record.get("delivered"), record.get("walk"), record.get("mark")
     if (not session_id or not transcript or record.get("sessionId") != session_id
             or record.get("transcriptPath") != transcript or type(offset) is not int or offset < 0
-            or not isinstance(ids, list) or not _is_walk(turn)):
+            or not isinstance(ids, list) or not _is_walk(turn) or not isinstance(mark, str)):
         return StopProgress()
     return StopProgress(offset, frozenset(i for i in ids if isinstance(i, str)),
-                        (turn["requestId"], turn["running"], turn["replyContinues"]))
+                        (turn["requestId"], turn["running"], turn["replyContinues"]), mark)
 
 
 def _is_walk(turn) -> bool:
@@ -123,7 +125,8 @@ def record_stop_progress(state: Path, session_id: str | None, transcript: str | 
         write_json(stop_file(state), {
             "sessionId": session_id, "transcriptPath": transcript, "offset": progress.offset,
             "delivered": sorted(progress.delivered),
-            "walk": {"requestId": request_id, "running": running, "replyContinues": reply_continues}})
+            "walk": {"requestId": request_id, "running": running, "replyContinues": reply_continues},
+            "mark": progress.mark})
 
 
 SESSION_ID = re.compile(r"[A-Za-z0-9-]+")
