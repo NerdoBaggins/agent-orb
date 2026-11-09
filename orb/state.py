@@ -88,27 +88,42 @@ def record_session(payload: dict, project: Path, home: Path) -> bool:
 
 
 def stop_file(state: Path) -> Path:
-    """How far the Stop hook has read the Claude Code session's transcript, and the channel request ids it found."""
+    """How far the Stop hook has read the Claude Code session's transcript, the channel request ids it found, and
+    where its walk over the turns stood."""
     return state / "stop.claude.json"
 
 
-def read_stop_progress(state: Path, session_id: str | None, transcript: str | None) -> tuple[int, set[str]]:
-    """The byte offset the Stop hook last read to and the request ids delivered before it, for this session's
-    transcript; (0, empty) when it recorded none for it."""
+class StopProgress(NamedTuple):
+    offset: int = 0
+    delivered: frozenset[str] = frozenset()
+    # `orb.gate.Walk`'s fields, in its order.
+    walk: tuple[str | None, bool, bool] = (None, False, False)
+
+
+def read_stop_progress(state: Path, session_id: str | None, transcript: str | None) -> StopProgress:
+    """What the Stop hook recorded for this session's transcript; a fresh start when it recorded none for it."""
     record = read_json(stop_file(state)) or {}
-    offset, ids = record.get("offset"), record.get("delivered")
+    offset, ids, turn = record.get("offset"), record.get("delivered"), record.get("walk")
     if (not session_id or not transcript or record.get("sessionId") != session_id
             or record.get("transcriptPath") != transcript or type(offset) is not int or offset < 0
-            or not isinstance(ids, list)):
-        return 0, set()
-    return offset, {i for i in ids if isinstance(i, str)}
+            or not isinstance(ids, list) or not _is_walk(turn)):
+        return StopProgress()
+    return StopProgress(offset, frozenset(i for i in ids if isinstance(i, str)),
+                        (turn["requestId"], turn["running"], turn["replyContinues"]))
 
 
-def record_stop_progress(state: Path, session_id: str | None, transcript: str | None, offset: int,
-                         delivered: set[str]) -> None:
+def _is_walk(turn) -> bool:
+    return (isinstance(turn, dict) and (turn.get("requestId") is None or isinstance(turn.get("requestId"), str))
+            and type(turn.get("running")) is bool and type(turn.get("replyContinues")) is bool)
+
+
+def record_stop_progress(state: Path, session_id: str | None, transcript: str | None, progress: StopProgress) -> None:
     if session_id and transcript:
-        write_json(stop_file(state), {"sessionId": session_id, "transcriptPath": transcript, "offset": offset,
-                                      "delivered": sorted(delivered)})
+        request_id, running, reply_continues = progress.walk
+        write_json(stop_file(state), {
+            "sessionId": session_id, "transcriptPath": transcript, "offset": progress.offset,
+            "delivered": sorted(progress.delivered),
+            "walk": {"requestId": request_id, "running": running, "replyContinues": reply_continues}})
 
 
 SESSION_ID = re.compile(r"[A-Za-z0-9-]+")

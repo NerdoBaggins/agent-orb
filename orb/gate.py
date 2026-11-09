@@ -3,6 +3,7 @@ silent cases in the spec are unit-tested without a session."""
 import json
 import re
 from pathlib import Path
+from typing import Iterator, NamedTuple
 
 CHANNEL_SERVER = "plugin:agent-orb:orb-channel"
 # Tolerates the escaped quotes of an attachment entry serialized as JSON, whose exact shape is not pinned down.
@@ -86,12 +87,12 @@ def _is_queued(entry: dict) -> bool:
     return (entry.get("attachment") or {}).get("type") == "queued_command"
 
 
-def _continues(reply: dict | None) -> bool:
-    return bool(reply) and (reply.get("message") or {}).get("stop_reason") in (None, "tool_use")
+def _continues(reply: dict) -> bool:
+    return (reply.get("message") or {}).get("stop_reason") in (None, "tool_use")
 
 
-def _joins_running_turn(entry: dict, last_reply: dict | None, server: str) -> bool:
-    typed_between_steps = entry.get("promptSource") == "queued" and _continues(last_reply)
+def _joins_running_turn(entry: dict, reply_continues: bool, server: str) -> bool:
+    typed_between_steps = entry.get("promptSource") == "queued" and reply_continues
     return _is_notification(entry) or typed_between_steps or (_is_queued(entry) and not _from_channel(entry, server))
 
 
@@ -117,24 +118,43 @@ def _closes_turn(entry: dict) -> bool:
     return entry.get("type") == "user" and _text_of(entry).startswith("[Request interrupted")
 
 
-def openers(entries: list[dict], server: str = CHANNEL_SERVER) -> list[dict | None]:
-    """For each entry, the entry that opened the turn it belongs to."""
-    opener, running, last_reply, out = None, False, None, []
+class Walk(NamedTuple):
+    """Where a walk over a transcript stands after its last entry, so a walk over the entries written later can
+    start there and end where a walk over the whole transcript would."""
+    request_id: str | None = None
+    running: bool = False
+    reply_continues: bool = False
+
+
+def _opened(entries: list[dict], server: str, walk: Walk) -> Iterator[tuple[dict, bool, Walk]]:
+    """Each entry, whether it opened a turn, and the walk after it."""
+    request_id, running, reply_continues = walk
     for entry in entries:
+        opens = False
         if not entry.get("isSidechain"):
             if _closes_turn(entry):
                 running = False
-            elif _opens_turn(entry) and not (running and _joins_running_turn(entry, last_reply, server)):
-                opener, running = entry, True
+            elif _opens_turn(entry) and not (running and _joins_running_turn(entry, reply_continues, server)):
+                opens, running, request_id = True, True, orb_request_id(entry, server)
             if entry.get("type") == "assistant":
-                last_reply = entry
+                reply_continues = _continues(entry)
+        yield entry, opens, Walk(request_id, running, reply_continues)
+
+
+def openers(entries: list[dict], server: str = CHANNEL_SERVER) -> list[dict | None]:
+    """For each entry, the entry that opened the turn it belongs to."""
+    opener, out = None, []
+    for entry, opens, _ in _opened(entries, server, Walk()):
+        opener = entry if opens else opener
         out.append(opener)
     return out
 
 
-def last_user_turn(entries: list[dict], server: str = CHANNEL_SERVER) -> dict | None:
-    """The entry that opened the newest turn."""
-    return openers(entries, server)[-1] if entries else None
+def walk(entries: list[dict] | None, start: Walk = Walk(), server: str = CHANNEL_SERVER) -> Walk:
+    end = start
+    for _, _, end in _opened(entries or [], server, start):
+        pass
+    return end
 
 
 def orb_request_id(turn: dict | None, server: str = CHANNEL_SERVER) -> str | None:
@@ -159,9 +179,8 @@ def custom_title(entries: list[dict] | None) -> str | None:
     return next((t for t in reversed(titles) if isinstance(t, str) and t.strip()), None)
 
 
-def gate(entries: list[dict] | None, pending: set[str], server: str = CHANNEL_SERVER) -> str | None:
-    """The pending request id this turn answers, or None for every turn that is not the orb's."""
-    if not entries:
-        return None
-    request_id = orb_request_id(last_user_turn(entries, server), server)
+def gate(entries: list[dict] | None, pending: set[str], server: str = CHANNEL_SERVER, start: Walk = Walk()) -> str | None:
+    """The pending request id this turn answers, or None for every turn that is not the orb's. `start` is where
+    the walk over the entries before `entries` ended."""
+    request_id = walk(entries, start, server).request_id
     return request_id if request_id in pending else None
