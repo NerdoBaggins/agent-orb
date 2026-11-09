@@ -1,16 +1,19 @@
 import asyncio
 import threading
 
+import pytest
+
 from orb import server as server_module
+from orb.engines import EngineError
 from orb.test_server import FakeStt, InterruptibleLink, client_for, make, run, wait_for
-from orb.test_server_side import CLIP, connect
+from orb.test_server_side import CLIP, ask_and_wait_for_send, connect
+from orb.test_server_interrupt import BlockingLink
 
 
 class HeldStt(FakeStt):
-    """Hears each of `texts` in turn, the last one from then on."""
-    def __init__(self, *texts):
-        super().__init__(texts[-1])
-        self.texts = list(texts)
+    def __init__(self, *heard_in_turn):
+        super().__init__(heard_in_turn[-1])
+        self.heard_in_turn = list(heard_in_turn)
         self.release, self.started = threading.Event(), threading.Event()
         self.transcribing, self.closed, self.closed_while_transcribing = False, False, False
 
@@ -20,7 +23,7 @@ class HeldStt(FakeStt):
         self.release.wait(3)
         self.transcribing = False
         super().transcribe(samples)
-        return self.texts.pop(0) if len(self.texts) > 1 else self.texts[0]
+        return self.heard_in_turn.pop(0) if len(self.heard_in_turn) > 1 else self.heard_in_turn[0]
 
     def close(self):
         self.closed, self.closed_while_transcribing = True, self.transcribing
@@ -115,4 +118,56 @@ def test_switching_engines_waits_for_a_transcription_stop_left_running(tmp_path,
         await heard
         assert await switched is None
         assert server.stt is new and old.closed and not old.closed_while_transcribing
+    run(go())
+
+
+def test_stop_while_transcribing_with_a_request_out_returns_the_orb_to_thinking(tmp_path):
+    async def go():
+        server = held_server(tmp_path)
+        server.link = BlockingLink()
+        async with await client_for(server) as c:
+            ws = await connect(c)
+            await ask_and_wait_for_send(ws, server)
+            heard = await stopped_mid_transcription(server)
+            assert server.state == "thinking"
+            server.stt.release.set()
+            server.link.release.set()
+            await heard
+    run(go())
+
+
+class FailingStt(FakeStt):
+    def transcribe(self, samples) -> str:
+        raise EngineError("the engine died")
+
+
+@pytest.mark.parametrize("stt", [FakeStt("what time is it"), FailingStt("")], ids=["heard", "failed"])
+def test_stop_after_a_transcription_has_ended_interrupts_the_busy_agent(tmp_path, stt):
+    async def go():
+        server = make(tmp_path, voice=True)
+        server.stt, server.link = stt, InterruptibleLink()
+        try:
+            await server.heard_clip(CLIP)
+        except EngineError:
+            pass
+        server.session = server.session | {"busy": True}
+        await server.stop()
+        assert server.link.interrupts == 1
+    run(go())
+
+
+def test_two_clips_transcribing_at_once_both_go_to_the_agent_in_order(tmp_path):
+    async def go():
+        server = held_server(tmp_path, "the first", "the second")
+        async with await client_for(server) as c:
+            await connect(c)
+            first = asyncio.create_task(server.heard_clip(CLIP))
+            await asyncio.to_thread(server.stt.started.wait, 3)
+            second = asyncio.create_task(server.heard_clip(CLIP))
+            await asyncio.sleep(0.1)
+            server.stt.release.set()
+            await first
+            await second
+            await wait_for(lambda: server.link.sent)
+            assert [sent[0] for sent in server.link.sent] + [r.text for r in server.queue] == ["the first", "the second"]
     run(go())
