@@ -87,6 +87,30 @@ def record_session(payload: dict, project: Path, home: Path) -> bool:
     return True
 
 
+def stop_file(state: Path) -> Path:
+    """How far the Stop hook has read the Claude Code session's transcript, and the channel request ids it found."""
+    return state / "stop.claude.json"
+
+
+def read_stop_progress(state: Path, session_id: str | None, transcript: str | None) -> tuple[int, set[str]]:
+    """The byte offset the Stop hook last read to and the request ids delivered before it, for this session's
+    transcript; (0, empty) when it recorded none for it."""
+    record = read_json(stop_file(state)) or {}
+    offset, ids = record.get("offset"), record.get("delivered")
+    if (not session_id or not transcript or record.get("sessionId") != session_id
+            or record.get("transcriptPath") != transcript or type(offset) is not int or offset < 0
+            or not isinstance(ids, list)):
+        return 0, set()
+    return offset, {i for i in ids if isinstance(i, str)}
+
+
+def record_stop_progress(state: Path, session_id: str | None, transcript: str | None, offset: int,
+                         delivered: set[str]) -> None:
+    if session_id and transcript:
+        write_json(stop_file(state), {"sessionId": session_id, "transcriptPath": transcript, "offset": offset,
+                                      "delivered": sorted(delivered)})
+
+
 SESSION_ID = re.compile(r"[A-Za-z0-9-]+")
 
 
