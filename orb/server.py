@@ -1558,6 +1558,10 @@ class OrbServer:
         try:
             async with self.stt_in_use:
                 text = await asyncio.to_thread(self.stt.transcribe, samples)
+        except EngineError as e:
+            await self.notify("error", f"transcription: {e}")
+            await self.set_state(self.resume_state())
+            return
         finally:
             stopped = clip not in self.hearing
             self.hearing.discard(clip)
