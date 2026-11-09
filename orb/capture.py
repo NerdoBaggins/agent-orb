@@ -1,8 +1,7 @@
-"""The microphone captured by an engine instead of the browser. After `load`, the engine's every line is a frame or
-a notice; the server reads them in order through `next_event`."""
 import json
 import os
 import queue
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -36,6 +35,7 @@ class Capture:
         self.process = engines.start("capture", settings, home, env)
         self.latency = float(self.process.loaded.get("latency", 0.0))
         self.device = str(self.process.loaded.get("device", ""))
+        self.last_frame = time.monotonic()
 
     @property
     def name(self) -> str:
@@ -43,23 +43,36 @@ class Capture:
 
     @property
     def tail_s(self) -> float:
-        """How long after a release the words spoken before it are still arriving."""
         return self.latency + BURST_S
 
+    @property
+    def stall_s(self) -> float:
+        return self.latency + STALL_S
+
     def next_event(self) -> Frame | Notice | Ended:
+        wait = self.last_frame + self.stall_s - time.monotonic()
         try:
-            line = self.process.lines.get(timeout=self.latency + STALL_S)
+            if wait <= 0:
+                raise queue.Empty
+            line = self.process.lines.get(timeout=wait)
         except queue.Empty:
-            return Ended(f"no audio from the microphone for {self.latency + STALL_S:.1f} s")
+            return Ended(f"no audio from the microphone for {self.stall_s:.1f} s")
         if line is None:
             return Ended(f"{self.process.label} exited with code {self.process.process.wait()}")
         try:
             message = json.loads(line)
         except json.JSONDecodeError:
-            return Notice(f"{self.process.label} sent something that is not JSON: {line[:80]!r}")
-        if "pcm" in message:
-            return Frame(decode_pcm(message["pcm"]), float(message.get("level", 0.0)))
-        return Notice(f"{self.process.label}: {message.get('notice') or message.get('error') or message}")
+            message = None
+        if not isinstance(message, dict):
+            return Notice(f"{self.process.label} sent something that is not a JSON object: {line[:80]!r}")
+        if "pcm" not in message:
+            return Notice(f"{self.process.label}: {message.get('notice') or message.get('error') or message}")
+        try:
+            frame = Frame(decode_pcm(message["pcm"]), float(message.get("level", 0.0)))
+        except (TypeError, ValueError) as e:
+            return Notice(f"{self.process.label} sent a frame that cannot be decoded: {e}")
+        self.last_frame = time.monotonic()
+        return frame
 
     def close(self) -> None:
         self.process.close()
