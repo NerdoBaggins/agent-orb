@@ -1,3 +1,5 @@
+import time
+
 import pytest
 
 from orb import capture as capture_module
@@ -70,13 +72,24 @@ def test_a_json_line_that_is_not_an_object_is_a_notice(tmp_path, line):
         capture.close()
 
 
-@pytest.mark.parametrize("line", ['{"pcm": "AAAA"}', '{"pcm": 5}'])
+@pytest.mark.parametrize("line", ['{"pcm": "AAAA"}', '{"pcm": 5}', '{"pcm": "AAAAAA==", "level": 1' + "0" * 400 + '}'])
 def test_a_frame_that_cannot_be_decoded_is_a_notice(tmp_path, line):
     capture = fake(tmp_path, frames=0)
     try:
         capture.process.lines.put(line + "\n")
         event = capture.next_event()
         assert isinstance(event, Notice) and "cannot be decoded" in event.text
+    finally:
+        capture.close()
+
+
+def test_frames_that_arrived_while_nobody_read_them_do_not_end_the_capture(tmp_path, monkeypatch):
+    monkeypatch.setattr(capture_module, "STALL_S", 0.3)
+    capture = fake(tmp_path, frames=200, every=0.01)
+    try:
+        assert isinstance(capture.next_event(), Frame)
+        time.sleep(0.6)
+        assert isinstance(capture.next_event(), Frame)
     finally:
         capture.close()
 
