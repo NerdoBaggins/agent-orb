@@ -455,3 +455,23 @@ def test_a_command_sends_every_word_after_its_name_as_its_argument(tmp_path, mon
     monkeypatch.setattr(cli, "post", lambda server, path, body: sent.append((path, body)) or {"queued": "/compact"})
     assert cli.main(["command", "--repo", str(tmp_path / "repo"), "--home", str(tmp_path / "home"), *words]) == 0
     assert sent == [("/command", {"name": "compact", "argument": argument})]
+
+
+def test_orb_engines_says_so_when_no_host_runs(tmp_path, capsys):
+    assert cli.main(["engines", "--home", str(tmp_path)]) == 0
+    assert "no shared speech engines are running" in capsys.readouterr().out
+
+
+def test_orb_engines_says_so_when_the_host_runs_nothing(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(cli.engine_client, "running_engines", lambda home: [])
+    assert cli.main(["engines", "--home", str(tmp_path)]) == 0
+    assert "the engine host is running no engines" in capsys.readouterr().out
+
+
+def test_orb_engines_fails_loudly_when_a_recorded_host_does_not_answer(tmp_path, monkeypatch, capsys):
+    def down(home):
+        raise cli.engine_client.HostDown("the engine host (pid 5) is recorded but does not answer")
+
+    monkeypatch.setattr(cli.engine_client, "running_engines", down)
+    assert cli.main(["engines", "--home", str(tmp_path)]) == 1
+    assert "does not answer" in capsys.readouterr().err
