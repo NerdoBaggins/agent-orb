@@ -424,3 +424,19 @@ def test_a_repos_file_cannot_add_a_command(tmp_path):
 def test_a_command_written_with_its_slash_is_refused(tmp_path):
     with pytest.raises(ConfigError, match="command names without the slash"):
         load_layers(tmp_path, user={"commands": ["/compact"]})
+
+
+def test_engines_are_shared_unless_a_layer_says_otherwise(tmp_path):
+    assert load_layers(tmp_path)["engines"] == {"shared": True}
+    assert load_layers(tmp_path, user={"engines": {"shared": False}})["engines"] == {"shared": False}
+
+
+@pytest.mark.parametrize("value, problem", [({"shared": "no"}, "engines.shared must be true or false"),
+                                            ({"share": True}, "engines.share is not a setting")])
+def test_a_bad_engines_section_is_refused(tmp_path, value, problem):
+    with pytest.raises(ConfigError, match=problem):
+        load_layers(tmp_path, user={"engines": value})
+
+
+def test_a_repo_cannot_turn_engine_sharing_off(tmp_path):
+    assert load_layers(tmp_path, repo={"engines": {"shared": False}})["engines"] == {"shared": True}

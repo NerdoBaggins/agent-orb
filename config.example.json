@@ -4,6 +4,7 @@
   "skin_options": {},
   "speak": true,
   "mute_key": "KeyM",
+  "engines": { "shared": true },
   "stt": { "engine": "moonshine", "moonshine": {} },
   "tts": {
     "engine": "kokoro",
