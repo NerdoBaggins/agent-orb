@@ -351,3 +351,27 @@ def test_a_second_stop_in_the_orbs_turn_posts_its_reply_though_the_new_bytes_hol
         f.write(lines(reply))
     outcome, posted = stop_at(tmp_path, monkeypatch, transcript, ["r1"], reads)
     assert (reads[1] > 0, outcome, posted[-1][0]) == (True, "posted", "/reply")
+
+
+def test_the_stop_hook_walks_a_transcript_rewritten_past_its_old_size_again_from_the_start(tmp_path, monkeypatch):
+    typed = {"type": "user", "origin": {"kind": "human"}, "message": {"content": "a new question"}}
+    transcript, reads = tmp_path / "t.jsonl", []
+    transcript.write_text(lines(typed), encoding="utf-8")
+    stop_at(tmp_path, monkeypatch, transcript, [], reads)
+    transcript.write_text(lines(orb_message("r1"), typed, typed, typed), encoding="utf-8")
+    outcome, posted = stop_at(tmp_path, monkeypatch, transcript, ["r1"], reads)
+    assert (reads[1], outcome, posted[-1]) == (0, "ended", ("/ended", {"req": "r1"}))
+
+
+def test_a_transcript_walked_again_from_the_start_forgets_the_turn_and_requests_the_last_stop_carried(tmp_path, monkeypatch):
+    transcript = tmp_path / "t.jsonl"
+    transcript.write_text(lines(orb_message("r1"), {"type": "assistant", "message": {"content": "x" * 400}}), encoding="utf-8")
+    stop_at(tmp_path, monkeypatch, transcript, ["r1"], [])
+    transcript.write_text(lines({"type": "assistant", "message": {"content": "after compaction"}}), encoding="utf-8")
+    assert stop_at(tmp_path, monkeypatch, transcript, ["r1"], []) == ("not-ours", [])
+
+
+def test_the_stop_hook_does_not_post_for_a_turn_whose_request_is_no_longer_pending(tmp_path, monkeypatch):
+    transcript = tmp_path / "t.jsonl"
+    transcript.write_text(lines(orb_message("r1")), encoding="utf-8")
+    assert stop_at(tmp_path, monkeypatch, transcript, ["r2"], []) == ("not-ours", [])

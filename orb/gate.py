@@ -1,5 +1,6 @@
 """The Stop hook's gate: which transcript turns are the orb's. Pure functions over parsed transcript entries, so the
 silent cases in the spec are unit-tested without a session."""
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -50,6 +51,22 @@ def read_transcript_from(path: str | None, offset: int = 0) -> tuple[list[dict],
         if isinstance(entry, dict):
             entries.append(entry)
     return entries, offset + end
+
+
+MARK_BYTES = 256
+
+
+def transcript_mark(path: str | None, offset: int) -> str | None:
+    """A digest of the bytes just before `offset`, so a later read can tell the file still holds what was read
+    there; None when the file cannot be read."""
+    start = max(0, offset - MARK_BYTES)
+    try:
+        with open(path, "rb") as f:
+            f.seek(start)
+            data = f.read(offset - start)
+    except (OSError, TypeError):
+        return None
+    return hashlib.sha256(data).hexdigest()
 
 
 def _text_of(entry: dict) -> str:
