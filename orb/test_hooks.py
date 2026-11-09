@@ -206,7 +206,9 @@ def test_every_hooks_json_entry_has_a_timeout():
 def test_every_timeout_is_above_the_scripts_deadline_and_its_backstop():
     hooks = json.loads((REPO / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
     timeouts = {hook["timeout"] for groups in hooks.values() for group in groups for hook in group["hooks"]}
-    assert min(timeouts) > hook_deadline.DEADLINE_S + hook_deadline.GRACE_S - 1
+    # The backstop is armed only once `uv` has started the script, so the timeout leaves room for that start.
+    uv_start_s = 5
+    assert min(timeouts) >= hook_deadline.DEADLINE_S + hook_deadline.GRACE_S + uv_start_s
 
 
 @pytest.mark.parametrize("module", HOOK_MODULES, ids=lambda m: m.__name__)
