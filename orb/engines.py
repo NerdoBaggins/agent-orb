@@ -24,7 +24,7 @@ from orb.pages import plain_name
 log = logging.getLogger("orb")
 ANSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 
-KINDS = ("stt", "tts", "wake", "vad", "voiceprint")
+KINDS = ("capture", "stt", "tts", "wake", "vad", "voiceprint")
 DEFAULT = {"stt": "moonshine", "tts": "kokoro", "vad": "silero", "voiceprint": "resemblyzer"}
 BUILTIN_DIR = PLUGIN_ROOT / "engines"
 CACHE_ENV = "ORB_ENGINE_CACHE"
@@ -148,6 +148,7 @@ class EngineProcess:
             raise EngineError(f"{self.label} could not start {manifest.run[0]!r}: {e}")
         self.lines: queue.Queue = queue.Queue()
         self.lock = threading.Lock()
+        self.loaded: dict = {}
         threading.Thread(target=self._pump, daemon=True).start()
         self._stderr_pump = threading.Thread(target=self._pump_stderr, daemon=True)
         self._stderr_pump.start()
@@ -220,7 +221,7 @@ def start(kind: str, settings: dict, home: Path, env=os.environ) -> EngineProces
         raise EngineError(f"{kind} engine {name!r} needs {', '.join(absent)} in the environment")
     process = EngineProcess(manifest, cache_dir(home, kind, name), env)
     try:
-        process.call({"op": "load", "settings": {k: v for k, v in settings.items() if k != "engine"}}, LOAD_TIMEOUT_S)
+        process.loaded = process.call({"op": "load", "settings": {k: v for k, v in settings.items() if k != "engine"}}, LOAD_TIMEOUT_S)
     except EngineError as e:
         process.close()
         raise EngineError(f"{kind} engine {name!r} failed to load: {e}")
