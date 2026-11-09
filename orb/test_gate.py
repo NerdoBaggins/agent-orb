@@ -1,4 +1,5 @@
 import json
+import os
 
 from orb import gate as gate_module
 from orb.gate import CHANNEL_SERVER, delivered, gate, read_transcript, read_transcript_from
@@ -238,7 +239,6 @@ def writing(text="Building the deck now."):
     return entry
 
 
-# Transcripts whose answer depends on what came before the newest bytes, with the answer read whole.
 SPLIT_TRANSCRIPTS = [
     ([channel_turn(), assistant(), tool_result(), ended("All done."), ended("And one more thing.")], "r7"),
     ([channel_turn(), writing(), typed_between_steps(), ended("All done.")], "r7"),
@@ -258,7 +258,6 @@ def test_a_walk_resumed_from_where_an_earlier_one_ended_answers_as_a_walk_over_t
 
 
 def resumed(path, first, rewritten):
-    """Reads `first` whole, rewrites the file as `rewritten`, and reads on from where the first read ended."""
     path.write_bytes(first)
     read = gate_module.read_transcript_after(str(path), 0, None)
     path.write_bytes(rewritten)
@@ -284,6 +283,23 @@ def test_a_transcript_rewritten_at_its_head_with_the_old_tail_kept_is_read_again
     tail = numbered(50, start=100)
     first, second = resumed(tmp_path / "t.jsonl", numbered(5) + tail, numbered(5, start=5) + tail + numbered(1, start=200))
     assert second.restarted
+
+
+def test_a_transcript_replaced_after_its_mark_is_checked_is_read_as_the_file_that_was_checked(tmp_path, monkeypatch):
+    path, other = tmp_path / "t.jsonl", tmp_path / "other.jsonl"
+    path.write_bytes(numbered(50))
+    first = gate_module.read_transcript_after(str(path), 0, None)
+    path.write_bytes(numbered(52))
+    other.write_bytes(numbered(902))
+    real_open = open
+
+    def open_then_replace(name, *args, **kwargs):
+        handle = real_open(name, *args, **kwargs)
+        os.replace(other, path) if other.exists() else None
+        return handle
+    monkeypatch.setattr(gate_module, "open", open_then_replace, raising=False)
+    second = gate_module.read_transcript_after(str(path), first.end, first.mark)
+    assert (second.restarted, [e["n"] for e in second.entries]) == (False, [50, 51])
 
 
 def test_a_transcript_that_cannot_be_read_on_resume_is_none(tmp_path):

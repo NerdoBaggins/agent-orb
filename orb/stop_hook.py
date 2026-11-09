@@ -18,13 +18,11 @@ from orb.state import (  # noqa: E402
     StopProgress, hook_agent, pid_alive, project_root, read_json, read_stop_progress, record_session, record_stop_progress,
     server_file, state_dir)
 
-# All of the hook's calls share this, so they end well inside the hook's deadline however many requests are unanswered.
 BUDGET_S = 6
 TIMEOUT_S = 5
 
 
-def _call(server: dict, method: str, path: str, body: dict | None = None, *, until: float = float("inf")):
-    """`until` is a `time.monotonic()` reading; a call that would start after it raises TimeoutError."""
+def _call(server: dict, method: str, path: str, body: dict | None = None, *, until: float):
     timeout = min(TIMEOUT_S, until - time.monotonic())
     if timeout <= 0:
         raise TimeoutError("the hook's time for calling the orb is spent")
@@ -63,11 +61,6 @@ def run(payload: dict, project: Path, home: Path) -> str:
 
 
 def _new_entries(payload: dict, state: Path) -> tuple[Walk, set[str]]:
-    """Walks the transcript entries written since the last Stop, on from where that Stop's walk ended, so the
-    newest turn is known even when the new bytes hold no opener (a second Stop in one turn). Returns the walk and
-    every channel request id delivered so far. Only the new bytes are parsed, so the cost
-    does not grow with the session; a transcript that no longer holds what the last Stop read before its offset
-    (compaction, a rewrite, a file that cannot be read) is walked again from the start."""
     path, session = payload.get("transcript_path"), payload.get("session_id")
     progress = read_stop_progress(state, session, path)
     read = read_transcript_after(path, progress.offset, progress.mark)
