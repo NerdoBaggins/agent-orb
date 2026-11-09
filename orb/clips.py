@@ -15,4 +15,4 @@ def lost_share(samples: np.ndarray) -> float:
 
 
 def gap_notice(lost: float) -> str:
-    return f"your mic audio is arriving with gaps ({lost:.0%} of it lost)"
+    return f"your mic audio is arriving with gaps ({lost:.0%} of it lost); server capture avoids this"

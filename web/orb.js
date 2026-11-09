@@ -17,6 +17,7 @@
     speak: true,
     wake: null,
     enrolling: null,
+    serverCapture: false,
     ws: null,
     transcript: [],
     session: { busy: false, doing: null, feed: [], unread: 0 },
@@ -228,6 +229,7 @@
         orb.muteKey = m.mute_key || "KeyM";
         orb.panelsKey = m.panels_key || "KeyP";
         showVoice(m.speak !== false);
+        captureUi.apply(m.capture);
         wakeUi.apply(m.wake);
         enrollUi.apply(m.enrolling);
         orb.waiting = m.waiting || null;
@@ -309,6 +311,13 @@
         break;
       case "wake":
         wakeUi.apply(m.wake);
+        break;
+      case "capture":
+        captureUi.apply(m.capture);
+        if (orb.wake) wakeUi.apply(orb.wake);
+        break;
+      case "level":
+        ptt.micLevel = m.level;
         break;
       case "enroll":
         enrollUi.apply(m.done ? null : m);
@@ -469,7 +478,7 @@
     generation: 0,
     opening: null,
     ensure() {
-      if (this.node && this.live()) return Promise.resolve(true);
+      if (orb.serverCapture || (this.node && this.live())) return Promise.resolve(true);
       // One open at a time: the 3 s retry, a device change and a press can all call this while an open is still
       // awaiting the microphone, and each overlapping open left a stream behind that kept sending frames.
       if (!this.opening) {
@@ -525,7 +534,7 @@
       if (refusal) { notice(`can't listen: ${refusal}`, "error"); return; }
       this.wanted = true;
       if (!(await this.ensure())) return;
-      if (this.ctx.state === "suspended") await this.ctx.resume();
+      if (this.ctx && this.ctx.state === "suspended") await this.ctx.resume();
       if (!this.wanted || this.holding) return;
       this.holding = true;
       send({ type: "ptt_start" });
@@ -1480,6 +1489,16 @@
     },
   };
 
+  // With server capture the orb's engine holds the microphone; the page never opens it, so nothing records twice.
+  const captureUi = {
+    apply(info) {
+      const server = !!info && info.source === "server";
+      if (server && !orb.serverCapture) ptt.release_mic();
+      orb.serverCapture = server;
+      if (info && info.reason) notice(`server capture off: ${info.reason}`, "error");
+    },
+  };
+
   const wakeUi = {
     async apply(info) {
       orb.wake = info && !info.reason ? info : null;
@@ -1487,7 +1506,7 @@
       $("bar-wake").hidden = !orb.wake;
       if (orb.wake) {
         $("bar-wake").textContent = `listening for “${orb.wake.phrase}”${orb.wake.voice_auth ? " · your voice only" : ""}`;
-        if (await ptt.ensure()) { if (ptt.ctx.state === "suspended") ptt.ctx.resume(); }
+        if (await ptt.ensure() && ptt.ctx && ptt.ctx.state === "suspended") ptt.ctx.resume();
       }
       updateMic();
     },

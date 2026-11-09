@@ -1,5 +1,6 @@
 import asyncio
 import json
+import queue
 import shutil
 import struct
 from types import SimpleNamespace
@@ -10,6 +11,7 @@ from aiohttp.test_utils import TestClient, TestServer
 
 from orb import PLUGIN_ROOT, agents, engines
 from orb.audio import SAMPLE_RATE
+from orb.capture import Ended, Frame
 from orb.config import private_config_path
 from orb.engines import EngineError
 from orb.server import SERVER_STATES, OrbServer, audio_frame, page_sender
@@ -85,11 +87,28 @@ class FakeTts:
         self.closed = True
 
 
-def make(tmp_path, voice=False, stt_text="open the orb", waker=None, wake_off=None, **link_kw):
+def make(tmp_path, voice=False, stt_text="open the orb", waker=None, wake_off=None, capture=None, **link_kw):
     repo = tmp_path / "repo"
     repo.mkdir(exist_ok=True)
     stt, tts = (FakeStt(stt_text), FakeTts()) if voice else (None, None)
-    return OrbServer(repo, "claude", 0, TOKEN, tmp_path / "home", FakeLink(**link_kw), stt, tts, waker, wake_off)
+    return OrbServer(repo, "claude", 0, TOKEN, tmp_path / "home", FakeLink(**link_kw), stt, tts, waker, wake_off, capture)
+
+
+class FakeCapture:
+    name, device, tail_s = "fake", "Fake Mic", 0.2
+
+    def __init__(self):
+        self.events, self.closed = queue.Queue(), False
+
+    def next_event(self):
+        return self.events.get()
+
+    def frame(self, seconds, value=0.3):
+        self.events.put(Frame(np.full(int(seconds * SAMPLE_RATE), value, dtype=np.float32), value))
+
+    def close(self):
+        self.closed = True
+        self.events.put(Ended("closed"))
 
 
 def run(coro):
@@ -445,7 +464,7 @@ def test_an_empty_transcription_of_a_clip_with_gaps_names_the_gaps_instead_of_di
             await ws.send_json({"type": "ptt_stop"})
             await ws.receive_json()
             notice = await ws.receive_json()
-            assert notice == {"type": "notice", "level": "info", "text": "your mic audio is arriving with gaps (50% of it lost)", "ref": None}
+            assert notice == {"type": "notice", "level": "info", "text": "your mic audio is arriving with gaps (50% of it lost); server capture avoids this", "ref": None}
             assert (await ws.receive_json()) == {"type": "state", "state": "idle"}
     run(go())
 
@@ -461,13 +480,13 @@ def test_a_clip_with_gaps_that_transcribes_is_still_sent_after_naming_the_gaps(t
             await ws.send_bytes(chrome_over_remote_desktop(2.0))
             await ws.send_json({"type": "ptt_stop"})
             await ws.receive_json()
-            assert (await ws.receive_json())["text"] == "your mic audio is arriving with gaps (50% of it lost)"
+            assert (await ws.receive_json())["text"] == "your mic audio is arriving with gaps (50% of it lost); server capture avoids this"
             await wait_for(lambda: server.link.sent)
             assert server.link.sent[0][0] == "what time is it"
     run(go())
 
 
-@pytest.mark.parametrize("share, text", [(0.05, "didn't catch that"), (0.1, "your mic audio is arriving with gaps (10% of it lost)")])
+@pytest.mark.parametrize("share, text", [(0.05, "didn't catch that"), (0.1, "your mic audio is arriving with gaps (10% of it lost); server capture avoids this")])
 def test_the_gaps_notice_starts_at_a_tenth_of_the_clip_lost(tmp_path, share, text):
     async def go():
         server = make(tmp_path, voice=True, stt_text="")
@@ -480,6 +499,126 @@ def test_the_gaps_notice_starts_at_a_tenth_of_the_clip_lost(tmp_path, share, tex
             await ws.send_json({"type": "ptt_stop"})
             await ws.receive_json()
             assert (await ws.receive_json())["text"] == text
+    run(go())
+
+
+async def captured_server(tmp_path, stt_text="what time is it"):
+    capture = FakeCapture()
+    server = make(tmp_path, voice=True, stt_text=stt_text, capture=capture)
+    pump = asyncio.create_task(server.pump_capture())
+    return server, capture, pump
+
+
+def finish(capture, pump):
+    pump.cancel()
+    capture.events.put(Ended("test over"))
+
+
+def test_a_captured_recording_takes_the_frames_before_the_press_during_it_and_in_the_tail_after(tmp_path):
+    async def go():
+        server, capture, pump = await captured_server(tmp_path)
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            capture.frame(0.08)
+            await wait_for(lambda: len(server.preroll) == 1)
+            await ws.send_json({"type": "ptt_start"})
+            await until_state(ws, "listening")
+            capture.frame(0.5)
+            await asyncio.sleep(0.35)
+            await ws.send_json({"type": "ptt_stop"})
+            capture.frame(0.1)
+            await wait_for(lambda: server.stt.received)
+            assert server.stt.received == [int(0.68 * SAMPLE_RATE)]
+        finish(capture, pump)
+    run(go())
+
+
+def test_the_pages_frames_are_ignored_while_the_server_captures(tmp_path):
+    async def go():
+        server, capture, pump = await captured_server(tmp_path)
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            await ws.send_json({"type": "ptt_start"})
+            await until_state(ws, "listening")
+            await ws.send_bytes(pcm(0.5))
+            capture.frame(0.4)
+            await asyncio.sleep(0.35)
+            await ws.send_json({"type": "ptt_stop"})
+            await wait_for(lambda: server.stt.received)
+            assert server.stt.received == [int(0.4 * SAMPLE_RATE)]
+        finish(capture, pump)
+    run(go())
+
+
+def test_a_captured_tap_is_judged_by_how_long_the_button_was_held(tmp_path):
+    async def go():
+        server, capture, pump = await captured_server(tmp_path)
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            capture.frame(1.0)
+            await wait_for(lambda: server.preroll)
+            await ws.send_json({"type": "ptt_start"})
+            await until_state(ws, "listening")
+            await ws.send_json({"type": "ptt_stop"})
+            notice = await ws.receive_json()
+            assert notice["type"] == "notice" and "heard nothing" in notice["text"]
+            assert server.stt.received == []
+        finish(capture, pump)
+    run(go())
+
+
+def test_a_captured_clip_of_exact_zeros_is_not_reported_as_gaps(tmp_path):
+    async def go():
+        server, capture, pump = await captured_server(tmp_path, stt_text="")
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            await ws.send_json({"type": "ptt_start"})
+            await until_state(ws, "listening")
+            capture.frame(0.5, value=0.0)
+            await asyncio.sleep(0.35)
+            await ws.send_json({"type": "ptt_stop"})
+            await until_state(ws, "transcribing")
+            assert (await ws.receive_json())["text"] == "didn't catch that"
+        finish(capture, pump)
+    run(go())
+
+
+def test_the_mic_level_is_sent_while_a_captured_recording_runs(tmp_path):
+    async def go():
+        server, capture, pump = await captured_server(tmp_path)
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            await ws.send_json({"type": "ptt_start"})
+            await until_state(ws, "listening")
+            capture.frame(0.08, value=0.25)
+            assert (await ws.receive_json()) == {"type": "level", "level": 0.25}
+        finish(capture, pump)
+    run(go())
+
+
+def test_a_lost_capture_hands_the_microphone_back_to_the_page_and_says_why(tmp_path):
+    async def go():
+        server, capture, pump = await captured_server(tmp_path)
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            assert (await ws.receive_json())["capture"] == {"source": "server", "engine": "fake", "device": "Fake Mic"}
+            capture.events.put(Ended("no audio from the microphone for 2.5 s"))
+            assert (await ws.receive_json()) == {"type": "capture", "capture": {"source": "browser", "reason": "no audio from the microphone for 2.5 s"}}
+            notice = await ws.receive_json()
+            assert notice["level"] == "error" and "no audio from the microphone" in notice["text"]
+            assert capture.closed
+            await ws.send_json({"type": "ptt_start"})
+            await until_state(ws, "listening")
+            await ws.send_bytes(pcm(0.5))
+            await ws.send_json({"type": "ptt_stop"})
+            await wait_for(lambda: server.stt.received)
+            assert server.stt.received == [int(0.5 * SAMPLE_RATE)]
+        await pump
     run(go())
 
 

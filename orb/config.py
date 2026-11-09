@@ -24,6 +24,7 @@ DEFAULTS = {
     "stt": {"engine": "moonshine", "moonshine": {}},
     "tts": {"engine": "kokoro", "speed": 1.18, "kokoro": {"voice": {"af_heart": 0.55, "bf_emma": 0.45}, "lang": "en-gb"}},
     "wake": None,
+    "capture": None,
     "panel_dirs": [],
     "theme_dirs": [],
     "skin_dirs": [],
@@ -32,13 +33,13 @@ DEFAULTS = {
     "commands": ["compact", "context"],
 }
 TYPES = {"ptt_key": str, "skin": str, "skin_options": dict, "skin_sizes": dict, "speak": bool, "mute_key": str, "skin_key": str, "panels_key": str, "theme": str, "stt": dict, "tts": dict,
-         "wake": dict, "panel_dirs": list,
+         "wake": dict, "capture": dict, "panel_dirs": list,
          "theme_dirs": list, "skin_dirs": list, "widget_dirs": list, "widgets": dict, "commands": list}
 FOLDER_KEYS = ("panel_dirs", "theme_dirs", "skin_dirs", "widget_dirs")
 REPO_KEYS = ("ptt_key", "mute_key", "skin_key", "panels_key", "speak")
 # How far a layer's value overlays the one beneath: a section merges per key, its blocks (one per engine, skin
 # or widget) merge per key, and anything inside a block replaces. A voice blend is one value, not a merge.
-MERGE_DEPTH = {"stt": 2, "tts": 2, "skin_options": 2, "skin_sizes": 1, "wake": 1, "widgets": 2}
+MERGE_DEPTH = {"stt": 2, "tts": 2, "skin_options": 2, "skin_sizes": 1, "wake": 1, "capture": 1, "widgets": 2}
 WIDGET_PLACE_KEYS = ("x", "y", "width", "height")
 WIDGET_PANE_KEYS = ("pane_width", "pane_height")  # the orb pane's size when the widget was placed; its size scales from it
 

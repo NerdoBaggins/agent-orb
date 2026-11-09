@@ -20,6 +20,7 @@ import struct
 import sys
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -31,6 +32,7 @@ from orb import PLUGIN_ROOT, actions, agents, engines, feeds, folders, logs, pag
 from orb import commands, terminal
 from orb.audio import SAMPLE_RATE, TAP_S, speakable, split_sentences
 from orb.clips import LOSSY_SHARE, gap_notice, lost_share
+from orb.capture import Capture, Ended, Frame
 from orb.side import side_intent, status_sentence
 from orb.config import (WIDGET_PANE_KEYS, WIDGET_PLACE_KEYS, ConfigError, WidgetEntry, clamp_size, clamp_speed, engine_settings, expand_dirs, load_for,
                         overlay, save_for_repo, save_skin_size, save_speed, save_widget, size_for, speed_for, tts_settings_for, validate_widget_entry,
@@ -53,6 +55,7 @@ WAIT_STEADY_POLLS = 3  # a step must outlast this many polls before the orb says
 PLAYBACK_GRACE_S = 5
 WAKE_RETRY_S = 60.0
 INTERRUPT_SETTLE_S = 3.0
+PREROLL_FRAMES = 4
 BASE64_BLOCK = 3
 JSON_CHAR_MAX_BYTES = len(json.dumps("\U0010ffff")) - len(json.dumps(""))
 JSON_ENTRY_BYTES = len(json.dumps({"": "", "x": ""})) - len(json.dumps({"x": ""}))
@@ -213,8 +216,11 @@ class Request:
 
 class OrbServer:
     def __init__(self, repo_root: Path, agent: str, port: int, token: str, home: Path, link, stt=None, tts=None,
-                 waker=None, wake_off: str | None = None):
+                 waker=None, wake_off: str | None = None, capture=None, capture_off: str | None = None):
         self.repo_root, self.agent, self.port, self.token, self.home, self.link = repo_root, agent, port, token, home, link
+        self.capture, self.capture_off = capture, capture_off
+        self.preroll: deque[np.ndarray] = deque(maxlen=PREROLL_FRAMES)
+        self.pressed_at = 0.0
         self.config = load_for(repo_root, home)
         self.stt, self.tts = stt, tts
         self.waker, self.wake_off = waker, wake_off
@@ -1106,7 +1112,7 @@ class OrbServer:
     def snapshot(self) -> dict:
         return {"type": "snapshot", "state": self.state, "attached": self.attached, "agent": self.link.name,
                 "attach_text": self.link.describe(self.attached), "repo": str(self.repo_root),
-                "engines": self.engines_snapshot(), "tts_engines": engines.available("tts", self.home) if self.tts else [],
+                "engines": self.engines_snapshot(), "capture": self.capture_snapshot(), "tts_engines": engines.available("tts", self.home) if self.tts else [],
                 "stt_engines": engines.available("stt", self.home) if self.stt else [],
                 "voices": self.voice_menu,
                 "voice": bool(self.stt and self.tts), "speak": self.voice, "said": self.said, "mute_key": self.config["mute_key"], "panels_key": self.config["panels_key"], "wake": self.wake_snapshot(), "enrolling": self.enroll_snapshot(), "ptt_key": self.config["ptt_key"], "speed": self.speed, "background": self.background, "waiting": self.waiting, "session": self.session,
@@ -1375,29 +1381,48 @@ class OrbServer:
         return self.waker is not None and self.waker.recording is not None
 
     async def ptt_start(self) -> None:
-        """The button takes precedence over the wake word: a wake recording in progress is dropped for it."""
-        if (self.busy and not self.waiting_for_agent and not self.wake_recording) or not self.stt:
+        """The button takes precedence over the wake word: a wake recording in progress is dropped for it. A captured
+        recording starts with the frames just before the press, so the first word is whole."""
+        if (self.busy and not self.waiting_for_agent and not self.wake_recording) or not self.stt or self.recording is not None:
             return
         if self.waker:
             self.waker.cancel()
             self.waker.follow_up.close()
-        self.recording = []
+        self.recording = list(self.preroll) if self.capture is not None else []
+        self.pressed_at = time.monotonic()
         await self.set_state("listening")
 
     async def audio_frame(self, data: bytes) -> None:
-        frame = np.frombuffer(data, dtype="<f4")
+        if self.capture is None:
+            await self.heard_frame(np.frombuffer(data, dtype="<f4"))
+
+    async def heard_frame(self, frame: np.ndarray) -> None:
         if self.recording is not None:
             self.recording.append(frame)
         elif self.waker is not None:
             await self.wake_frame(frame)
 
+    async def captured_frame(self, frame: Frame) -> None:
+        self.preroll.append(frame.samples)
+        if self.recording is not None:
+            await self.broadcast({"type": "level", "level": frame.level})
+        await self.heard_frame(frame.samples)
+
     async def ptt_stop(self) -> None:
+        """A captured recording keeps taking frames for the engine's tail after the release, since the words before
+        it are still in the device's buffer; its tap is judged by how long the button was held."""
         if self.recording is None:
             return
+        held, captured = time.monotonic() - self.pressed_at, self.capture is not None
+        if captured and held >= TAP_S:
+            recording = self.recording
+            await asyncio.sleep(self.capture.tail_s)
+            if self.recording is not recording:
+                return
         samples = np.concatenate(self.recording) if self.recording else np.zeros(0, dtype=np.float32)
         self.recording = None
         log.info("push-to-talk released: %.1fs, loudest %.3f", samples.size / SAMPLE_RATE, float(np.abs(samples).max(initial=0.0)))
-        if samples.size < TAP_S * SAMPLE_RATE:
+        if (held if captured else samples.size / SAMPLE_RATE) < TAP_S:
             await self.notify("info", "heard nothing; hold the button while you talk")
             await self.set_state(self.resume_state())
             return
@@ -1405,6 +1430,35 @@ class OrbServer:
             await self.enroll_clip(samples)
             return
         await self.heard_clip(samples)
+
+    async def pump_capture(self) -> None:
+        while self.capture is not None:
+            capture = self.capture
+            event = await asyncio.to_thread(capture.next_event)
+            if self.capture is not capture:
+                return
+            if isinstance(event, Frame):
+                await self.captured_frame(event)
+            elif isinstance(event, Ended):
+                await self.capture_lost(event.reason)
+            else:
+                await self.notify("info", event.text)
+
+    async def capture_lost(self, reason: str) -> None:
+        """The browser's microphone takes over, said once; a recording in progress is dropped with it."""
+        capture, self.capture, self.capture_off = self.capture, None, reason
+        await asyncio.to_thread(capture.close)
+        log.warning("capture engine stopped: %s; using the browser's microphone", reason)
+        if self.recording is not None:
+            self.recording = None
+            await self.set_state(self.resume_state())
+        await self.broadcast({"type": "capture", "capture": self.capture_snapshot()})
+        await self.notify("error", f"server capture stopped: {reason}; using the browser's microphone")
+
+    def capture_snapshot(self) -> dict:
+        if self.capture is not None:
+            return {"source": "server", "engine": self.capture.name, "device": self.capture.device}
+        return {"source": "browser", "reason": self.capture_off}
 
     # ---- the wake word ----
 
@@ -1508,7 +1562,7 @@ class OrbServer:
             text = strip(text)
         if self.state == "transcribing":
             self.state = self.resume_state()
-        lost = lost_share(samples)
+        lost = 0.0 if self.capture is not None else lost_share(samples)
         lossy = lost >= LOSSY_SHARE
         if lossy:
             await self.notify("info", gap_notice(lost))
@@ -1931,7 +1985,11 @@ class OrbServer:
         attachment = asyncio.create_task(self.watch_attachment())
         session = asyncio.create_task(self.watch_session())
         panel_files = asyncio.create_task(self.watch_pages())
+        captured = asyncio.create_task(self.pump_capture())
         await self.watch_window()
+        captured.cancel()
+        if self.capture is not None:
+            await asyncio.to_thread(self.capture.close)
         log.info("stopped" if self.stopping else "no window for %ds; exiting", *(() if self.stopping else (WINDOW_GRACE_S,)))
         attachment.cancel()
         session.cancel()
@@ -1972,6 +2030,19 @@ def load_engines(config, home: Path, agent: str):
     return stt, tts
 
 
+def start_capture(section: dict | None, home: Path) -> tuple[Capture | None, str | None]:
+    """The capture engine a config names, or None with the reason the browser's microphone is used instead."""
+    if section is None:
+        return None, None
+    try:
+        capture = Capture(section, home)
+    except EngineError as e:
+        log.warning("capture engine off, using the browser's microphone: %s", e)
+        return None, str(e)
+    log.info("capturing the microphone with %s (%s, %.2f s buffer)", capture.name, capture.device, capture.latency)
+    return capture, None
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo", required=True, type=Path)
@@ -2007,8 +2078,9 @@ def main(argv=None) -> None:
     except waking.WakeOff as e:
         wake_off = str(e)
         log.warning("wake word off: %s", e)
+    capture, capture_off = start_capture(config["capture"], args.home)
     link = make_link(args.agent, state_dir(args.home, repo), config)
-    server = OrbServer(repo, args.agent, args.port, token, args.home, link, stt, tts, waker, wake_off)
+    server = OrbServer(repo, args.agent, args.port, token, args.home, link, stt, tts, waker, wake_off, capture, capture_off)
     asyncio.run(server.run())
 
 
