@@ -340,3 +340,14 @@ def test_the_stop_hook_stops_carrying_a_request_the_orb_no_longer_has_pending(tm
     assert read_stop_progress(folder, "s1", str(transcript))[1] == {"r1"}
     stop_at(tmp_path, monkeypatch, transcript, ["r9"], [])
     assert read_stop_progress(folder, "s1", str(transcript))[1] == set()
+
+
+def test_a_second_stop_in_the_orbs_turn_posts_its_reply_though_the_new_bytes_hold_no_opener(tmp_path, monkeypatch):
+    reply = {"type": "assistant", "message": {"content": [{"type": "text", "text": "and one more thing"}], "stop_reason": "end_turn"}}
+    transcript, reads = tmp_path / "t.jsonl", []
+    transcript.write_text(lines(orb_message("r1")), encoding="utf-8")
+    stop_at(tmp_path, monkeypatch, transcript, ["r1"], reads)
+    with transcript.open("a", encoding="utf-8") as f:
+        f.write(lines(reply))
+    outcome, posted = stop_at(tmp_path, monkeypatch, transcript, ["r1"], reads)
+    assert (reads[1] > 0, outcome, posted[-1][0]) == (True, "posted", "/reply")

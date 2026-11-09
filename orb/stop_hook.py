@@ -13,10 +13,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from orb.hook_deadline import deadline  # noqa: E402
-from orb.gate import delivered, gate, read_transcript_from  # noqa: E402
+from orb.gate import Walk, delivered, read_transcript_from, walk  # noqa: E402
 from orb.state import (  # noqa: E402
-    hook_agent, pid_alive, project_root, read_json, read_stop_progress, record_session, record_stop_progress, server_file,
-    state_dir)
+    StopProgress, hook_agent, pid_alive, project_root, read_json, read_stop_progress, record_session, record_stop_progress,
+    server_file, state_dir)
 
 # All of the hook's calls share this, so they end well inside the hook's deadline however many requests are unanswered.
 BUDGET_S = 6
@@ -51,8 +51,8 @@ def run(payload: dict, project: Path, home: Path) -> str:
         pending = set(_call(server, "GET", "/pending", until=until).get("pending", []))
     except (urllib.error.URLError, OSError, ValueError):
         return "no-orb"
-    entries, seen = _new_entries(payload, state, pending)
-    request_id = gate(entries, pending)
+    turn, seen = _new_entries(payload, state, pending)
+    request_id = turn.request_id if turn.request_id in pending else None
     if request_id:
         return _post(server, "/reply", {"req": request_id, "text": payload.get("last_assistant_message") or ""}, "posted", until)
     unanswered = sorted(pending & seen)
@@ -62,25 +62,28 @@ def run(payload: dict, project: Path, home: Path) -> str:
     return "post-failed" if "post-failed" in outcomes else "ended"
 
 
-def _new_entries(payload: dict, state: Path, pending: set[str]) -> tuple[list[dict] | None, set[str]]:
-    """The transcript entries written since the last Stop, and every channel request id delivered so far that is
-    still pending. Only the new bytes are parsed, so the cost does not grow with the session; a transcript
-    that has shrunk below the stored offset (compaction, a rewrite) is read again from the start."""
+def _new_entries(payload: dict, state: Path, pending: set[str]) -> tuple[Walk, set[str]]:
+    """Walks the transcript entries written since the last Stop, on from where that Stop's walk ended, so the
+    newest turn is known even when the new bytes hold no opener (a second Stop in one turn). Returns the walk and
+    every channel request id delivered so far that is still pending. Only the new bytes are parsed, so the cost
+    does not grow with the session; a transcript that has shrunk below the stored offset (compaction, a rewrite)
+    is walked again from the start."""
     path, session = payload.get("transcript_path"), payload.get("session_id")
-    offset, seen = read_stop_progress(state, session, path)
+    progress = read_stop_progress(state, session, path)
     try:
-        if offset > os.path.getsize(path):
-            offset, seen = 0, set()
+        if progress.offset > os.path.getsize(path):
+            progress = StopProgress()
     except (OSError, TypeError):
         pass
-    read = read_transcript_from(path, offset)
-    entries, end = read if read else (None, offset)
-    seen = (seen | delivered(entries)) & pending
+    read = read_transcript_from(path, progress.offset)
+    entries, end = read if read else ([], progress.offset)
+    turn = walk(entries, Walk(*progress.walk))
+    seen = (progress.delivered | delivered(entries)) & pending
     try:
-        record_stop_progress(state, session, path, end, seen)
+        record_stop_progress(state, session, path, StopProgress(end, frozenset(seen), tuple(turn)))
     except OSError:
         pass
-    return entries, seen
+    return turn, seen
 
 
 def _post(server: dict, path: str, body: dict, outcome: str, until: float) -> str:
