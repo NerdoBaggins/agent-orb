@@ -527,6 +527,7 @@ def test_a_captured_recording_takes_the_frames_before_the_press_during_it_and_in
             capture.frame(0.5)
             await asyncio.sleep(0.35)
             await ws.send_json({"type": "ptt_stop"})
+            await asyncio.sleep(0.05)
             capture.frame(0.1)
             await wait_for(lambda: server.stt.received)
             assert server.stt.received == [int(0.68 * SAMPLE_RATE)]
@@ -597,6 +598,26 @@ def test_the_mic_level_is_sent_while_a_captured_recording_runs(tmp_path):
             await until_state(ws, "listening")
             capture.frame(0.08, value=0.25)
             assert (await ws.receive_json()) == {"type": "level", "level": 0.25}
+        finish(capture, pump)
+    run(go())
+
+
+def test_a_capture_lost_during_a_recording_drops_it_so_the_next_press_records(tmp_path):
+    async def go():
+        server, capture, pump = await captured_server(tmp_path)
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            await ws.send_json({"type": "ptt_start"})
+            await until_state(ws, "listening")
+            capture.events.put(Ended("no audio from the microphone for 2.5 s"))
+            await until_state(ws, "idle")
+            await ws.send_json({"type": "ptt_start"})
+            await until_state(ws, "listening")
+            await ws.send_bytes(pcm(0.5))
+            await ws.send_json({"type": "ptt_stop"})
+            await wait_for(lambda: server.stt.received)
+            assert server.stt.received == [int(0.5 * SAMPLE_RATE)]
         finish(capture, pump)
     run(go())
 
