@@ -214,8 +214,8 @@ class EngineProcess:
                 self.process.wait()
 
 
-def start(kind: str, settings: dict, home: Path, env=os.environ) -> EngineProcess:
-    """Finds, checks, starts and loads the engine `settings["engine"]` names."""
+def resolve(kind: str, settings: dict, home: Path, env=os.environ) -> Manifest:
+    """Finds and checks the engine `settings["engine"]` names, ready to start."""
     name = settings.get("engine")
     if not isinstance(name, str) or not name:
         raise EngineError(f"{kind} config needs an 'engine' name")
@@ -223,9 +223,20 @@ def start(kind: str, settings: dict, home: Path, env=os.environ) -> EngineProces
     absent = missing_env(manifest, env)
     if absent:
         raise EngineError(f"{kind} engine {name!r} needs {', '.join(absent)} in the environment")
+    return manifest
+
+
+def load_settings(settings: dict) -> dict:
+    return {k: v for k, v in settings.items() if k != "engine"}
+
+
+def start(kind: str, settings: dict, home: Path, env=os.environ) -> EngineProcess:
+    """Finds, checks, starts and loads the engine `settings["engine"]` names."""
+    manifest = resolve(kind, settings, home, env)
+    name = settings["engine"]
     process = EngineProcess(manifest, cache_dir(home, kind, name), env)
     try:
-        process.loaded = process.call({"op": "load", "settings": {k: v for k, v in settings.items() if k != "engine"}}, LOAD_TIMEOUT_S)
+        process.loaded = process.call({"op": "load", "settings": load_settings(settings)}, LOAD_TIMEOUT_S)
     except EngineError as e:
         process.close()
         raise EngineLoadError(f"{kind} engine {name!r} failed to load: {e}")
@@ -238,14 +249,14 @@ class Engine:
     selected engine fails is answered by the default and `failure` says why; the next call goes back to the selected
     engine, restarted if it died, until it fails STICKY_AFTER_FAILURES calls in a row."""
 
-    def __init__(self, kind: str, settings_for, home: Path, env=os.environ):
-        self.kind, self.settings_for, self.home, self.env = kind, settings_for, home, env
+    def __init__(self, kind: str, settings_for, home: Path, env=os.environ, launch=start):
+        self.kind, self.settings_for, self.home, self.env, self.launch = kind, settings_for, home, env, launch
         self.name = settings_for(None)["engine"]
         self.fallback_reason: str | None = None
         self.failure: str | None = None
         self.failures_in_a_row = 0
         try:
-            self.process = start(kind, settings_for(self.name), home, env)
+            self.process = self.launch(kind, settings_for(self.name), home, env)
         except EngineError as e:
             self._fall_back(e)
 
@@ -255,7 +266,7 @@ class Engine:
             raise error
         self.fallback_reason = f"{error}; using {default}"
         self.name = default
-        self.process = start(self.kind, self.settings_for(default), self.home, self.env)
+        self.process = self.launch(self.kind, self.settings_for(default), self.home, self.env)
 
     @property
     def manifest(self) -> Manifest:
@@ -264,7 +275,7 @@ class Engine:
     def call(self, request: dict, timeout: float = CALL_TIMEOUT_S) -> dict:
         if not self.process.alive:
             try:
-                self.process = start(self.kind, self.settings_for(self.name), self.home, self.env)
+                self.process = self.launch(self.kind, self.settings_for(self.name), self.home, self.env)
             except EngineError as e:
                 self._fall_back(e)
         try:
@@ -285,7 +296,7 @@ class Engine:
             self.failure = f"{error}; {default} answers from now on"
             return self.process.call(request, timeout)
         self.failure = f"{error}; {default} answered this one"
-        stand_in = start(self.kind, self.settings_for(default), self.home, self.env)
+        stand_in = self.launch(self.kind, self.settings_for(default), self.home, self.env)
         try:
             return stand_in.call(request, timeout)
         finally:
@@ -311,8 +322,8 @@ def split_at_quiet_points(samples: np.ndarray, max_s: float, search_s: float = 5
 
 
 class Stt(Engine):
-    def __init__(self, settings_for, home: Path, env=os.environ):
-        super().__init__("stt", settings_for, home, env)
+    def __init__(self, settings_for, home: Path, env=os.environ, launch=start):
+        super().__init__("stt", settings_for, home, env, launch)
 
     def transcribe(self, samples: np.ndarray) -> str:
         samples = np.asarray(samples, dtype=np.float32)
@@ -350,8 +361,8 @@ class Voiceprint(Engine):
 
 
 class Tts(Engine):
-    def __init__(self, settings_for, home: Path, env=os.environ):
-        super().__init__("tts", settings_for, home, env)
+    def __init__(self, settings_for, home: Path, env=os.environ, launch=start):
+        super().__init__("tts", settings_for, home, env, launch)
         self.speed = float(settings_for(None).get("speed", 1.0))
 
     def render(self, text: str) -> tuple[np.ndarray, int]:
