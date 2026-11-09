@@ -1489,7 +1489,6 @@
     },
   };
 
-  // With server capture the orb's engine holds the microphone; the page never opens it, so nothing records twice.
   const captureUi = {
     apply(info) {
       const server = !!info && info.source === "server";
