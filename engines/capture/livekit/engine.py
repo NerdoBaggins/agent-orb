@@ -2,11 +2,6 @@
 # requires-python = ">=3.12,<3.13"
 # dependencies = ["livekit==1.2.1", "numpy==2.5.4", "sounddevice==0.5.6"]
 # ///
-"""Captures the microphone for the orb: PortAudio with a long buffer, so a device that delivers in bursts (a Remote
-Desktop microphone) loses nothing, then WebRTC's audio processing from LiveKit. After `load` answers, every line on
-stdout is a frame, {"pcm", "level"}, or a {"notice"}; the engine stops when stdin closes. Settings: `device` (part
-of a microphone's name, default the system's), `buffer_ms` (default 500), `noise_suppression` and `auto_gain`
-(default true)."""
 import base64
 import json
 import queue
@@ -41,8 +36,6 @@ class Chunker:
 
 
 def pick_device(devices: list[dict], hostapis: list[dict], platform: str, wanted: str | None) -> int:
-    """The input device to open: on Windows only WASAPI's, the only host API measured to keep a Remote Desktop
-    microphone whole; the one whose name contains `wanted`, else the host API's default input."""
     api = next((i for i, a in enumerate(hostapis) if a["name"] == WASAPI), None) if platform == "win32" else None
     inputs = [i for i, d in enumerate(devices) if d["max_input_channels"] > 0 and (api is None or d["hostapi"] == api)]
     if wanted:
@@ -57,8 +50,6 @@ def pick_device(devices: list[dict], hostapis: list[dict], platform: str, wanted
 
 
 class Pipeline:
-    """Device-rate float audio in, 16 kHz frames of FRAME_SAMPLES out, through resampling and the audio processing."""
-
     def __init__(self, rtc, device_rate: int, settings: dict):
         self.rtc, self.device_rate = rtc, device_rate
         self.resampler = rtc.AudioResampler(device_rate, RATE, num_channels=1, quality=rtc.AudioResamplerQuality.HIGH) if device_rate != RATE else None

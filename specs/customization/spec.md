@@ -89,6 +89,7 @@ Replaces `specs/orb/spec.md` Swappable speech engines (the defaults and their tu
 | `wake` | 16 kHz frames | a score per frame | none (Wake word, Models) |
 | `vad` | 16 kHz frames | speech probability per frame | `silero` |
 | `voiceprint` | 16 kHz samples | an embedding vector | `resemblyzer` |
+| `capture` | the microphone | 16 kHz frames and their level | `livekit` (off unless configured) |
 
 `vad` and `voiceprint` serve the wake word only and are chosen inside the `wake` section.
 

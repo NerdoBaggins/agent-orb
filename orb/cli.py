@@ -380,7 +380,7 @@ def main(argv=None) -> int:
     p_log.add_argument("-n", "--lines", type=int, default=60)
     common(p_log)
     p_doctor = sub.add_parser("doctor", help="read-only checks: tools, browser, config, skin, agent links, engines")
-    p_doctor.add_argument("--no-engines", action="store_true", help="skip loading the speech engines")
+    p_doctor.add_argument("--no-engines", action="store_true", help="skip loading the engines and opening the microphone")
     common(p_doctor)
     args = parser.parse_args(argv)
     if args.cmd == "open":
