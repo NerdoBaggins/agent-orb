@@ -38,6 +38,10 @@ class EngineError(RuntimeError):
     pass
 
 
+class EngineLoadError(EngineError):
+    pass
+
+
 @dataclass(frozen=True)
 class Manifest:
     name: str
@@ -224,7 +228,7 @@ def start(kind: str, settings: dict, home: Path, env=os.environ) -> EngineProces
         process.loaded = process.call({"op": "load", "settings": {k: v for k, v in settings.items() if k != "engine"}}, LOAD_TIMEOUT_S)
     except EngineError as e:
         process.close()
-        raise EngineError(f"{kind} engine {name!r} failed to load: {e}")
+        raise EngineLoadError(f"{kind} engine {name!r} failed to load: {e}")
     return process
 
 
