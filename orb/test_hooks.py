@@ -12,8 +12,8 @@ from pathlib import Path
 import pytest
 
 from orb import hook_deadline, session_hook, stop_hook, turn_hook
-from orb.gate import CHANNEL_SERVER
-from orb.state import server_file, session_file, session_project, state_dir, turn_file, write_json
+from orb.gate import CHANNEL_SERVER, read_transcript_from
+from orb.state import read_stop_progress, server_file, session_file, session_project, state_dir, turn_file, write_json
 
 
 @pytest.fixture
@@ -286,3 +286,57 @@ def test_the_stop_hooks_calls_share_one_budget(tmp_path, monkeypatch):
     finally:
         http.shutdown()
     assert outcome == "post-failed" and time.monotonic() - started < 2.2
+
+
+def stop_at(tmp_path, monkeypatch, transcript, pending, reads):
+    """One Stop for the repo under tmp_path, with `reads` collecting the offset the hook read the transcript from."""
+    home, repo = tmp_path / "home", tmp_path / "repo"
+    write_json(server_file(state_dir(home, repo), "claude"), {"pid": os.getpid(), "port": 1, "token": "t"})
+    posted = []
+    monkeypatch.setattr(stop_hook, "_call", lambda server, method, path, body=None, **_:
+                        {"pending": pending} if path == "/pending" else posted.append((path, body)) or {})
+    monkeypatch.setattr(stop_hook, "read_transcript_from", lambda path, offset=0: reads.append(offset) or read_transcript_from(path, offset))
+    outcome = stop_hook.run({"hook_event_name": "Stop", "session_id": "s1", "transcript_path": str(transcript)}, repo, home)
+    return outcome, posted
+
+
+def lines(*entries):
+    return "".join(json.dumps(e) + "\n" for e in entries)
+
+
+def test_the_stop_hook_reads_only_what_was_written_since_the_last_stop_and_still_ends_an_old_pending_request(
+        tmp_path, monkeypatch):
+    typed = {"type": "user", "origin": {"kind": "human"}, "message": {"content": "a new question"}}
+    filler = lines({"type": "assistant", "message": {"content": [{"type": "text", "text": "x" * 4000}], "stop_reason": "end_turn"}})
+    transcript, reads = tmp_path / "t.jsonl", []
+    transcript.write_text(lines(orb_message("r1")), encoding="utf-8")
+    assert stop_at(tmp_path, monkeypatch, transcript, ["r1"], reads)[0] == "posted"
+    first_end = transcript.stat().st_size
+    with transcript.open("a", encoding="utf-8") as f:
+        f.write(filler * 5000)
+        f.write(lines(typed))
+    assert transcript.stat().st_size > 20_000_000
+    outcome, posted = stop_at(tmp_path, monkeypatch, transcript, ["r1"], reads)
+    assert (reads, outcome, posted[-1]) == ([0, first_end], "ended", ("/ended", {"req": "r1"}))
+
+
+def test_the_stop_hook_reads_the_transcript_again_from_the_start_when_it_has_shrunk_below_the_stored_offset(
+        tmp_path, monkeypatch):
+    typed = {"type": "user", "origin": {"kind": "human"}, "message": {"content": "a new question"}}
+    transcript, reads = tmp_path / "t.jsonl", []
+    transcript.write_text(lines(orb_message("r1"), typed, typed, typed), encoding="utf-8")
+    stop_at(tmp_path, monkeypatch, transcript, ["r1"], reads)
+    transcript.write_text(lines(orb_message("r2"), typed), encoding="utf-8")
+    outcome, posted = stop_at(tmp_path, monkeypatch, transcript, ["r1", "r2"], reads)
+    assert (reads[1], outcome, posted[-1]) == (0, "ended", ("/ended", {"req": "r2"}))
+
+
+def test_the_stop_hook_stops_carrying_a_request_the_orb_no_longer_has_pending(tmp_path, monkeypatch):
+    typed = {"type": "user", "origin": {"kind": "human"}, "message": {"content": "a new question"}}
+    transcript = tmp_path / "t.jsonl"
+    transcript.write_text(lines(orb_message("r1"), typed), encoding="utf-8")
+    stop_at(tmp_path, monkeypatch, transcript, ["r1"], [])
+    folder = state_dir(tmp_path / "home", tmp_path / "repo")
+    assert read_stop_progress(folder, "s1", str(transcript))[1] == {"r1"}
+    stop_at(tmp_path, monkeypatch, transcript, ["r9"], [])
+    assert read_stop_progress(folder, "s1", str(transcript))[1] == set()
