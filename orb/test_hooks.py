@@ -206,18 +206,20 @@ def test_every_hooks_json_entry_has_a_timeout():
 def test_every_timeout_is_above_the_scripts_deadline_and_its_backstop():
     hooks = json.loads((REPO / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
     timeouts = {hook["timeout"] for groups in hooks.values() for group in groups for hook in group["hooks"]}
-    # The backstop is armed only once `uv` has started the script, so the timeout leaves room for that start.
     uv_start_s = 5
     assert min(timeouts) >= hook_deadline.DEADLINE_S + hook_deadline.GRACE_S + uv_start_s
 
 
-@pytest.mark.parametrize("module", HOOK_MODULES, ids=lambda m: m.__name__)
-def test_a_hook_arms_its_deadline_before_it_reads_stdin(module):
-    main = next(n for n in ast.parse(Path(module.__file__).read_text(encoding="utf-8")).body
-                if isinstance(n, ast.FunctionDef) and n.name == "main")
-    arms = [n.lineno for n in ast.walk(main) if isinstance(n, ast.Call) and getattr(n.func, "id", None) == "deadline"]
-    reads = [n.lineno for n in ast.walk(main) if isinstance(n, ast.Attribute) and n.attr == "stdin"]
-    assert arms and reads and min(arms) < min(reads)
+@pytest.mark.parametrize("module", [*HOOK_MODULES, hook_deadline], ids=lambda m: m.__name__)
+def test_a_hook_module_imports_only_the_standard_library_and_orb(module):
+    tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
+    names = {alias.name for n in ast.walk(tree) if isinstance(n, ast.Import) for alias in n.names}
+    names |= {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.module}
+    assert {name for name in names if name.split(".")[0] not in sys.stdlib_module_names | {"orb", "__future__"}} == set()
+
+
+def test_the_stop_hooks_budget_ends_before_its_deadline():
+    assert stop_hook.BUDGET_S < hook_deadline.DEADLINE_S
 
 
 @pytest.mark.parametrize("name", ["session_hook", "stop_hook", "turn_hook"])
@@ -240,11 +242,17 @@ def test_a_python_level_hang_ends_at_the_deadline_with_exit_0():
 
 
 def test_a_hang_in_one_long_c_call_ends_at_the_backstop_with_every_threads_traceback_on_stderr():
-    # The regex holds the GIL for minutes, so the timer cannot run; only faulthandler's watchdog can end it.
     code = ("import re\nfrom orb.hook_deadline import deadline\n"
             "with deadline(0.5, 0.5):\n    re.match(r'(a+)+$', 'a' * 60 + 'b')\n")
     result = run_python(code)
     assert result.returncode != 0 and "Timeout" in result.stderr and "most recent call first" in result.stderr
+
+
+def test_a_hook_still_inside_its_deadline_is_not_ended_by_the_backstop():
+    code = ("import time\nfrom orb.hook_deadline import deadline\n"
+            "with deadline(1.5, 0.2):\n    time.sleep(0.8)\nprint('finished')\n")
+    result = run_python(code)
+    assert (result.returncode, result.stdout.strip()) == (0, "finished")
 
 
 def test_a_hook_that_finishes_in_time_disarms_its_deadline():
@@ -291,7 +299,6 @@ def test_the_stop_hooks_calls_share_one_budget(tmp_path, monkeypatch):
 
 
 def stop_at(tmp_path, monkeypatch, transcript, pending, reads):
-    """One Stop for the repo under tmp_path, with `reads` collecting the offset the hook read the transcript from."""
     home, repo = tmp_path / "home", tmp_path / "repo"
     write_json(server_file(state_dir(home, repo), "claude"), {"pid": os.getpid(), "port": 1, "token": "t"})
     posted = []
@@ -347,6 +354,23 @@ def test_the_stop_hook_ends_a_request_that_was_not_pending_at_an_earlier_stop_bu
     assert stop_at(tmp_path, monkeypatch, transcript, ["r1"], []) == ("ended", [("/ended", {"req": "r1"})])
 
 
+def test_the_stop_hook_posts_the_reply_when_recording_its_progress_fails(tmp_path, monkeypatch):
+    transcript = tmp_path / "t.jsonl"
+    transcript.write_text(lines(orb_message("r1")), encoding="utf-8")
+
+    def fail(*args):
+        raise OSError("disk full")
+    monkeypatch.setattr(stop_hook, "record_stop_progress", fail)
+    assert stop_at(tmp_path, monkeypatch, transcript, ["r1"], [])[0] == "posted"
+
+
+def test_a_stop_without_a_transcript_path_returns_without_raising(tmp_path, monkeypatch):
+    home, repo = tmp_path / "home", tmp_path / "repo"
+    write_json(server_file(state_dir(home, repo), "claude"), {"pid": os.getpid(), "port": 1, "token": "t"})
+    monkeypatch.setattr(stop_hook, "_call", lambda server, method, path, body=None, **_: {"pending": ["r1"]})
+    assert stop_hook.run({"hook_event_name": "Stop", "session_id": "s1"}, repo, home) == "not-ours"
+
+
 def test_a_second_stop_in_the_orbs_turn_posts_its_reply_though_the_new_bytes_hold_no_opener(tmp_path, monkeypatch):
     reply = {"type": "assistant", "message": {"content": [{"type": "text", "text": "and one more thing"}], "stop_reason": "end_turn"}}
     transcript, reads = tmp_path / "t.jsonl", []
@@ -372,7 +396,7 @@ def test_a_transcript_walked_again_from_the_start_forgets_the_turn_and_requests_
     transcript = tmp_path / "t.jsonl"
     transcript.write_text(lines(orb_message("r1"), {"type": "assistant", "message": {"content": "x" * 400}}), encoding="utf-8")
     stop_at(tmp_path, monkeypatch, transcript, ["r1"], [])
-    transcript.write_text(lines({"type": "assistant", "message": {"content": "after compaction"}}), encoding="utf-8")
+    transcript.write_text(lines({"type": "assistant", "message": {"content": "rewritten"}}), encoding="utf-8")
     assert stop_at(tmp_path, monkeypatch, transcript, ["r1"], []) == ("not-ours", [])
 
 

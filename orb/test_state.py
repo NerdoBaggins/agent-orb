@@ -253,11 +253,11 @@ def test_the_plugin_runs_the_turn_hook_on_every_event_that_opens_or_closes_a_tur
 
 def test_stop_progress_comes_back_as_it_was_recorded(tmp_path):
     folder = state_dir(tmp_path / "home", tmp_path / "repo")
-    state.record_stop_progress(folder, "s1", "/t/x.jsonl", state.StopProgress(4096, frozenset({"r2", "r1"}), ("r1", True, False), "m1"))
-    assert state.read_stop_progress(folder, "s1", "/t/x.jsonl") == (4096, {"r1", "r2"}, ("r1", True, False), "m1")
+    state.record_stop_progress(folder, "s1", "/t/x.jsonl", state.StopProgress(4096, frozenset({"r2", "r1"}), ("r1", True, True), "m1"))
+    assert state.read_stop_progress(folder, "s1", "/t/x.jsonl") == (4096, {"r1", "r2"}, ("r1", True, True), "m1")
 
 
-@pytest.mark.parametrize("session, transcript", [("s2", "/t/x.jsonl"), ("s1", "/t/y.jsonl"), (None, "/t/x.jsonl"), ("s1", None)])
+@pytest.mark.parametrize("session, transcript", [("s2", "/t/x.jsonl"), ("s1", "/t/y.jsonl")])
 def test_stop_progress_recorded_for_another_session_or_transcript_is_not_reused(tmp_path, session, transcript):
     folder = state_dir(tmp_path / "home", tmp_path / "repo")
     state.record_stop_progress(folder, "s1", "/t/x.jsonl", state.StopProgress(4096, frozenset({"r1"}), ("r1", True, True), "m1"))
@@ -280,7 +280,6 @@ def test_stop_progress_that_is_malformed_reads_as_none_recorded(tmp_path, record
 
 
 def test_a_well_formed_stop_record_is_read_back(tmp_path):
-    """The record the malformed cases spoil, whole, so each of them fails on its own field."""
     folder = state_dir(tmp_path / "home", tmp_path / "repo")
     write_json(state.stop_file(folder), {"sessionId": "s1", "transcriptPath": "/t/x.jsonl", "offset": 9,
                                          "delivered": ["r1", 7], "walk": WALK, "mark": "m1"})
@@ -288,7 +287,14 @@ def test_a_well_formed_stop_record_is_read_back(tmp_path):
 
 
 def test_a_stop_record_without_a_session_is_not_read_for_a_session_unknown(tmp_path):
-    """Claude Code sends no session id or transcript on some events; nothing recorded is theirs."""
     folder = state_dir(tmp_path / "home", tmp_path / "repo")
     write_json(state.stop_file(folder), {"offset": 9, "delivered": [], "walk": WALK, "mark": "m1"})
     assert state.read_stop_progress(folder, None, None) == state.StopProgress()
+
+
+@pytest.mark.parametrize("session, transcript", [(None, "/t/x.jsonl"), ("s1", None)])
+def test_a_stop_without_a_session_or_transcript_keeps_the_progress_already_recorded(tmp_path, session, transcript):
+    folder = state_dir(tmp_path / "home", tmp_path / "repo")
+    state.record_stop_progress(folder, "s1", "/t/x.jsonl", state.StopProgress(9, frozenset({"r1"}), ("r1", True, False), "m1"))
+    state.record_stop_progress(folder, session, transcript, state.StopProgress())
+    assert state.read_stop_progress(folder, "s1", "/t/x.jsonl") == (9, {"r1"}, ("r1", True, False), "m1")
