@@ -5,7 +5,7 @@ import pytest
 
 from orb import doctor
 from orb.copilot import CopilotLink
-from orb.doctor import Check, report, run
+from orb.doctor import Check, check_capture, report, run
 
 
 def test_run_covers_tools_browser_config_skin_links_and_engines(tmp_path, monkeypatch):
@@ -199,3 +199,28 @@ def test_a_widget_that_is_a_link_that_cannot_be_followed_is_named_by_the_failing
     lock(tmp_path / "locked", 0)
     check = widgets_check(tmp_path)
     assert not check.ok and check.detail == f"{root / 'linked'} could not be read: Permission denied"
+
+
+def test_the_capture_check_passes_when_the_audio_keeps_up_with_the_clock(tmp_path):
+    check = check_capture({"engine": "fake", "frames": 1000, "every": 0.04}, tmp_path)
+    assert check.ok and "fake on fake" in check.detail
+
+
+def test_the_capture_check_fails_when_audio_goes_missing_and_names_the_buffer(tmp_path):
+    check = check_capture({"engine": "fake", "frames": 1000, "every": 0.16}, tmp_path)
+    assert not check.ok and "capture.buffer_ms" in check.detail
+
+
+def test_a_capture_engine_that_cannot_open_the_mic_on_a_mac_names_the_grant(tmp_path):
+    check = check_capture({"engine": "fake", "fail": "no microphone found"}, tmp_path, platform="darwin")
+    assert not check.ok and "no microphone found" in check.detail and "Privacy & Security > Microphone" in check.detail
+
+
+def test_the_capture_check_runs_only_when_capture_is_configured(tmp_path):
+    repo, home = tmp_path / "repo", tmp_path / "home"
+    repo.mkdir(), (home / ".config" / "orb").mkdir(parents=True)
+    (home / ".config" / "orb" / "config.json").write_text(json.dumps({"stt": {"engine": "fake"}, "tts": {"engine": "fake"}}), encoding="utf-8")
+    assert "capture engine" not in {c.name for c in run(repo, home)}
+    (home / ".config" / "orb" / "config.json").write_text(json.dumps({"stt": {"engine": "fake"}, "tts": {"engine": "fake"},
+                                                                       "capture": {"engine": "fake", "frames": 1000, "every": 0.04}}), encoding="utf-8")
+    assert {c.name: c for c in run(repo, home)}["capture engine"].ok
