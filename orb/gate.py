@@ -41,6 +41,12 @@ def read_transcript_from(path: str | None, offset: int = 0) -> tuple[list[dict],
             data = f.read()
     except OSError:
         return None
+    entries, read = _complete_lines(data)
+    return entries, offset + read
+
+
+def _complete_lines(data: bytes) -> tuple[list[dict], int]:
+    """The entries in `data` up to its last newline, and how many bytes that is."""
     end = data.rfind(b"\n") + 1
     entries = []
     for line in data[:end].decode("utf-8", "replace").splitlines():
@@ -50,23 +56,50 @@ def read_transcript_from(path: str | None, offset: int = 0) -> tuple[list[dict],
             continue
         if isinstance(entry, dict):
             entries.append(entry)
-    return entries, offset + end
+    return entries, end
 
 
 MARK_BYTES = 256
 
 
-def transcript_mark(path: str | None, offset: int) -> str | None:
-    """A digest of the bytes just before `offset`, so a later read can tell the file still holds what was read
-    there; None when the file cannot be read."""
-    start = max(0, offset - MARK_BYTES)
+class MarkedRead(NamedTuple):
+    entries: list[dict]
+    end: int
+    mark: str
+    # True when the bytes before the offset no longer matched its mark, so the read began at the start of the file.
+    restarted: bool
+
+
+def _mark(head: bytes, before: bytes) -> str:
+    """A digest of the file's first bytes and the bytes just before an offset: what a later read checks to tell the
+    file still holds what was read up to there."""
+    return hashlib.sha256(head + b"\0" + before).hexdigest()
+
+
+def read_transcript_after(path: str | None, offset: int, mark: str | None) -> MarkedRead | None:
+    """`read_transcript_from`, for a reader that resumes: it reads on from `offset` only when the file still matches
+    the `mark` that read left there, else from the start, and returns the mark for where this read ends. The check
+    and the new mark come from the one open file, so a rewrite between them cannot pass. None when the file cannot
+    be read."""
+    if not path:
+        return None
     try:
         with open(path, "rb") as f:
+            head = f.read(MARK_BYTES)
+            start = max(0, offset - MARK_BYTES)
             f.seek(start)
-            data = f.read(offset - start)
-    except (OSError, TypeError):
+            data = f.read()
+            restarted = bool(offset) and _mark(head[:offset], data[:offset - start]) != mark
+            if restarted:
+                offset, start = 0, 0
+                f.seek(0)
+                data = f.read()
+    except OSError:
         return None
-    return hashlib.sha256(data).hexdigest()
+    entries, read = _complete_lines(data[offset - start:])
+    end = offset + read
+    window = data[max(0, end - MARK_BYTES) - start:end - start]
+    return MarkedRead(entries, end, _mark(head[:end], window), restarted)
 
 
 def _text_of(entry: dict) -> str:
