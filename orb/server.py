@@ -28,7 +28,7 @@ from pathlib import Path
 import numpy as np
 from aiohttp import WSMsgType, web
 
-from orb import PLUGIN_ROOT, actions, agents, engines, feeds, folders, logs, pages, panels, releases, skins, themes, widgets
+from orb import PLUGIN_ROOT, actions, agents, engine_client, engines, feeds, folders, logs, pages, panels, releases, skins, themes, widgets
 from orb import commands, terminal
 from orb.audio import SAMPLE_RATE, TAP_S, speakable, split_sentences
 from orb.clips import LOSSY_SHARE, gap_notice, lost_share
@@ -38,7 +38,7 @@ from orb.config import (WIDGET_PANE_KEYS, WIDGET_PLACE_KEYS, ConfigError, Widget
                         overlay, save_for_repo, save_skin_size, save_speed, save_widget, size_for, speed_for, tts_settings_for, validate_widget_entry,
                         widgets_on)
 from orb import waking
-from orb.engines import EngineError, Stt, Tts, Voiceprint
+from orb.engines import EngineError, Stt, Tts, Voiceprint, start
 from orb.wake import ENROLL_PHRASES, voiceprint_from
 from orb.background import claude_running_tasks, same
 from orb.feed import claude_busy, claude_doing, claude_feed, command_ran_since, interrupted_since, newest_final, turn_since, unread, undelivered_final
@@ -220,7 +220,8 @@ class Request:
 
 class OrbServer:
     def __init__(self, repo_root: Path, agent: str, port: int, token: str, home: Path, link, stt=None, tts=None,
-                 waker=None, wake_off: str | None = None, capture=None, capture_off: str | None = None):
+                 waker=None, wake_off: str | None = None, capture=None, capture_off: str | None = None, launch=start):
+        self.launch = launch
         self.repo_root, self.agent, self.port, self.token, self.home, self.link = repo_root, agent, port, token, home, link
         self.capture, self.capture_off = capture, capture_off
         self.preroll: deque[np.ndarray] = deque(maxlen=PREROLL_FRAMES)
@@ -937,7 +938,7 @@ class OrbServer:
     async def use_stt(self, settings: dict) -> str | None:
         name = settings["engine"]
         try:
-            stt = await asyncio.to_thread(Stt, lambda n: engine_settings(settings | ({"engine": n} if n else {})), self.home)
+            stt = await asyncio.to_thread(Stt, lambda n: engine_settings(settings | ({"engine": n} if n else {})), self.home, launch=self.launch)
         except EngineError as e:
             return str(e)
         if stt.name != name:
@@ -953,7 +954,7 @@ class OrbServer:
     async def use_tts(self, settings: dict) -> str | None:
         name = settings["engine"]
         try:
-            tts = await asyncio.to_thread(Tts, lambda n: tts_settings_for(settings | ({"engine": n} if n else {}), self.agent), self.home)
+            tts = await asyncio.to_thread(Tts, lambda n: tts_settings_for(settings | ({"engine": n} if n else {}), self.agent), self.home, launch=self.launch)
         except EngineError as e:
             return str(e)
         if tts.name != name:
@@ -2038,10 +2039,16 @@ def page_sender(message: dict) -> str:
     return f'[sent by the orb {kind} "{name}", not spoken]'
 
 
-def load_engines(config, home: Path, agent: str):
+def engine_launcher(config, repo: Path, agent: str):
+    if not config["engines"]["shared"]:
+        return start
+    return engine_client.launcher({"pid": os.getpid(), "repo": str(repo), "agent": agent})
+
+
+def load_engines(config, home: Path, agent: str, launch=start):
     log.info("loading speech engines: stt=%s tts=%s", config["stt"]["engine"], config["tts"]["engine"])
-    stt = Stt(lambda name: engine_settings(config["stt"] | ({"engine": name} if name else {})), home)
-    tts = Tts(lambda name: tts_settings_for(config["tts"] | ({"engine": name} if name else {}), agent), home)
+    stt = Stt(lambda name: engine_settings(config["stt"] | ({"engine": name} if name else {})), home, launch=launch)
+    tts = Tts(lambda name: tts_settings_for(config["tts"] | ({"engine": name} if name else {}), agent), home, launch=launch)
     for engine in (stt, tts):
         if engine.fallback_reason:
             log.warning("%s", engine.fallback_reason)
@@ -2086,7 +2093,8 @@ def main(argv=None) -> None:
     for warning in config.warnings:
         log.warning(warning)
     try:
-        stt, tts = load_engines(config, args.home, args.agent)
+        launch = engine_launcher(config, repo, args.agent)
+        stt, tts = load_engines(config, args.home, args.agent, launch)
     except EngineError as e:
         log.error("%s", e)
         raise SystemExit(2)
@@ -2098,8 +2106,12 @@ def main(argv=None) -> None:
         log.warning("wake word off: %s", e)
     capture, capture_off = start_capture(config["capture"], args.home)
     link = make_link(args.agent, state_dir(args.home, repo), config)
-    server = OrbServer(repo, args.agent, args.port, token, args.home, link, stt, tts, waker, wake_off, capture, capture_off)
-    asyncio.run(server.run())
+    server = OrbServer(repo, args.agent, args.port, token, args.home, link, stt, tts, waker, wake_off, capture, capture_off, launch)
+    try:
+        asyncio.run(server.run())
+    finally:
+        for engine in (server.stt, server.tts):
+            engine.close()
 
 
 if __name__ == "__main__":

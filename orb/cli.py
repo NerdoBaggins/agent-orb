@@ -13,7 +13,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from orb import PLUGIN_ROOT, agents, browser, logs, pages, panels, widgets
+from orb import PLUGIN_ROOT, agents, browser, engine_client, logs, pages, panels, widgets
 from orb.config import ConfigError, load_for, panel_dirs_for, private_config_path, save_for_repo, save_widget, widget_dirs_for, widgets_on
 from orb.copilot import CopilotLink
 from orb.state import copilot_channel_file, port_file, private_root, read_json, running_server, server_file, session_project, state_dir, user_only
@@ -319,6 +319,20 @@ def cmd_widget(args) -> int:
     return 0
 
 
+def cmd_engines(args) -> int:
+    _, home = repo_and_home(args, os.environ)
+    try:
+        running = engine_client.running_engines(home)
+    except engine_client.HostDown as e:
+        print(f"orb: {e}", file=sys.stderr)
+        return 1
+    if not running:
+        print("no shared speech engines are running" if running is None else "the engine host is running no engines")
+        return 0
+    print("\n".join(engine_client.describe(running)))
+    return 0
+
+
 def cmd_log(args) -> int:
     """The newest lines of this repo's orb log, for each agent that has one (or the one --agent names)."""
     repo, home = repo_and_home(args, os.environ)
@@ -376,6 +390,7 @@ def main(argv=None) -> int:
     p_voice = sub.add_parser("voice", help="mute or unmute the orb's speech, or enroll your voiceprint")
     p_voice.add_argument("setting", choices=("on", "off", "toggle", "enroll"))
     common(p_voice)
+    common(sub.add_parser("engines", help="the speech engines shared between this machine's orbs, and the servers using each"))
     p_log = sub.add_parser("log", help="the newest lines of this repo's orb log (it keeps about 5 MB, oldest dropped)")
     p_log.add_argument("-n", "--lines", type=int, default=60)
     common(p_log)
@@ -397,6 +412,8 @@ def main(argv=None) -> int:
         return cmd_widgets_list(args)
     if args.cmd == "widget":
         return cmd_widget(args)
+    if args.cmd == "engines":
+        return cmd_engines(args)
     if args.cmd == "log":
         return cmd_log(args)
     if args.cmd == "doctor":

@@ -12,7 +12,7 @@ from pathlib import Path
 from orb import actions, agents, browser, pages, skins, themes, widgets
 from orb.config import ConfigError, engine_settings, expand_dirs, load_for, tts_settings_for, widgets_on
 from orb.copilot import call_door, read_door
-from orb import engines, wake, waking
+from orb import engine_client, engines, wake, waking
 from orb.audio import SAMPLE_RATE
 from orb.capture import Capture, Ended, Frame
 from orb.engines import EngineError, EngineLoadError
@@ -103,6 +103,22 @@ def check_engine(kind: str, settings: dict, home: Path) -> Check:
         return Check(f"{kind} engine", False, str(e))
 
 
+def check_engine_host(home: Path) -> Check:
+    try:
+        running = engine_client.running_engines(home)
+    except engine_client.HostDown as e:
+        return Check("engine host", False, str(e))
+    if running is None:
+        return Check("engine host", True, "not running; the first orb that needs a speech engine starts it")
+    orphans = engine_client.unleased(running)
+    if orphans:
+        names = ", ".join(f"{e['kind']} {e['name']} (pid {e['pid']})" for e in orphans)
+        return Check("engine host", False, f"answers, but {names} has no server attached and no grace period running; "
+                     "stop it with `kill <pid>` and report it")
+    leases = sum(len(e["owners"]) for e in running)
+    return Check("engine host", True, f"answers; {len(running)} engine(s), {leases} server(s) attached")
+
+
 def check_theme_tts(theme: themes.Theme, home: Path) -> Check:
     engine = theme.tts["engine"]
     if engine not in engines.available("tts", home):
@@ -133,6 +149,7 @@ def run(repo: Path, home: Path, engines: bool = True) -> list[Check]:
     checks.append(check_widgets(repo, home, config))
     checks.append(check_channel(repo, home))
     checks.append(check_copilot(repo, home))
+    checks.append(check_engine_host(home))
     if engines:
         checks.append(check_engine("stt", engine_settings(config["stt"]), home))
         checks.append(check_engine("tts", tts_settings_for(config["tts"], "claude"), home))

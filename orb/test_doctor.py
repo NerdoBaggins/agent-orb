@@ -15,7 +15,7 @@ def test_run_covers_tools_browser_config_skin_links_and_engines(tmp_path, monkey
     (home / ".config" / "orb").mkdir(parents=True)
     (home / ".config" / "orb" / "config.json").write_text(json.dumps({"stt": {"engine": "fake"}, "tts": {"engine": "fake"}, "skin": "nope"}), encoding="utf-8")
     names = [c.name for c in run(repo, home)]
-    assert names == ["uv", "node", "browser", "config", "skin", "theme", "theme speech", "panel actions", "widgets", "claude channel", "copilot door", "stt engine", "tts engine"]
+    assert names == ["uv", "node", "browser", "config", "skin", "theme", "theme speech", "panel actions", "widgets", "claude channel", "copilot door", "engine host", "stt engine", "tts engine"]
     by = {c.name: c for c in run(repo, home)}
     assert by["skin"].ok is False and "no skin named 'nope'" in by["skin"].detail
     assert by["claude channel"].ok is False and "dangerously-load-development-channels" in by["claude channel"].detail
@@ -241,3 +241,39 @@ def test_the_capture_check_runs_only_when_capture_is_configured(tmp_path):
     (home / ".config" / "orb" / "config.json").write_text(json.dumps({"stt": {"engine": "fake"}, "tts": {"engine": "fake"},
                                                                        "capture": {"engine": "fake", "frames": 1000, "every": 0.04}}), encoding="utf-8")
     assert {c.name: c for c in run(repo, home)}["capture engine"].ok
+
+
+def engine_row(owners=(), grace_left=None, name="parakeet", pid=4242):
+    return {"kind": "stt", "name": name, "voice": None, "pid": pid, "alive": True, "grace_left": grace_left,
+            "owners": [{"pid": p, "repo": "/r", "agent": "claude"} for p in owners]}
+
+
+def test_no_engine_host_running_is_a_passing_check(tmp_path):
+    check = doctor.check_engine_host(tmp_path)
+    assert check.ok and "not running" in check.detail
+
+
+def test_an_engine_host_with_every_engine_leased_passes_and_counts_them(tmp_path, monkeypatch):
+    monkeypatch.setattr(doctor.engine_client, "running_engines", lambda home: [engine_row([1, 2]), engine_row([3], name="other")])
+    check = doctor.check_engine_host(tmp_path)
+    assert check.ok and "2 engine(s), 3 server(s)" in check.detail
+
+
+def test_an_engine_in_its_grace_period_is_not_an_orphan(tmp_path, monkeypatch):
+    monkeypatch.setattr(doctor.engine_client, "running_engines", lambda home: [engine_row(grace_left=12.0)])
+    assert doctor.check_engine_host(tmp_path).ok
+
+
+def test_an_engine_with_no_server_and_no_grace_running_fails_naming_it(tmp_path, monkeypatch):
+    monkeypatch.setattr(doctor.engine_client, "running_engines", lambda home: [engine_row([1]), engine_row(name="orphan", pid=777)])
+    check = doctor.check_engine_host(tmp_path)
+    assert not check.ok and "stt orphan (pid 777)" in check.detail and "parakeet" not in check.detail
+
+
+def test_a_recorded_host_that_does_not_answer_fails(tmp_path, monkeypatch):
+    def down(home):
+        raise doctor.engine_client.HostDown("the engine host (pid 5) is recorded but does not answer")
+
+    monkeypatch.setattr(doctor.engine_client, "running_engines", down)
+    check = doctor.check_engine_host(tmp_path)
+    assert not check.ok and "does not answer" in check.detail
