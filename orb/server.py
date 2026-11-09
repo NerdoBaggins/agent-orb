@@ -1777,7 +1777,7 @@ class OrbServer:
         if self.speaking and not self.speaking.done():
             await self.stop_speaking()
             self.heard.update(item["id"] for item in self.session.get("feed", ()) if undelivered_final(item))
-            if self.state == "speaking":
+            if self.state == "speaking" or dropped_clips:
                 await self.set_state(self.resume_state())
         elif self.state in ("listening", "wake_word"):
             self.recording = None
