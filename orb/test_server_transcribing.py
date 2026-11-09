@@ -197,3 +197,39 @@ def test_stop_drops_every_clip_transcribing_at_once(tmp_path):
             await asyncio.sleep(0.2)
             assert server.link.sent == [] and server.queue == []
     run(go())
+
+
+def test_stop_while_a_reply_plays_also_drops_the_words_being_transcribed(tmp_path):
+    async def go():
+        server = held_server(tmp_path)
+        async with await client_for(server) as c:
+            await connect(c)
+            heard = asyncio.create_task(server.heard_clip(CLIP))
+            await asyncio.to_thread(server.stt.started.wait, 3)
+            server.speaking = asyncio.create_task(asyncio.sleep(30))
+            await server.stop()
+            server.stt.release.set()
+            await heard
+            await asyncio.sleep(0.2)
+            assert server.link.sent == [] and server.queue == []
+    run(go())
+
+
+class HeldFailingStt(HeldStt):
+    def transcribe(self, samples) -> str:
+        super().transcribe(samples)
+        raise EngineError("the engine died")
+
+
+def test_a_transcription_that_fails_after_stop_leaves_the_next_recording_alone(tmp_path):
+    async def go():
+        server = make(tmp_path, voice=True)
+        server.stt = HeldFailingStt("")
+        notices = []
+        server.notify = lambda level, text, ref=None: asyncio.sleep(0, notices.append(text))
+        heard = await stopped_mid_transcription(server)
+        await server.set_state("listening")
+        server.stt.release.set()
+        await heard
+        assert server.state == "listening" and notices == []
+    run(go())

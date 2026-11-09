@@ -1555,18 +1555,21 @@ class OrbServer:
         clip = object()
         self.hearing.add(clip)
         await self.set_state("transcribing")
+        failure = None
         try:
             async with self.stt_in_use:
                 text = await asyncio.to_thread(self.stt.transcribe, samples)
         except EngineError as e:
-            await self.notify("error", f"transcription: {e}")
-            await self.set_state(self.resume_state())
-            return
+            failure = e
         finally:
             stopped = clip not in self.hearing
             self.hearing.discard(clip)
         if stopped:
             log.info("dropped %.1fs heard before stop", samples.size / SAMPLE_RATE)
+            return
+        if failure is not None:
+            await self.notify("error", f"transcription: {failure}")
+            await self.set_state(self.resume_state())
             return
         log.info("heard %.1fs: %r", samples.size / SAMPLE_RATE, text[:200])
         if strip is not None:
@@ -1769,6 +1772,8 @@ class OrbServer:
         """Speech first, whatever the state says: a reply still playing is what the user hears and wants stopped. The
         session replies queued behind it are stopped too, so the next one does not start the moment this one ends."""
         log.info("stop pressed while %s", self.state)
+        dropped_clips = bool(self.hearing)
+        self.hearing.clear()
         if self.speaking and not self.speaking.done():
             await self.stop_speaking()
             self.heard.update(item["id"] for item in self.session.get("feed", ()) if undelivered_final(item))
@@ -1779,8 +1784,7 @@ class OrbServer:
             if self.waker is not None:
                 self.waker.cancel()
             await self.set_state(self.resume_state())
-        elif self.hearing:
-            self.hearing.clear()
+        elif dropped_clips:
             await self.set_state(self.resume_state())
         elif self.interrupted_at is not None and time.monotonic() - self.interrupted_at < INTERRUPT_SETTLE_S:
             # A second Escape into a session that has just stopped would open its rewind menu.
