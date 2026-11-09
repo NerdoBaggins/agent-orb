@@ -52,9 +52,7 @@ class Capture:
     def next_event(self) -> Frame | Notice | Ended:
         wait = self.last_frame + self.stall_s - time.monotonic()
         try:
-            if wait <= 0:
-                raise queue.Empty
-            line = self.process.lines.get(timeout=wait)
+            line = self.process.lines.get(timeout=max(wait, 0))
         except queue.Empty:
             return Ended(f"no audio from the microphone for {self.stall_s:.1f} s")
         if line is None:
@@ -69,7 +67,7 @@ class Capture:
             return Notice(f"{self.process.label}: {message.get('notice') or message.get('error') or message}")
         try:
             frame = Frame(decode_pcm(message["pcm"]), float(message.get("level", 0.0)))
-        except (TypeError, ValueError) as e:
+        except (TypeError, ValueError, OverflowError) as e:
             return Notice(f"{self.process.label} sent a frame that cannot be decoded: {e}")
         self.last_frame = time.monotonic()
         return frame
