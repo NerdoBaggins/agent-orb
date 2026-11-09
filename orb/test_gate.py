@@ -255,3 +255,42 @@ def test_a_walk_resumed_from_where_an_earlier_one_ended_answers_as_a_walk_over_t
         assert gate(entries, PENDING) == whole
         for k in range(len(entries) + 1):
             assert gate(entries[k:], PENDING, start=gate_module.walk(entries[:k])) == whole, (entries, k)
+
+
+def resumed(path, first, rewritten):
+    """Reads `first` whole, rewrites the file as `rewritten`, and reads on from where the first read ended."""
+    path.write_bytes(first)
+    read = gate_module.read_transcript_after(str(path), 0, None)
+    path.write_bytes(rewritten)
+    return read, gate_module.read_transcript_after(str(path), read.end, read.mark)
+
+
+def numbered(n, start=0):
+    return b"".join(json.dumps({"type": "user", "n": i}).encode() + b"\n" for i in range(start, start + n))
+
+
+def test_a_transcript_only_appended_to_is_read_on_from_where_the_last_read_ended(tmp_path):
+    first, second = resumed(tmp_path / "t.jsonl", numbered(50), numbered(50) + numbered(2, start=50))
+    assert (second.restarted, [e["n"] for e in second.entries]) == (False, [50, 51])
+
+
+def test_a_transcript_rewritten_just_before_the_old_offset_is_read_again_from_the_start(tmp_path):
+    changed = numbered(48) + numbered(1, start=90) + numbered(1, start=49)
+    first, second = resumed(tmp_path / "t.jsonl", numbered(50), changed + numbered(1, start=50))
+    assert (second.restarted, len(second.entries)) == (True, 51)
+
+
+def test_a_transcript_rewritten_at_its_head_with_the_old_tail_kept_is_read_again_from_the_start(tmp_path):
+    tail = numbered(50, start=100)
+    first, second = resumed(tmp_path / "t.jsonl", numbered(5) + tail, numbered(5, start=5) + tail + numbered(1, start=200))
+    assert second.restarted
+
+
+def test_a_transcript_that_cannot_be_read_on_resume_is_none(tmp_path):
+    assert gate_module.read_transcript_after(str(tmp_path / "gone.jsonl"), 10, "m") is None
+
+
+def test_a_short_transcript_whose_last_line_was_still_being_written_is_read_on_from_that_line(tmp_path):
+    whole = numbered(3)
+    first, second = resumed(tmp_path / "t.jsonl", whole[:-8], whole)
+    assert (second.restarted, [e["n"] for e in second.entries]) == (False, [2])

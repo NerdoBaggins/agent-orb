@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from orb import hook_deadline, session_hook, stop_hook, turn_hook
-from orb.gate import CHANNEL_SERVER, read_transcript_from
+from orb.gate import CHANNEL_SERVER, read_transcript_after
 from orb.state import read_stop_progress, server_file, session_file, session_project, state_dir, turn_file, write_json
 
 
@@ -297,7 +297,11 @@ def stop_at(tmp_path, monkeypatch, transcript, pending, reads):
     posted = []
     monkeypatch.setattr(stop_hook, "_call", lambda server, method, path, body=None, **_:
                         {"pending": pending} if path == "/pending" else posted.append((path, body)) or {})
-    monkeypatch.setattr(stop_hook, "read_transcript_from", lambda path, offset=0: reads.append(offset) or read_transcript_from(path, offset))
+    def read(path, offset, mark):
+        result = read_transcript_after(path, offset, mark)
+        reads.append(0 if result and result.restarted else offset)
+        return result
+    monkeypatch.setattr(stop_hook, "read_transcript_after", read)
     outcome = stop_hook.run({"hook_event_name": "Stop", "session_id": "s1", "transcript_path": str(transcript)}, repo, home)
     return outcome, posted
 
