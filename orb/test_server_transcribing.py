@@ -199,7 +199,7 @@ def test_stop_drops_every_clip_transcribing_at_once(tmp_path):
     run(go())
 
 
-def test_stop_while_a_reply_plays_also_drops_the_words_being_transcribed(tmp_path):
+def test_stop_while_a_reply_plays_drops_the_words_being_transcribed_and_returns_to_idle(tmp_path):
     async def go():
         server = held_server(tmp_path)
         async with await client_for(server) as c:
@@ -211,7 +211,7 @@ def test_stop_while_a_reply_plays_also_drops_the_words_being_transcribed(tmp_pat
             server.stt.release.set()
             await heard
             await asyncio.sleep(0.2)
-            assert server.link.sent == [] and server.queue == []
+            assert server.link.sent == [] and server.queue == [] and server.state == "idle"
     run(go())
 
 
