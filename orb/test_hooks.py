@@ -1,3 +1,4 @@
+import ast
 import io
 import json
 import os
@@ -210,10 +211,23 @@ def test_every_timeout_is_above_the_scripts_deadline_and_its_backstop():
 
 
 @pytest.mark.parametrize("module", [*HOOK_MODULES, hook_deadline], ids=lambda m: m.__name__)
-def test_a_hook_module_imports_without_any_installed_package(module):
-    result = subprocess.run([sys.executable, "-S", "-c", f"import {module.__name__}"], cwd=REPO, capture_output=True,
-                            text=True, timeout=20)
-    assert (result.returncode, result.stderr) == (0, "")
+def test_a_hook_module_and_every_orb_module_it_imports_import_only_the_standard_library(module):
+    seen, todo, outside = set(), [module.__name__], set()
+    while todo:
+        name = todo.pop()
+        if name in seen or not (REPO / Path(*name.split("."))).with_suffix(".py").exists():
+            continue
+        seen.add(name)
+        for node in ast.walk(ast.parse((REPO / Path(*name.split("."))).with_suffix(".py").read_text(encoding="utf-8"))):
+            names = [a.name for a in node.names] if isinstance(node, ast.Import) else []
+            if isinstance(node, ast.ImportFrom) and node.module:
+                names = [node.module, *(f"{node.module}.{a.name}" for a in node.names)]
+            for imported in names:
+                if imported.split(".")[0] == "orb":
+                    todo.append(imported)
+                elif imported.split(".")[0] not in sys.stdlib_module_names | {"__future__"}:
+                    outside.add(imported)
+    assert outside == set()
 
 
 def test_the_stop_hooks_budget_ends_before_its_deadline():
