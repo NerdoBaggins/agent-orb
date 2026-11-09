@@ -230,3 +230,28 @@ def test_delivered_names_the_channel_requests_the_session_was_handed_not_ones_on
     mid_turn = {"type": "attachment", "attachment": {"type": "queued_command", "origin": {"kind": "channel", "server": CHANNEL_SERVER},
                                                      "prompt": f'<channel source="{CHANNEL_SERVER}" req="r8">later</channel>'}}
     assert delivered([channel_turn(), assistant(), mid_turn, enqueued, channel_turn(server="plugin:other:chat", req="r6")]) == {"r7", "r8"}
+
+
+def writing(text="Building the deck now."):
+    entry = assistant(text)
+    entry["message"]["stop_reason"] = None
+    return entry
+
+
+# Transcripts whose answer depends on what came before the newest bytes, with the answer read whole.
+SPLIT_TRANSCRIPTS = [
+    ([channel_turn(), assistant(), tool_result(), ended("All done."), ended("And one more thing.")], "r7"),
+    ([channel_turn(), writing(), typed_between_steps(), ended("All done.")], "r7"),
+    ([channel_turn(), assistant(), tool_result(), typed_mid_turn_queued_command(), ended("All done.")], "r7"),
+    ([channel_turn(), ended("Started it."), typed_mid_turn_queued_command(), ended("Answered.")], None),
+    ([channel_turn(), ended("Started it."), typed_between_steps(), ended("Answered.")], None),
+    ([channel_turn(), assistant(), typed_turn(), ended("Answered.")], None),
+    ([typed_turn(), ended("Hi."), channel_turn(), assistant(), ended("Done.")], "r7"),
+]
+
+
+def test_a_walk_resumed_from_where_an_earlier_one_ended_answers_as_a_walk_over_the_whole_transcript():
+    for entries, whole in SPLIT_TRANSCRIPTS:
+        assert gate(entries, PENDING) == whole
+        for k in range(len(entries) + 1):
+            assert gate(entries[k:], PENDING, start=gate_module.walk(entries[:k])) == whole, (entries, k)
