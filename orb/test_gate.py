@@ -271,7 +271,7 @@ def numbered(n, start=0):
 
 def test_a_transcript_only_appended_to_is_read_on_from_where_the_last_read_ended(tmp_path):
     first, second = resumed(tmp_path / "t.jsonl", numbered(50), numbered(50) + numbered(2, start=50))
-    assert (second.restarted, [e["n"] for e in second.entries]) == (False, [50, 51])
+    assert (first.restarted, second.restarted, [e["n"] for e in second.entries]) == (False, False, [50, 51])
 
 
 def test_a_transcript_rewritten_just_before_the_old_offset_is_read_again_from_the_start(tmp_path):

@@ -79,8 +79,9 @@ def _mark(head: bytes, before: bytes) -> str:
 def read_transcript_after(path: str | None, offset: int, mark: str | None) -> MarkedRead | None:
     """`read_transcript_from`, for a reader that resumes: it reads on from `offset` only when the file still matches
     the `mark` that read left there, else from the start, and returns the mark for where this read ends. The check
-    and the new mark come from the one open file, so a rewrite between them cannot pass. None when the file cannot
-    be read."""
+    and the new mark come from one open file, so a file replaced between them cannot pass. The mark samples the
+    head and the bytes before the offset, not the whole file: an edit that keeps both, in a transcript Claude Code
+    only appends to, is not seen. None when the file cannot be read."""
     if not path:
         return None
     try:
