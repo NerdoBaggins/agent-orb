@@ -35,7 +35,7 @@ class Chunker:
         return chunks
 
 
-def pick_device(devices: list[dict], hostapis: list[dict], platform: str, wanted: str | None) -> int:
+def pick_device(devices: list[dict], hostapis: list[dict], system_default: int, platform: str, wanted: str | None) -> int:
     api = next((i for i, a in enumerate(hostapis) if a["name"] == WASAPI), None) if platform == "win32" else None
     inputs = [i for i, d in enumerate(devices) if d["max_input_channels"] > 0 and (api is None or d["hostapi"] == api)]
     if wanted:
@@ -43,7 +43,7 @@ def pick_device(devices: list[dict], hostapis: list[dict], platform: str, wanted
         if not named:
             raise ValueError(f"no microphone named like {wanted!r}; found {', '.join(devices[i]['name'] for i in inputs) or 'none'}")
         return named[0]
-    default = hostapis[api]["default_input_device"] if api is not None else hostapis[devices[inputs[0]]["hostapi"]]["default_input_device"] if inputs else -1
+    default = hostapis[api]["default_input_device"] if api is not None else system_default
     if default not in inputs:
         raise ValueError("no microphone found")
     return default
@@ -85,7 +85,7 @@ class Writer:
 
 
 def open_stream(sd, settings: dict, audio: queue.Queue):
-    device = pick_device(list(sd.query_devices()), list(sd.query_hostapis()), sys.platform, settings["device"])
+    device = pick_device(list(sd.query_devices()), list(sd.query_hostapis()), sd.default.device[0], sys.platform, settings["device"])
     rate = int(sd.query_devices(device)["default_samplerate"])
     stream = sd.InputStream(device=device, channels=1, samplerate=rate, dtype="float32", latency=settings["buffer_ms"] / 1000,
                             callback=lambda data, frames, when, status: audio.put(data[:, 0].copy()))
