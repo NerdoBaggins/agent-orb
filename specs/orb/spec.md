@@ -117,11 +117,16 @@ sent it, unless that window has since reloaded. The draft survives a reload. Whi
    focus. A press is ignored while focus is in a text field; the release of a press the orb took counts wherever focus
    has moved.
 2. The page records with `getUserMedia`, resamples to 16 kHz mono in an AudioWorklet, and streams frames over the
-   WebSocket while held. The orb shows **listening**, driven by the mic level.
-3. On release the server takes the clip. A clip under about 0.3 s is dropped as a tap; there is no upper limit, and a long clip is transcribed in pieces of at most 20 s cut at quiet points.
+   WebSocket while held. With server capture (config `capture`) a capture engine holds the microphone instead: the page
+   never opens it, the server keeps the frames from just before the press, and the page's mic level comes from the
+   server. The orb shows **listening**, driven by the mic level.
+3. On release the server takes the clip; with server capture it first waits out the engine's buffer, since the words
+   just before the release are still in it. A press under about 0.3 s is dropped as a tap (by the clip's length, or
+   with server capture by how long the button was held); there is no upper limit, and a long clip is transcribed in pieces of at most 20 s cut at quiet points.
    The orb shows **transcribing**.
-4. The speech-to-text engine returns text. A clip with enough of its audio lost, as runs of exact zeros where the
-   browser failed to capture, shows "your mic audio is arriving with gaps (N% of it lost)". An empty result shows
+4. The speech-to-text engine returns text. A browser-recorded clip with enough of its audio lost, as runs of exact
+   zeros where the browser failed to capture, shows "your mic audio is arriving with gaps (N% of it lost); server
+   capture avoids this". An empty result shows
    that notice, or "didn't catch that" for a clip without such gaps, and nothing is sent.
 5. The text is added to the transcript and goes to the agent as a request with a request id. The orb shows
    **thinking**.

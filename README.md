@@ -319,6 +319,7 @@ a choice made in one repo stays there.
 | `stt` | `{"engine": "moonshine", "moonshine": {}}` |
 | `tts` | `{"engine": "kokoro", "speed": 1.18, "kokoro": {"voice": {"af_heart": 0.55, "bf_emma": 0.45}, "lang": "en-gb"}}` — `speed` is one number or per agent, `{"claude": 1.1, "copilot": 1.3}` |
 | `wake` | absent (push-to-talk only); see [Wake word](#wake-word) |
+| `capture` | absent (the browser records the microphone); see [Server capture](#server-capture) |
 | `panel_dirs` | `[]` — extra folders for saved panels, absolute or `~/…`; only your own two files may set it |
 | `theme_dirs` | `[]` — extra folders for themes, absolute or `~/…`, searched first; only your own two files may set it |
 | `skin_dirs` | `[]` — extra folders for skins, absolute or `~/…`, searched first; only your own two files may set it |
@@ -489,7 +490,7 @@ An engine is a folder, run as its own process:
 
 ```
 ~/.config/voice-engines/<kind>/<name>/        yours, shared with any other tool on this machine
-<agent-orb>/engines/<kind>/<name>/            built in: stt/moonshine, tts/kokoro, vad/silero, voiceprint/resemblyzer
+<agent-orb>/engines/<kind>/<name>/            built in: capture/livekit, stt/moonshine, tts/kokoro, vad/silero, voiceprint/resemblyzer
   engine.json   { "name", "version", "kind", "run": ["uv", "run", "--script", "engine.py"], "env": ["SOME_API_KEY"], "max_seconds": 20 }
   engine.py     brings its own dependencies (inline script metadata); agent-orb installs nothing for it
 ```
@@ -517,11 +518,12 @@ other way is neither listed nor loaded.
 | `tts` with voices | `{"op": "voice", "id": …}` | — |
 | `wake`, `vad` | `{"op": "frame", "pcm": …}` | `{"score": …}` |
 | `voiceprint` | `{"op": "embed", "pcm": …}` | `{"vector": […]}` |
+| `capture` | `load` only, answered once the microphone is open: `{"latency": <seconds of buffer>, "device": …}` | then, unasked, one line per frame, `{"pcm": <base64 float32 16 kHz>, "level": <rms>}`, or a `{"notice": …}` |
 
 A reply carrying `error` is a failure. A `tts` engine that does not answer `voices` simply has no voice menu. In
 `engine.json`, `env` names the variables the engine needs (credentials never go in config); `max_seconds` is the
 longest clip an STT engine accepts, and the orb cuts longer ones at quiet points; `frame_samples` is how many samples
-a `wake` or `vad` engine takes per frame.
+a `wake` or `vad` engine takes per frame. A `capture` engine streams until its standard input closes.
 
 ## Wake word
 
@@ -550,6 +552,29 @@ shows it), and the orb listens for the phrase while idle:
   says so.
 - A wake, voice-activity or voiceprint engine that fails, or bad settings, turn the wake word off for the session
   with the reason shown; push-to-talk is unaffected.
+
+## Server capture
+
+Off unless a config layer of yours has a `capture` section; a repo's file cannot set it. Then the orb's capture
+engine records the microphone instead of the browser:
+
+```json
+"capture": { "engine": "livekit", "device": null, "buffer_ms": 500, "noise_suppression": true, "auto_gain": true }
+```
+
+- Turn it on when the browser loses your audio: the orb says "your mic audio is arriving with gaps". A Remote
+  Desktop microphone does this in Chrome and Edge, which read it with a 100 ms buffer it overflows; the capture
+  engine reads it with `buffer_ms` (500 by default) and keeps all of it. `orb doctor` opens the microphone for three
+  seconds and says how much of that time arrived as audio.
+- `livekit` (built in) runs WebRTC's noise suppression and auto gain, as Chrome does; echo cancellation is not on yet.
+  Its first start downloads about 30 MB. `device` is part of a microphone's name; absent, the system's default.
+  On Windows it opens the microphone through WASAPI.
+- The page then never opens the microphone, so Chrome asks for no permission. On a Mac the permission goes instead to
+  the app the orb runs from (Terminal, iTerm2, your editor), under System Settings > Privacy & Security > Microphone.
+- The microphone stays open while the orb is up. The words just before you press are kept, and the orb waits out the
+  buffer after you let go, so the last word is whole.
+- An engine that fails to start, or sends no audio for a couple of seconds past its buffer, hands the microphone back
+  to the browser, and the orb says why.
 
 ## Troubleshooting
 
