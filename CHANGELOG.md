@@ -7,6 +7,10 @@ that has one adds it under Unreleased.
 
 ### Added
 
+- Server capture: with a `capture` section in your config, the built-in `livekit` engine records the microphone
+  instead of the browser, with a 500 ms buffer and WebRTC noise suppression, so a Remote Desktop microphone loses no
+  audio. `orb doctor` checks how much of the microphone's audio arrives
+  ([#196](https://github.com/NerdoBaggins/agent-orb/issues/196)).
 - `orb command <name> [argument]`, and `orb.command(name, argument)` for panels and widgets, run a built-in Claude Code
   command such as `/compact keep the open questions` in the attached session. The orb types it into the session's
   terminal once its turn ends and checks the transcript that it ran. Only the commands in your new `commands` config
