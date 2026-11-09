@@ -213,7 +213,7 @@ plugin's folder (the skill tells the agent where that is).
 | `orb voice on\|off\|toggle [--agent claude\|copilot]` | mute or unmute the orb's speech without closing it; with no orb open, sets it for the next one |
 | `orb voice enroll [--agent claude\|copilot]` | enroll your voiceprint in the open orb (five phrases, hold to read) |
 | `orb log [-n N] [--agent claude\|copilot]` | the newest lines (60 unless you say) of this repo's orb log |
-| `orb doctor [--no-engines]` | read-only checks: tools, browser, config, skin, theme, actions, widgets, agent links, engines, wake word |
+| `orb doctor [--no-engines]` | read-only checks: tools, browser, config, skin, theme, actions, widgets, agent links, engines, wake word, server capture |
 
 Every command also takes `--repo <path>` to act on another repo than the current one.
 
@@ -319,7 +319,7 @@ a choice made in one repo stays there.
 | `stt` | `{"engine": "moonshine", "moonshine": {}}` |
 | `tts` | `{"engine": "kokoro", "speed": 1.18, "kokoro": {"voice": {"af_heart": 0.55, "bf_emma": 0.45}, "lang": "en-gb"}}` — `speed` is one number or per agent, `{"claude": 1.1, "copilot": 1.3}` |
 | `wake` | absent (push-to-talk only); see [Wake word](#wake-word) |
-| `capture` | absent (the browser records the microphone); see [Server capture](#server-capture) |
+| `capture` | absent (the browser records the microphone); `{"engine": "livekit"}` turns it on; see [Server capture](#server-capture) |
 | `panel_dirs` | `[]` — extra folders for saved panels, absolute or `~/…`; only your own two files may set it |
 | `theme_dirs` | `[]` — extra folders for themes, absolute or `~/…`, searched first; only your own two files may set it |
 | `skin_dirs` | `[]` — extra folders for skins, absolute or `~/…`, searched first; only your own two files may set it |
@@ -581,8 +581,8 @@ engine records the microphone instead of the browser:
 **Start with `orb doctor`**: ask the agent to run it, or run `uv run --project <agent-orb> python -m orb doctor` yourself,
 where `<agent-orb>` is the plugin's folder. It checks, without changing anything: `uv` and `node`, the browser,
 your config, the skin and theme, panel actions, widgets, the Claude channel, the Copilot door, the speech
-engines, and the wake word when one is on. Each failing line says what to do. `--no-engines` skips loading the
-speech engines, which is faster.
+engines, the wake word when one is on, and server capture when it is on. Each failing line says what to do.
+`--no-engines` skips loading the engines and opening the microphone, which is faster.
 
 | What you see | What it means |
 |---|---|
