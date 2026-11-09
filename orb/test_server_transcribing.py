@@ -179,3 +179,21 @@ def test_a_failed_transcription_says_so_and_returns_the_orb_to_idle(tmp_path):
         await server.heard_clip(CLIP)
         assert server.state == "idle" and notices == [("error", "transcription: the engine died")]
     run(go())
+
+
+def test_stop_drops_every_clip_transcribing_at_once(tmp_path):
+    async def go():
+        server = held_server(tmp_path, "the first", "the second")
+        async with await client_for(server) as c:
+            await connect(c)
+            first = asyncio.create_task(server.heard_clip(CLIP))
+            await asyncio.to_thread(server.stt.started.wait, 3)
+            second = asyncio.create_task(server.heard_clip(CLIP))
+            await asyncio.sleep(0.1)
+            await server.stop()
+            server.stt.release.set()
+            await first
+            await second
+            await asyncio.sleep(0.2)
+            assert server.link.sent == [] and server.queue == []
+    run(go())
