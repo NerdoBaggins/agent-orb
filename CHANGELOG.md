@@ -19,6 +19,8 @@ that has one adds it under Unreleased.
 
 ### Fixed
 
+- Stop while the orb is transcribing now drops what you said, instead of sending it to the agent once transcription
+  ends ([#132](https://github.com/NerdoBaggins/agent-orb/issues/132)).
 - When a push-to-talk or wake-word clip arrives with stretches of lost audio, the orb now says so ("your mic audio
   is arriving with gaps (50% of it lost)") instead of "didn't catch that". Chrome loses audio this way from a
   Remote Desktop microphone ([#195](https://github.com/NerdoBaggins/agent-orb/issues/195)).
