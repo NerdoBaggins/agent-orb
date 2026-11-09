@@ -13,7 +13,8 @@ thing the orb should show, not the product, and the tool should not belong to on
 - Opening it shows an orb that fills its window. The user holds a mic button, or a key while the window has focus,
   and speaks. The agent does what was asked and answers in a natural local voice, and the orb shows what it is
   doing: idle, listening, transcribing, thinking, speaking.
-- While the orb is busy, the mic button becomes Stop: it ends the speech, or interrupts the agent's work.
+- While the orb is busy, the mic button becomes Stop: it ends the speech, drops the words being transcribed, or interrupts
+  the agent's work.
 - When the user asks to see something, the agent writes a panel and it slides in on the right; the orb shrinks
   to make room. Several panels can be open as tabs, and the user can close them by voice or by button.
 - A panel is any page the agent writes, on the fly or saved for reuse. It gets the orb's abilities for free:
