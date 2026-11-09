@@ -46,7 +46,6 @@ def read_transcript_from(path: str | None, offset: int = 0) -> tuple[list[dict],
 
 
 def _complete_lines(data: bytes) -> tuple[list[dict], int]:
-    """The entries in `data` up to its last newline, and how many bytes that is."""
     end = data.rfind(b"\n") + 1
     entries = []
     for line in data[:end].decode("utf-8", "replace").splitlines():
@@ -66,7 +65,6 @@ class MarkedRead(NamedTuple):
     entries: list[dict]
     end: int
     mark: str
-    # True when the bytes before the offset no longer matched its mark, so the read began at the start of the file.
     restarted: bool
 
 
@@ -77,11 +75,6 @@ def _mark(head: bytes, before: bytes) -> str:
 
 
 def read_transcript_after(path: str | None, offset: int, mark: str | None) -> MarkedRead | None:
-    """`read_transcript_from`, for a reader that resumes: it reads on from `offset` only when the file still matches
-    the `mark` that read left there, else from the start, and returns the mark for where this read ends. The check
-    and the new mark come from one open file, so a file replaced between them cannot pass. The mark samples the
-    head and the bytes before the offset, not the whole file: an edit that keeps both, in a transcript Claude Code
-    only appends to, is not seen. None when the file cannot be read."""
     if not path:
         return None
     try:
@@ -170,15 +163,12 @@ def _closes_turn(entry: dict) -> bool:
 
 
 class Walk(NamedTuple):
-    """Where a walk over a transcript stands after its last entry, so a walk over the entries written later can
-    start there and end where a walk over the whole transcript would."""
     request_id: str | None = None
     running: bool = False
     reply_continues: bool = False
 
 
 def _opened(entries: list[dict], server: str, walk: Walk) -> Iterator[tuple[dict, bool, Walk]]:
-    """Each entry, whether it opened a turn, and the walk after it."""
     request_id, running, reply_continues = walk
     for entry in entries:
         opens = False
@@ -231,7 +221,6 @@ def custom_title(entries: list[dict] | None) -> str | None:
 
 
 def gate(entries: list[dict] | None, pending: set[str], server: str = CHANNEL_SERVER, start: Walk = Walk()) -> str | None:
-    """The pending request id this turn answers, or None for every turn that is not the orb's. `start` is where
-    the walk over the entries before `entries` ended."""
+    """The pending request id this turn answers, or None for every turn that is not the orb's."""
     request_id = walk(entries, start, server).request_id
     return request_id if request_id in pending else None

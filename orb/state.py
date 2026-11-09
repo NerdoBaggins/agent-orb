@@ -88,17 +88,13 @@ def record_session(payload: dict, project: Path, home: Path) -> bool:
 
 
 def stop_file(state: Path) -> Path:
-    """How far the Stop hook has read the Claude Code session's transcript, the channel request ids it found, and
-    where its walk over the turns stood."""
     return state / "stop.claude.json"
 
 
 class StopProgress(NamedTuple):
     offset: int = 0
     delivered: frozenset[str] = frozenset()
-    # `orb.gate.Walk`'s fields, in its order.
     walk: tuple[str | None, bool, bool] = (None, False, False)
-    # `orb.gate.MarkedRead.mark` at `offset`.
     mark: str | None = None
 
 
