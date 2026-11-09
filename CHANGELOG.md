@@ -7,6 +7,12 @@ that has one adds it under Unreleased.
 
 ### Added
 
+- Every orb on a machine now shares one set of speech-to-text and voice engines, where each used to start its own
+  (two orbs with Parakeet held two 5 GB copies). An engine stays up while any orb uses it, closes 30 s after the last
+  one goes, and is freed when an orb dies without closing it. `orb engines` lists what is running and who uses it,
+  `orb doctor` checks the new engine host, and `"engines": {"shared": false}` keeps one set per orb
+  ([#203](https://github.com/NerdoBaggins/agent-orb/issues/203),
+  [#165](https://github.com/NerdoBaggins/agent-orb/issues/165)).
 - Server capture: with `"capture": {"engine": "livekit"}` in your config, the built-in `livekit` engine records the
   microphone instead of the browser, with a 500 ms buffer and WebRTC noise suppression, so a Remote Desktop microphone loses no
   audio. `orb doctor` checks how much of the microphone's audio arrives
