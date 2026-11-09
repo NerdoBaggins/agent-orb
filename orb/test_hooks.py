@@ -1,4 +1,3 @@
-import ast
 import io
 import json
 import os
@@ -211,11 +210,10 @@ def test_every_timeout_is_above_the_scripts_deadline_and_its_backstop():
 
 
 @pytest.mark.parametrize("module", [*HOOK_MODULES, hook_deadline], ids=lambda m: m.__name__)
-def test_a_hook_module_imports_only_the_standard_library_and_orb(module):
-    tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
-    names = {alias.name for n in ast.walk(tree) if isinstance(n, ast.Import) for alias in n.names}
-    names |= {n.module for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.module}
-    assert {name for name in names if name.split(".")[0] not in sys.stdlib_module_names | {"orb", "__future__"}} == set()
+def test_a_hook_module_imports_without_any_installed_package(module):
+    result = subprocess.run([sys.executable, "-S", "-c", f"import {module.__name__}"], cwd=REPO, capture_output=True,
+                            text=True, timeout=20)
+    assert (result.returncode, result.stderr) == (0, "")
 
 
 def test_the_stop_hooks_budget_ends_before_its_deadline():
@@ -246,6 +244,14 @@ def test_a_hang_in_one_long_c_call_ends_at_the_backstop_with_every_threads_trace
             "with deadline(0.5, 0.5):\n    re.match(r'(a+)+$', 'a' * 60 + 'b')\n")
     result = run_python(code)
     assert result.returncode != 0 and "Timeout" in result.stderr and "most recent call first" in result.stderr
+
+
+def test_the_backstop_ends_a_hook_grace_seconds_after_its_deadline():
+    code = ("import re\nfrom orb.hook_deadline import deadline\n"
+            "with deadline(0.3, 1.5):\n    re.match(r'(a+)+$', 'a' * 60 + 'b')\n")
+    started = time.monotonic()
+    result = run_python(code)
+    assert result.returncode != 0 and 1.7 <= time.monotonic() - started < 10
 
 
 def test_a_hook_still_inside_its_deadline_is_not_ended_by_the_backstop():
