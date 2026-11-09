@@ -1381,8 +1381,7 @@ class OrbServer:
         return self.waker is not None and self.waker.recording is not None
 
     async def ptt_start(self) -> None:
-        """The button takes precedence over the wake word: a wake recording in progress is dropped for it. A captured
-        recording starts with the frames just before the press, so the first word is whole."""
+        """The button takes precedence over the wake word: a wake recording in progress is dropped for it."""
         if (self.busy and not self.waiting_for_agent and not self.wake_recording) or not self.stt or self.recording is not None:
             return
         if self.waker:
@@ -1409,8 +1408,6 @@ class OrbServer:
         await self.heard_frame(frame.samples)
 
     async def ptt_stop(self) -> None:
-        """A captured recording keeps taking frames for the engine's tail after the release, since the words before
-        it are still in the device's buffer; its tap is judged by how long the button was held."""
         if self.recording is None:
             return
         held, captured = time.monotonic() - self.pressed_at, self.capture is not None
@@ -1445,7 +1442,6 @@ class OrbServer:
                 await self.notify("info", event.text)
 
     async def capture_lost(self, reason: str) -> None:
-        """The browser's microphone takes over, said once; a recording in progress is dropped with it."""
         capture, self.capture, self.capture_off = self.capture, None, reason
         await asyncio.to_thread(capture.close)
         log.warning("capture engine stopped: %s; using the browser's microphone", reason)
@@ -2031,7 +2027,6 @@ def load_engines(config, home: Path, agent: str):
 
 
 def start_capture(section: dict | None, home: Path) -> tuple[Capture | None, str | None]:
-    """The capture engine a config names, or None with the reason the browser's microphone is used instead."""
     if section is None:
         return None, None
     try:
