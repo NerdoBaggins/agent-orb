@@ -5,6 +5,7 @@ import pytest
 
 from orb import doctor
 from orb.copilot import CopilotLink
+from orb import capture as capture_module
 from orb.doctor import Check, check_capture, report, run
 
 
@@ -209,6 +210,22 @@ def test_the_capture_check_passes_when_the_audio_keeps_up_with_the_clock(tmp_pat
 def test_the_capture_check_fails_when_audio_goes_missing_and_names_the_buffer(tmp_path):
     check = check_capture({"engine": "fake", "frames": 1000, "every": 0.16}, tmp_path)
     assert not check.ok and "capture.buffer_ms" in check.detail
+
+
+def test_the_capture_check_does_not_count_the_engines_shutdown_as_missing_audio(tmp_path):
+    check = check_capture({"engine": "fake", "frames": 1000, "every": 0.08, "linger": 3}, tmp_path)
+    assert check.ok, check.detail
+
+
+def test_the_capture_check_ends_when_the_engine_sends_only_notices(tmp_path, monkeypatch):
+    monkeypatch.setattr(capture_module, "STALL_S", 0.3)
+    check = check_capture({"engine": "fake", "notice": "the microphone is not available", "every": 0.05}, tmp_path)
+    assert not check.ok and "no audio" in check.detail
+
+
+def test_a_capture_config_mistake_on_a_mac_is_not_told_to_grant_the_microphone(tmp_path):
+    check = check_capture({"engine": "nosuch"}, tmp_path, platform="darwin")
+    assert not check.ok and "nosuch" in check.detail and "Privacy & Security" not in check.detail
 
 
 def test_a_capture_engine_that_cannot_open_the_mic_on_a_mac_names_the_grant(tmp_path):

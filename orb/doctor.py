@@ -15,7 +15,7 @@ from orb.copilot import call_door, read_door
 from orb import engines, wake, waking
 from orb.audio import SAMPLE_RATE
 from orb.capture import Capture, Ended, Frame
-from orb.engines import EngineError
+from orb.engines import EngineError, EngineLoadError
 from orb.state import copilot_channel_file, state_dir
 
 
@@ -150,13 +150,13 @@ MAC_GRANT = ("; on a Mac the microphone is granted to the app the orb runs from 
 
 
 def check_capture(section: dict, home: Path, platform: str = sys.platform) -> Check:
-    """Reports how much of CAPTURE_PROBE_S after the first frame arrived as audio: a device that loses audio delivers
-    less than the time that passed."""
     grant = MAC_GRANT if platform == "darwin" else ""
     try:
         probe = Capture(section, home)
-    except EngineError as e:
+    except EngineLoadError as e:
         return Check("capture engine", False, f"{e}{grant}")
+    except EngineError as e:
+        return Check("capture engine", False, str(e))
     delivered, started = 0, None
     try:
         while started is None or time.monotonic() - started < CAPTURE_PROBE_S:
@@ -167,9 +167,10 @@ def check_capture(section: dict, home: Path, platform: str = sys.platform) -> Ch
                 started = time.monotonic()
             elif isinstance(event, Frame):
                 delivered += event.samples.size
+        elapsed = time.monotonic() - started
     finally:
         probe.close()
-    share = delivered / SAMPLE_RATE / (time.monotonic() - started)
+    share = delivered / SAMPLE_RATE / elapsed
     whole = share >= WHOLE_SHARE
     return Check("capture engine", whole, f"{probe.name} on {probe.device}: {share:.0%} of {CAPTURE_PROBE_S:.0f} s arrived as audio"
                  + ("" if whole else f", under {WHOLE_SHARE:.0%}; raise capture.buffer_ms"))
