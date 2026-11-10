@@ -3,7 +3,7 @@
 # dependencies = []
 # ///
 """Test voiceprint: the clip's third sample, as a one-hot vector over four "voices" (0, 0.25, 0.5, 0.75), so clips
-that share it embed alike and clips that differ embed apart. `delay_s` makes every request after the load take that long; `hold` ignores the hang-up."""
+that share it embed alike and clips that differ embed apart. `delay_s` makes every request after the load take that long; `hold` ignores the hang-up; `fail` refuses to load."""
 import base64
 import json
 import struct
@@ -43,11 +43,14 @@ for line in requests():
         time.sleep(delay_s)
     if req["op"] == "load":
         settings = req.get("settings", {})
-        delay_s = float(settings.get("delay_s", 0))
-        hold = bool(settings.get("hold"))
-        if hold:
-            EXIT_BACKSTOP_S = 3600.0
-        out = {"ok": True, "pid": os.getpid()}
+        if settings.get("fail"):
+            out = {"error": "fake voiceprint was told to fail"}
+        else:
+            delay_s = float(settings.get("delay_s", 0))
+            hold = bool(settings.get("hold"))
+            if hold:
+                EXIT_BACKSTOP_S = 3600.0
+            out = {"ok": True, "pid": os.getpid()}
     elif req["op"] == "embed":
         pcm = base64.b64decode(req["pcm"])
         third = struct.unpack("<f", pcm[8:12])[0] if len(pcm) >= 12 else 0.0

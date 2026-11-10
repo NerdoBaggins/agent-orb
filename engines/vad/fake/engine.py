@@ -2,7 +2,7 @@
 # requires-python = ">=3.10"
 # dependencies = []
 # ///
-"""Test VAD: a frame whose second sample is at or above 0.5 is speech (1.0), any other is silence (0.0). `delay_s` makes every request after the load take that long; `hold` ignores the hang-up."""
+"""Test VAD: a frame whose second sample is at or above 0.5 is speech (1.0), any other is silence (0.0). `delay_s` makes every request after the load take that long; `hold` ignores the hang-up; `fail` refuses to load."""
 import base64
 import json
 import struct
@@ -42,11 +42,14 @@ for line in requests():
         time.sleep(delay_s)
     if req["op"] == "load":
         settings = req.get("settings", {})
-        delay_s = float(settings.get("delay_s", 0))
-        hold = bool(settings.get("hold"))
-        if hold:
-            EXIT_BACKSTOP_S = 3600.0
-        out = {"ok": True, "pid": os.getpid()}
+        if settings.get("fail"):
+            out = {"error": "fake vad was told to fail"}
+        else:
+            delay_s = float(settings.get("delay_s", 0))
+            hold = bool(settings.get("hold"))
+            if hold:
+                EXIT_BACKSTOP_S = 3600.0
+            out = {"ok": True, "pid": os.getpid()}
     elif req["op"] == "frame":
         pcm = base64.b64decode(req["pcm"])
         second = struct.unpack("<f", pcm[4:8])[0] if len(pcm) >= 8 else 0.0

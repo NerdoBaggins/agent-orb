@@ -16,7 +16,6 @@ KINDS = ("stt", "tts", "vad", "voiceprint", "wake")
 PCM = base64.b64encode(bytes(16)).decode("ascii")
 REQUEST = {"stt": {"op": "transcribe", "pcm": PCM}, "tts": {"op": "render", "text": "hello"}, "vad": {"op": "frame", "pcm": PCM},
            "voiceprint": {"op": "embed", "pcm": PCM}, "wake": {"op": "frame", "pcm": PCM}}
-CAN_FAIL_LOAD = ("stt", "tts", "wake")
 LOGGING = ("stt", "tts")
 LIVEKIT_HARNESS = """
 import importlib.util, sys, time
@@ -188,7 +187,7 @@ def test_load_delay_s_holds_back_the_load_reply(kind, launch):
     assert time.monotonic() - began >= 0.9
 
 
-@pytest.mark.parametrize("kind", CAN_FAIL_LOAD)
+@pytest.mark.parametrize("kind", KINDS)
 def test_an_engine_exits_after_answering_a_failed_load_with_its_error(kind, launch):
     engine = launch(kind)
     assert "error" in engine.call(load(fail=True))
