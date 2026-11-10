@@ -49,6 +49,16 @@ def test_a_missing_wake_engine_keeps_the_wake_word_off_naming_it(tmp_path):
         build(fake_section(engine="nope"), tmp_path)
 
 
+def test_a_refused_wake_engine_turns_the_wake_word_off_with_the_text(tmp_path):
+    folder = tmp_path / ".config" / "voice-engines" / "wake" / "old"
+    folder.mkdir(parents=True)
+    (folder / "engine.json").write_text(json.dumps({"name": "old", "version": "1", "kind": "wake", "run": ["x"]}), encoding="utf-8")
+    with pytest.raises(WakeOff) as off:
+        build(fake_section(engine="old"), tmp_path)
+    assert str(off.value) == (f'{folder / "engine.json"} has no "protocol": 2. This orb speaks engine protocol 2: update the engine to it '
+                              '(README, Speech engines, Writing one), then add "protocol": 2 to engine.json.')
+
+
 def test_a_wake_engine_that_fails_to_load_is_not_replaced_by_anything(tmp_path):
     with pytest.raises(WakeOff, match="fake wake was told to fail"):
         build(fake_section(fail=True), tmp_path)

@@ -236,7 +236,7 @@ def test_an_engine_that_fails_to_load_is_an_error_to_the_server_and_leaves_no_en
 def test_a_missing_credential_is_refused_before_the_host_is_asked(home, tmp_path):
     folder = home / ".config" / "voice-engines" / "stt" / "needs-key"
     shutil.copytree(PLUGIN_ROOT / "engines" / "stt" / "fake", folder, ignore=shutil.ignore_patterns("__pycache__"))
-    (folder / "engine.json").write_text('{"name": "needs-key", "version": "1", "kind": "stt", "run": ["uv", "run", "--script", "engine.py"], "env": ["ORB_TEST_KEY"]}', encoding="utf-8")
+    (folder / "engine.json").write_text('{"name": "needs-key", "version": "1", "kind": "stt", "protocol": 2, "run": ["uv", "run", "--script", "engine.py"], "env": ["ORB_TEST_KEY"]}', encoding="utf-8")
     with pytest.raises(EngineError, match="needs ORB_TEST_KEY"):
         launcher()("stt", {"engine": "needs-key"}, home, {})
     assert engine_wire.read_record(home) is None
@@ -245,7 +245,7 @@ def test_a_missing_credential_is_refused_before_the_host_is_asked(home, tmp_path
 def test_servers_with_different_credentials_do_not_share_a_process_and_the_engine_sees_each_servers_own(home):
     folder = home / ".config" / "voice-engines" / "stt" / "keyed"
     shutil.copytree(PLUGIN_ROOT / "engines" / "stt" / "fake", folder, ignore=shutil.ignore_patterns("__pycache__"))
-    (folder / "engine.json").write_text('{"name": "keyed", "version": "1", "kind": "stt", "run": ["uv", "run", "--script", "engine.py"], "env": ["ORB_TEST_KEY"]}', encoding="utf-8")
+    (folder / "engine.json").write_text('{"name": "keyed", "version": "1", "kind": "stt", "protocol": 2, "run": ["uv", "run", "--script", "engine.py"], "env": ["ORB_TEST_KEY"]}', encoding="utf-8")
     one = launcher({**OWNER, "pid": 1})("stt", {"engine": "keyed"}, home, {**os.environ, "ORB_TEST_KEY": "one"})
     two = launcher({**OWNER, "pid": 2})("stt", {"engine": "keyed"}, home, {**os.environ, "ORB_TEST_KEY": "two"})
     assert len(running(home)) == 2

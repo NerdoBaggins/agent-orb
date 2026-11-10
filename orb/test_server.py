@@ -889,20 +889,36 @@ def test_the_snapshot_lists_the_installed_skins_and_the_key_that_cycles_them(tmp
 def user_tts_engine(tmp_path, name):
     folder = tmp_path / "home" / ".config" / "voice-engines" / "tts" / name
     shutil.copytree(PLUGIN_ROOT / "engines" / "tts" / "fake", folder, ignore=shutil.ignore_patterns("__pycache__"))
-    (folder / "engine.json").write_text(json.dumps({"name": name, "version": "1", "kind": "tts",
+    (folder / "engine.json").write_text(json.dumps({"name": name, "version": "1", "kind": "tts", "protocol": 2,
                                                     "run": ["uv", "run", "--script", "engine.py"]}), encoding="utf-8")
 
 
 def user_stt_engine(tmp_path, name):
     folder = tmp_path / "home" / ".config" / "voice-engines" / "stt" / name
     shutil.copytree(PLUGIN_ROOT / "engines" / "stt" / "fake", folder, ignore=shutil.ignore_patterns("__pycache__"))
-    (folder / "engine.json").write_text(json.dumps({"name": name, "version": "1", "kind": "stt",
+    (folder / "engine.json").write_text(json.dumps({"name": name, "version": "1", "kind": "stt", "protocol": 2,
                                                     "run": ["uv", "run", "--script", "engine.py"]}), encoding="utf-8")
 
 
 def test_the_snapshot_lists_the_installed_transcription_engines_without_the_test_engines(tmp_path):
     user_stt_engine(tmp_path, "other")
     assert make(tmp_path, voice=True).snapshot()["stt_engines"] == ["moonshine", "other"]
+
+
+def test_a_refused_selected_engine_shows_its_refusal_in_the_snapshot_fallback_reason(tmp_path, monkeypatch):
+    from orb import engines
+    monkeypatch.setitem(engines.DEFAULT, "stt", "fake")
+    folder = tmp_path / "home" / ".config" / "voice-engines" / "stt" / "old"
+    folder.mkdir(parents=True)
+    (folder / "engine.json").write_text(json.dumps({"name": "old", "version": "1", "kind": "stt", "run": ["x"]}), encoding="utf-8")
+    server = make(tmp_path, voice=True)
+    server.stt = engines.Stt(lambda name: {"engine": name or "old"}, tmp_path / "home")
+    try:
+        reason = server.engines_snapshot()["stt"]["fallback_reason"]
+    finally:
+        server.stt.close()
+    assert reason.startswith(f'{folder / "engine.json"} has no "protocol": 2.') and reason.endswith("; using fake")
+    assert server.engines_snapshot()["stt"]["name"] == "fake"
 
 
 @pytest.mark.timeout(60)
@@ -1540,7 +1556,7 @@ def test_enrolling_stops_and_saves_nothing_when_the_voiceprint_engine_fails_part
     home = tmp_path / "home"
     flaky = home / ".config" / "voice-engines" / "voiceprint" / "flaky"
     flaky.mkdir(parents=True)
-    (flaky / "engine.json").write_text(json.dumps({"name": "flaky", "version": "1", "kind": "voiceprint", "run": ["uv", "run", "--script", "engine.py"]}))
+    (flaky / "engine.json").write_text(json.dumps({"name": "flaky", "version": "1", "kind": "voiceprint", "protocol": 2, "run": ["uv", "run", "--script", "engine.py"]}))
     (flaky / "engine.py").write_text("import json, sys\nfor line in sys.stdin:\n    op = json.loads(line)['op']\n"
                                      "    sys.stdout.write(json.dumps({'ok': True} if op == 'load' else {'error': 'embed broke'}) + '\\n')\n"
                                      "    sys.stdout.flush()\n")
@@ -1573,7 +1589,7 @@ def test_enrolling_stops_and_saves_nothing_when_the_voiceprint_engine_dies_and_c
     home = tmp_path / "home"
     dying = home / ".config" / "voice-engines" / "voiceprint" / "dying"
     dying.mkdir(parents=True)
-    (dying / "engine.json").write_text(json.dumps({"name": "dying", "version": "1", "kind": "voiceprint", "run": ["uv", "run", "--script", "engine.py"]}))
+    (dying / "engine.json").write_text(json.dumps({"name": "dying", "version": "1", "kind": "voiceprint", "protocol": 2, "run": ["uv", "run", "--script", "engine.py"]}))
     (dying / "engine.py").write_text(
         "import json, pathlib, sys\nmark = pathlib.Path('died')\nfor line in sys.stdin:\n"
         "    if json.loads(line)['op'] == 'load':\n"
@@ -1615,7 +1631,7 @@ def test_enrolling_stops_drops_the_engine_and_lets_a_retry_load_afresh_when_no_e
     home = tmp_path / "home"
     dying = home / ".config" / "voice-engines" / "voiceprint" / "dying"
     dying.mkdir(parents=True)
-    (dying / "engine.json").write_text(json.dumps({"name": "dying", "version": "1", "kind": "voiceprint", "run": ["uv", "run", "--script", "engine.py"]}))
+    (dying / "engine.json").write_text(json.dumps({"name": "dying", "version": "1", "kind": "voiceprint", "protocol": 2, "run": ["uv", "run", "--script", "engine.py"]}))
     (dying / "engine.py").write_text(
         "import json, pathlib, sys\nmark = pathlib.Path('died')\nfor line in sys.stdin:\n"
         "    if json.loads(line)['op'] == 'load':\n"
@@ -1657,7 +1673,7 @@ def test_enrolling_stops_and_closes_the_engine_when_the_default_engine_itself_re
     home = tmp_path / "home"
     stubborn = home / ".config" / "voice-engines" / "voiceprint" / "stubborn"
     stubborn.mkdir(parents=True)
-    (stubborn / "engine.json").write_text(json.dumps({"name": "stubborn", "version": "1", "kind": "voiceprint", "run": ["uv", "run", "--script", "engine.py"]}))
+    (stubborn / "engine.json").write_text(json.dumps({"name": "stubborn", "version": "1", "kind": "voiceprint", "protocol": 2, "run": ["uv", "run", "--script", "engine.py"]}))
     (stubborn / "engine.py").write_text("import json, sys\nfor line in sys.stdin:\n    op = json.loads(line)['op']\n"
                                         "    print(json.dumps({'ok': True} if op == 'load' else {'error': 'bad clip'}), flush=True)\n")
     (home / ".config" / "orb").mkdir(parents=True)
