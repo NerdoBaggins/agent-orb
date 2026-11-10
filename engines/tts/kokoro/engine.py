@@ -16,13 +16,39 @@ import contextlib
 import glob
 import importlib.util
 import json
-import os
 import shutil
-import sys
 import urllib.request
 from pathlib import Path
 
 import numpy as np
+
+# ---- exit contract: the same in every engine (engines/test_exit_contract.py) ----
+import os
+import queue
+import sys
+import threading
+
+EXIT_BACKSTOP_S = 4.0
+
+
+def requests():
+    """The request lines, read on a thread of their own. When standard input closes, an idle engine stops at once;
+    one busy in a call it cannot interrupt is ended by a timer, inside the 5 s the orb allows."""
+    lines: queue.Queue = queue.Queue()
+
+    def read() -> None:
+        for line in sys.stdin:
+            lines.put(line)
+        timer = threading.Timer(EXIT_BACKSTOP_S, os._exit, args=(0,))
+        timer.daemon = True
+        timer.start()
+        lines.put(None)
+
+    threading.Thread(target=read, daemon=True).start()
+    while (line := lines.get()) is not None:
+        yield line
+# ---- end of the exit contract ----
+
 
 RELEASE = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/"
 FILES = ("kokoro-v1.0.onnx", "voices-v1.0.bin")
@@ -168,12 +194,12 @@ def load(settings: dict):
 
 def main() -> None:
     kokoro = voice = lang = setting = configured_lang = None
-    for line in sys.stdin:
+    for line in requests():
         req = json.loads(line)
         try:
             if req["op"] == "load":
                 kokoro, voice, lang, setting, configured_lang = load(req["settings"])
-                out = {"ok": True}
+                out = {"ok": True, "pid": os.getpid()}
             elif req["op"] == "voices":
                 out = voice_menu(kokoro.get_voices(), setting)
             elif req["op"] == "voice":
@@ -191,6 +217,8 @@ def main() -> None:
             out = {"error": f"{type(e).__name__}: {e}"}
         sys.stdout.write(json.dumps(out) + "\n")
         sys.stdout.flush()
+        if req["op"] == "load" and "error" in out:
+            break
 
 
 if __name__ == "__main__":
