@@ -1557,8 +1557,8 @@ def test_enrolling_stops_and_saves_nothing_when_the_voiceprint_engine_fails_part
     flaky = home / ".config" / "voice-engines" / "voiceprint" / "flaky"
     flaky.mkdir(parents=True)
     (flaky / "engine.json").write_text(json.dumps({"name": "flaky", "version": "1", "kind": "voiceprint", "protocol": 2, "run": ["uv", "run", "--script", "engine.py"]}))
-    (flaky / "engine.py").write_text("import json, sys\nfor line in sys.stdin:\n    op = json.loads(line)['op']\n"
-                                     "    sys.stdout.write(json.dumps({'ok': True} if op == 'load' else {'error': 'embed broke'}) + '\\n')\n"
+    (flaky / "engine.py").write_text("import json, os, sys\nfor line in sys.stdin:\n    op = json.loads(line)['op']\n"
+                                     "    sys.stdout.write(json.dumps({'ok': True, 'pid': os.getpid()} if op == 'load' else {'error': 'embed broke'}) + '\\n')\n"
                                      "    sys.stdout.flush()\n")
     (home / ".config" / "orb").mkdir(parents=True)
     (home / ".config" / "orb" / "config.json").write_text(json.dumps({"wake": {"engine": "fake", "model": "hey_test", "vad": "fake", "voiceprint": "flaky"}}), encoding="utf-8")
@@ -1591,9 +1591,9 @@ def test_enrolling_stops_and_saves_nothing_when_the_voiceprint_engine_dies_and_c
     dying.mkdir(parents=True)
     (dying / "engine.json").write_text(json.dumps({"name": "dying", "version": "1", "kind": "voiceprint", "protocol": 2, "run": ["uv", "run", "--script", "engine.py"]}))
     (dying / "engine.py").write_text(
-        "import json, pathlib, sys\nmark = pathlib.Path('died')\nfor line in sys.stdin:\n"
+        "import json, os, pathlib, sys\nmark = pathlib.Path('died')\nfor line in sys.stdin:\n"
         "    if json.loads(line)['op'] == 'load':\n"
-        "        print(json.dumps({'error': 'will not restart'} if mark.exists() else {'ok': True}), flush=True)\n"
+        "        print(json.dumps({'error': 'will not restart'} if mark.exists() else {'ok': True, 'pid': os.getpid()}), flush=True)\n"
         "    else:\n        mark.write_text('x')\n        print(json.dumps({'vector': [0.5, 0.5, 0.0, 0.0]}), flush=True)\n        sys.exit(0)\n")
     (home / ".config" / "orb").mkdir(parents=True)
     (home / ".config" / "orb" / "config.json").write_text(json.dumps({"wake": {"engine": "fake", "model": "hey_test", "vad": "fake", "voiceprint": "dying"}}), encoding="utf-8")
@@ -1633,9 +1633,9 @@ def test_enrolling_stops_drops_the_engine_and_lets_a_retry_load_afresh_when_no_e
     dying.mkdir(parents=True)
     (dying / "engine.json").write_text(json.dumps({"name": "dying", "version": "1", "kind": "voiceprint", "protocol": 2, "run": ["uv", "run", "--script", "engine.py"]}))
     (dying / "engine.py").write_text(
-        "import json, pathlib, sys\nmark = pathlib.Path('died')\nfor line in sys.stdin:\n"
+        "import json, os, pathlib, sys\nmark = pathlib.Path('died')\nfor line in sys.stdin:\n"
         "    if json.loads(line)['op'] == 'load':\n"
-        "        print(json.dumps({'error': 'will not restart'} if mark.exists() else {'ok': True}), flush=True)\n"
+        "        print(json.dumps({'error': 'will not restart'} if mark.exists() else {'ok': True, 'pid': os.getpid()}), flush=True)\n"
         "    else:\n        mark.write_text('x')\n        print(json.dumps({'vector': [0.5, 0.5, 0.0, 0.0]}), flush=True)\n        sys.exit(0)\n")
     (home / ".config" / "orb").mkdir(parents=True)
     (home / ".config" / "orb" / "config.json").write_text(json.dumps({"wake": {"engine": "fake", "model": "hey_test", "vad": "fake", "voiceprint": "dying"}}), encoding="utf-8")
@@ -1674,8 +1674,8 @@ def test_enrolling_stops_and_closes_the_engine_when_the_default_engine_itself_re
     stubborn = home / ".config" / "voice-engines" / "voiceprint" / "stubborn"
     stubborn.mkdir(parents=True)
     (stubborn / "engine.json").write_text(json.dumps({"name": "stubborn", "version": "1", "kind": "voiceprint", "protocol": 2, "run": ["uv", "run", "--script", "engine.py"]}))
-    (stubborn / "engine.py").write_text("import json, sys\nfor line in sys.stdin:\n    op = json.loads(line)['op']\n"
-                                        "    print(json.dumps({'ok': True} if op == 'load' else {'error': 'bad clip'}), flush=True)\n")
+    (stubborn / "engine.py").write_text("import json, os, sys\nfor line in sys.stdin:\n    op = json.loads(line)['op']\n"
+                                        "    print(json.dumps({'ok': True, 'pid': os.getpid()} if op == 'load' else {'error': 'bad clip'}), flush=True)\n")
     (home / ".config" / "orb").mkdir(parents=True)
     (home / ".config" / "orb" / "config.json").write_text(json.dumps({"wake": {"engine": "fake", "model": "hey_test", "vad": "fake", "voiceprint": "stubborn"}}), encoding="utf-8")
 

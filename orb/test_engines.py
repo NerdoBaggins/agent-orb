@@ -1,13 +1,14 @@
 import json
 import logging
 import os
+import sys
 
 import numpy as np
 import pytest
 
 from orb import engines
 from orb.audio import SAMPLE_RATE
-from orb.engines import (BUILTIN_DIR, EngineError, available, EngineProcess, Manifest, Stt, Tts, cache_dir, check, find,
+from orb.engines import (BUILTIN_DIR, EngineError, EngineLoadError, available, EngineProcess, Manifest, Stt, Tts, cache_dir, check, find,
                          missing_env, read_manifest, split_at_quiet_points, start)
 
 
@@ -174,11 +175,29 @@ def test_a_fake_engine_loads_answers_and_closes(tmp_path):
     assert process.process.poll() is not None
 
 
+@pytest.mark.parametrize("pid", [None, "7", True, 7.0])
+@pytest.mark.parametrize("kind", engines.KINDS)
+def test_a_load_reply_without_a_pid_fails_the_load_for_every_kind(tmp_path, monkeypatch, kind, pid):
+    reply = {"ok": True} if pid is None else {"ok": True, "pid": pid}
+    write_engine(tmp_path / ".config" / "voice-engines", kind, "nopid", f'''
+import json, sys
+for line in sys.stdin:
+    sys.stdout.write(json.dumps({reply!r}) + "\\n"); sys.stdout.flush()
+''', {"name": "nopid", "version": "1", "kind": kind, "protocol": 2, "run": [sys.executable, "engine.py"]})
+    closed = []
+    real_close = EngineProcess.close
+    monkeypatch.setattr(EngineProcess, "close", lambda self: (closed.append(self), real_close(self)))
+    with pytest.raises(EngineLoadError) as refused:
+        start(kind, {"engine": "nopid"}, tmp_path)
+    assert str(refused.value) == f"{kind} engine 'nopid' did not report its pid in its load reply (protocol 2)"
+    assert len(closed) == 1 and closed[0].process.poll() is not None
+
+
 def test_the_engine_gets_its_cache_folder_in_the_environment(tmp_path):
     folder = write_engine(tmp_path / ".config" / "voice-engines", "stt", "echo", '''
 import json, os, sys
 for line in sys.stdin:
-    sys.stdout.write(json.dumps({"ok": True, "cache": os.environ["ORB_ENGINE_CACHE"]}) + "\\n"); sys.stdout.flush()
+    sys.stdout.write(json.dumps({"ok": True, "pid": os.getpid(), "cache": os.environ["ORB_ENGINE_CACHE"]}) + "\\n"); sys.stdout.flush()
 ''')
     process = start("stt", {"engine": "echo"}, tmp_path)
     assert process.call({"op": "transcribe", "pcm": ""})["cache"] == str(cache_dir(tmp_path, "stt", "echo"))
@@ -188,11 +207,11 @@ for line in sys.stdin:
 
 def test_an_engines_utf16_stderr_with_color_codes_reaches_the_log_as_plain_text(tmp_path, caplog):
     write_engine(tmp_path / ".config" / "voice-engines", "stt", "noisy", '''
-import json, sys
+import json, os, sys
 sys.stderr.buffer.write(b"\\xff\\xfe" + "\\x1b[?25l\\x1b[33mgpu warning: low memory\\x1b[0m\\x1b[2K\\n".encode("utf-16-le"))
 sys.stderr.buffer.flush()
 for line in sys.stdin:
-    sys.stdout.write(json.dumps({"ok": True}) + "\\n"); sys.stdout.flush()
+    sys.stdout.write(json.dumps({"ok": True, "pid": os.getpid()}) + "\\n"); sys.stdout.flush()
 ''')
     with caplog.at_level(logging.WARNING, logger="orb"):
         process = start("stt", {"engine": "noisy"}, tmp_path)
@@ -204,12 +223,12 @@ for line in sys.stdin:
 
 def test_an_engine_that_writes_more_stderr_than_a_pipe_holds_is_still_answered_and_logged_to_the_end(tmp_path, caplog):
     write_engine(tmp_path / ".config" / "voice-engines", "stt", "chatty", '''
-import json, sys
+import json, os, sys
 for line in sys.stdin:
     for n in range(3000 if json.loads(line)["op"] == "transcribe" else 0):
         sys.stderr.write("warning %d " % n + "x" * 90 + "\\n")
     sys.stderr.flush()
-    sys.stdout.write(json.dumps({"ok": True}) + "\\n"); sys.stdout.flush()
+    sys.stdout.write(json.dumps({"ok": True, "pid": os.getpid()}) + "\\n"); sys.stdout.flush()
 ''')
     with caplog.at_level(logging.WARNING, logger="orb"):
         process = start("stt", {"engine": "chatty"}, tmp_path)

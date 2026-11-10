@@ -253,6 +253,10 @@ def start(kind: str, settings: dict, home: Path, env=os.environ) -> EngineProces
     except EngineError as e:
         process.close()
         raise EngineLoadError(f"{kind} engine {name!r} failed to load: {e}")
+    pid = process.loaded.get("pid")
+    if type(pid) is not int:
+        process.close()
+        raise EngineLoadError(f"{kind} engine {name!r} did not report its pid in its load reply (protocol {PROTOCOL})")
     return process
 
 
