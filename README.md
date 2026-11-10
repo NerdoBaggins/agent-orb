@@ -640,9 +640,6 @@ uv run pytest -m "not browser"
 Every plugin test runs in a throwaway repo outside this one with the plugin loaded by `--plugin-dir`; the plugin is
 never installed into agent-orb itself.
 
-Spec: `specs/orb/spec.md`. Plan: `specs/orb/plan.md`. Both approved 2026-10-05; the build notes at the end of the spec
-list where the build departed from it.
-
 | Path | What |
 |---|---|
 | `.claude-plugin/`, `.mcp.json`, `hooks/`, `skills/` | the plugin, read unchanged by both agents |
