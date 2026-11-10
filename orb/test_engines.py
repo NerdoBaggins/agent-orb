@@ -15,7 +15,7 @@ from orb.engines import (BUILTIN_DIR, EngineError, available, EngineProcess, Man
 def write_engine(root, kind, name, script, manifest=None):
     folder = root / kind / name
     folder.mkdir(parents=True)
-    (folder / "engine.json").write_text(json.dumps(manifest or {"name": name, "version": "0.1", "kind": kind, "run": ["uv", "run", "--script", "engine.py"]}), encoding="utf-8")
+    (folder / "engine.json").write_text(json.dumps(manifest or {"name": name, "version": "0.1", "kind": kind, "protocol": 2, "run": ["uv", "run", "--script", "engine.py"]}), encoding="utf-8")
     (folder / "engine.py").write_text(script, encoding="utf-8")
     return folder
 
@@ -45,18 +45,89 @@ def test_a_missing_engine_names_where_it_looked(tmp_path):
 
 
 @pytest.mark.parametrize("manifest, problem", [
-    ({"version": "1", "kind": "tts", "run": ["x"]}, "needs a string 'name'"),
-    ({"name": "a", "version": "1", "kind": "stt", "run": ["x"]}, "is a stt engine, not tts"),
+    ({"version": "1", "kind": "tts", "protocol": 2, "run": ["x"]}, "needs a string 'name'"),
+    ({"name": "a", "version": "1", "kind": "stt", "protocol": 2, "run": ["x"]}, "is a stt engine, not tts"),
     ({"name": "a", "version": "1", "kind": "tts"}, "needs 'run'"),
-    ({"name": "a", "version": "1", "kind": "tts", "run": []}, "needs 'run'"),
-    ({"name": "a", "version": "1", "kind": "tts", "run": ["x"], "env": "KEY"}, "'env' must be a list"),
-    ({"name": "a", "version": "1", "kind": "tts", "run": ["x"], "max_seconds": -1}, "'max_seconds' must be a positive number"),
-    ({"name": "a", "version": "1", "kind": "tts", "run": ["x"], "frame_samples": 1.5}, "'frame_samples' must be a positive integer"),
+    ({"name": "a", "version": "1", "kind": "tts", "protocol": 2, "run": []}, "needs 'run'"),
+    ({"name": "a", "version": "1", "kind": "tts", "protocol": 2, "run": ["x"], "env": "KEY"}, "'env' must be a list"),
+    ({"name": "a", "version": "1", "kind": "tts", "protocol": 2, "run": ["x"], "max_seconds": -1}, "'max_seconds' must be a positive number"),
+    ({"name": "a", "version": "1", "kind": "tts", "protocol": 2, "run": ["x"], "frame_samples": 1.5}, "'frame_samples' must be a positive integer"),
 ])
 def test_an_invalid_manifest_is_refused_with_the_problem_named(tmp_path, manifest, problem):
     folder = write_engine(tmp_path, "tts", "a", "", manifest)
     with pytest.raises(EngineError, match=problem):
         read_manifest(folder, "tts")
+
+
+def _manifest_with(**extra):
+    base = {"name": "a", "version": "1", "kind": "tts", "run": ["x"]}
+    return {**base, **extra}
+
+
+def _protocol_refusal(folder, n):
+    manifest = folder / "engine.json"
+    return {
+        "missing": f'{manifest} has no "protocol": 2. This orb speaks engine protocol 2: update the engine to it (README, Speech engines, Writing one), then add "protocol": 2 to engine.json.',
+        "other": f'{manifest} says "protocol": {n}; this orb speaks engine protocol 2. Update agent-orb or the engine.',
+        "not_a_number": f"{manifest} 'protocol' must be the number 2.",
+    }
+
+
+@pytest.mark.parametrize("manifest, which, n", [
+    (_manifest_with(), "missing", None),
+    (_manifest_with(protocol=1), "other", 1),
+    (_manifest_with(protocol=3), "other", 3),
+    (_manifest_with(protocol="2"), "not_a_number", None),
+    (_manifest_with(protocol=True), "not_a_number", None),
+    (_manifest_with(protocol=2.0), "not_a_number", None),
+    (_manifest_with(protocol=None), "not_a_number", None),
+])
+def test_a_manifest_with_no_protocol_one_that_says_1_or_3_a_string_or_a_boolean_is_refused_with_its_text(tmp_path, manifest, which, n):
+    folder = write_engine(tmp_path, "tts", "a", "", manifest)
+    with pytest.raises(EngineError) as refused:
+        read_manifest(folder, "tts")
+    assert str(refused.value) == _protocol_refusal(folder, n)[which]
+
+
+def test_a_manifest_that_is_not_valid_json_is_refused_as_such_not_as_missing_a_protocol(tmp_path):
+    folder = tmp_path / "tts" / "a"
+    folder.mkdir(parents=True)
+    (folder / "engine.json").write_text("{nope", encoding="utf-8")
+    with pytest.raises(EngineError, match="is not valid JSON"):
+        read_manifest(folder, "tts")
+
+
+@pytest.mark.parametrize("share", ["yes", "true", 1, 0, None, [], {}])
+def test_a_share_that_is_not_true_or_false_is_refused_with_its_text(tmp_path, share):
+    folder = write_engine(tmp_path, "tts", "a", "", _manifest_with(protocol=2, share=share))
+    with pytest.raises(EngineError) as refused:
+        read_manifest(folder, "tts")
+    assert str(refused.value) == f"{folder / 'engine.json'} 'share' must be true or false."
+
+
+@pytest.mark.parametrize("extra, shared", [({}, True), ({"share": True}, True), ({"share": False}, False)])
+def test_protocol_2_is_accepted_and_share_defaults_to_true(tmp_path, extra, shared):
+    folder = write_engine(tmp_path, "tts", "a", "", _manifest_with(protocol=2, **extra))
+    assert read_manifest(folder, "tts").share is shared
+
+
+def test_available_omits_a_refused_engine(tmp_path):
+    root = tmp_path / ".config" / "voice-engines"
+    write_engine(root, "tts", "old", "", _manifest_with(name="old"))
+    write_engine(root, "tts", "current", "", _manifest_with(name="current", protocol=2))
+    assert available("tts", tmp_path) == ["current", "kokoro"]
+
+
+@pytest.mark.parametrize("kind", ["stt", "tts"])
+def test_a_selected_refused_stt_or_tts_falls_back_and_the_reason_ends_using_the_default(tmp_path, monkeypatch, kind):
+    monkeypatch.setitem(engines.DEFAULT, kind, "fake")
+    folder = write_engine(tmp_path / ".config" / "voice-engines", kind, "old", "", _manifest_with(name="old", kind=kind))
+    engine = (Stt if kind == "stt" else Tts)(settings(engine="old"), tmp_path)
+    try:
+        assert engine.name == "fake"
+        assert engine.fallback_reason == f"{_protocol_refusal(folder, None)['missing']}; using fake"
+    finally:
+        engine.close()
 
 
 def test_a_folder_without_a_manifest_or_with_bad_json_is_refused(tmp_path):
@@ -70,9 +141,10 @@ def test_a_folder_without_a_manifest_or_with_bad_json_is_refused(tmp_path):
 
 
 def test_the_builtin_manifests_validate():
-    for kind, name in (("stt", "moonshine"), ("tts", "kokoro"), ("stt", "fake"), ("tts", "fake")):
-        m = read_manifest(BUILTIN_DIR / kind / name, kind)
-        assert m.name == name and m.kind == kind
+    for kind in engines.KINDS:
+        for folder in sorted(f for f in (BUILTIN_DIR / kind).iterdir() if f.is_dir()):
+            m = read_manifest(folder, kind)
+            assert m.name == folder.name and m.kind == kind and m.share is True
     assert read_manifest(BUILTIN_DIR / "stt" / "moonshine", "stt").max_seconds == 20
 
 
@@ -82,7 +154,7 @@ def test_missing_env_names_the_unset_and_empty_variables():
 
 
 def test_start_refuses_an_engine_whose_env_is_not_set(tmp_path):
-    write_engine(tmp_path / ".config" / "voice-engines", "tts", "cloud", "", {"name": "cloud", "version": "1", "kind": "tts", "run": ["x"], "env": ["CLOUD_API_KEY"]})
+    write_engine(tmp_path / ".config" / "voice-engines", "tts", "cloud", "", {"name": "cloud", "version": "1", "kind": "tts", "protocol": 2, "run": ["x"], "env": ["CLOUD_API_KEY"]})
     with pytest.raises(EngineError, match="tts engine 'cloud' needs CLOUD_API_KEY in the environment"):
         start("tts", {"engine": "cloud"}, tmp_path, env={})
 
@@ -270,7 +342,7 @@ def test_stt_cuts_a_long_clip_by_the_engines_max_seconds_and_joins_the_pieces(tm
 
 def test_stt_without_a_max_seconds_sends_the_whole_clip(tmp_path):
     write_engine(tmp_path / ".config" / "voice-engines", "stt", "whole", (BUILTIN_DIR / "stt" / "fake" / "engine.py").read_text(),
-                 {"name": "whole", "version": "1", "kind": "stt", "run": ["uv", "run", "--script", "engine.py"]})
+                 {"name": "whole", "version": "1", "kind": "stt", "protocol": 2, "run": ["uv", "run", "--script", "engine.py"]})
     stt = Stt(settings(engine="whole", number_pieces=True), tmp_path)
     assert stt.transcribe(np.zeros(SAMPLE_RATE * 45, dtype=np.float32)) == "part1"
     stt.close()
@@ -320,7 +392,7 @@ def test_a_pause_at_the_far_edge_of_the_search_window_is_still_cut_at():
 def test_available_lists_engines_with_a_manifest_from_both_folders_and_never_the_test_fixtures(tmp_path):
     good = tmp_path / ".config" / "voice-engines" / "tts" / "mine"
     good.mkdir(parents=True)
-    (good / "engine.json").write_text(json.dumps({"name": "mine", "version": "1", "kind": "tts", "run": ["x"]}))
+    (good / "engine.json").write_text(json.dumps({"name": "mine", "version": "1", "kind": "tts", "protocol": 2, "run": ["x"]}))
     (tmp_path / ".config" / "voice-engines" / "tts" / "no-manifest").mkdir()
     assert available("tts", tmp_path) == ["kokoro", "mine"]
 
@@ -361,7 +433,7 @@ def test_an_engine_folder_whose_name_is_not_plain_is_not_offered_in_the_menu(tmp
     for name in ("whisper.cpp", "mine"):
         folder = tmp_path / ".config" / "voice-engines" / "tts" / name
         folder.mkdir(parents=True)
-        (folder / "engine.json").write_text(json.dumps({"name": name, "version": "1", "kind": "tts", "run": ["x"]}))
+        (folder / "engine.json").write_text(json.dumps({"name": name, "version": "1", "kind": "tts", "protocol": 2, "run": ["x"]}))
     assert available("tts", tmp_path) == ["kokoro", "mine"]
 
 

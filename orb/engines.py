@@ -32,6 +32,7 @@ LOAD_TIMEOUT_S = 300.0  # the first load may download a model
 CALL_TIMEOUT_S = 120.0
 FRAME_TIMEOUT_S = 5.0
 STICKY_AFTER_FAILURES = 3
+PROTOCOL = 2
 
 
 class EngineError(RuntimeError):
@@ -52,6 +53,7 @@ class Manifest:
     path: Path
     max_seconds: float | None = None  # stt: the longest clip the engine accepts; the orb cuts longer ones
     frame_samples: int | None = None  # wake, vad: samples per frame
+    share: bool = True  # false: the engine's work is elsewhere, so each orb gets its own process
 
 
 def engine_dirs(home: Path) -> list[Path]:
@@ -119,7 +121,18 @@ def read_manifest(folder: Path, kind: str) -> Manifest:
     frame_samples = data.get("frame_samples")
     if frame_samples is not None and not (isinstance(frame_samples, int) and frame_samples > 0):
         raise EngineError(f"{manifest} 'frame_samples' must be a positive integer")
-    return Manifest(data["name"], data["version"], kind, tuple(run), tuple(env), folder, max_seconds, frame_samples)
+    protocol = data.get("protocol")
+    if "protocol" not in data:
+        raise EngineError(f'{manifest} has no "protocol": {PROTOCOL}. This orb speaks engine protocol {PROTOCOL}: '
+                          f'update the engine to it (README, Speech engines, Writing one), then add "protocol": {PROTOCOL} to engine.json.')
+    if type(protocol) is not int:
+        raise EngineError(f"{manifest} 'protocol' must be the number {PROTOCOL}.")
+    if protocol != PROTOCOL:
+        raise EngineError(f'{manifest} says "protocol": {protocol}; this orb speaks engine protocol {PROTOCOL}. Update agent-orb or the engine.')
+    share = data.get("share", True)
+    if type(share) is not bool:
+        raise EngineError(f"{manifest} 'share' must be true or false.")
+    return Manifest(data["name"], data["version"], kind, tuple(run), tuple(env), folder, max_seconds, frame_samples, share)
 
 
 def missing_env(manifest: Manifest, env=os.environ) -> list[str]:
