@@ -9,6 +9,8 @@ from pathlib import Path
 
 import pytest
 
+from orb.state import pid_alive
+
 ENGINES = Path(__file__).parent
 KINDS = ("stt", "tts", "vad", "voiceprint", "wake")
 PCM = base64.b64encode(bytes(16)).decode("ascii")
@@ -139,13 +141,12 @@ def test_a_fake_exits_within_5_s_of_its_input_closing_with_a_request_in_flight(k
     assert engine.exits_within(5)
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="os.kill(pid, 0) ends the process on Windows instead of probing it")
 @pytest.mark.parametrize("kind", KINDS)
 def test_a_load_reply_reports_a_pid_that_is_alive_and_is_not_the_launchers(kind, launch):
     engine = launch(kind)
     reply = engine.call(load())
     assert reply["ok"] is True and reply["pid"] != engine.proc.pid
-    os.kill(reply["pid"], 0)
+    assert pid_alive(reply["pid"])
 
 
 @pytest.mark.parametrize("kind", KINDS)
