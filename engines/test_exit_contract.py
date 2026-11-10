@@ -16,6 +16,24 @@ REQUEST = {"stt": {"op": "transcribe", "pcm": PCM}, "tts": {"op": "render", "tex
            "voiceprint": {"op": "embed", "pcm": PCM}, "wake": {"op": "frame", "pcm": PCM}}
 CAN_FAIL_LOAD = ("stt", "tts", "wake")
 LOGGING = ("stt", "tts")
+LIVEKIT_HARNESS = """
+import importlib.util, sys, time
+from unittest import mock
+sd = sys.modules["sounddevice"] = mock.MagicMock()
+sd.query_devices.return_value = {"name": "microphone"}
+sys.modules["livekit"] = mock.MagicMock()
+spec = importlib.util.spec_from_file_location("livekit_capture_engine", sys.argv[1])
+engine = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(engine)
+if sys.argv[2] == "stalled":
+    engine.open_stream = lambda sd, settings, audio: time.sleep(60)
+else:
+    stream = mock.MagicMock()
+    stream.latency = 0.1
+    engine.open_stream = lambda sd, settings, audio: (stream, 16000)
+engine.main()
+"""
+
 EXIT_CONTRACT = '''# ---- exit contract: the same in every engine (engines/test_exit_contract.py) ----
 import os
 import queue
@@ -174,3 +192,48 @@ def test_an_engine_exits_after_answering_a_failed_load_with_its_error(kind, laun
     engine = launch(kind)
     assert "error" in engine.call(load(fail=True))
     assert engine.exits_within(1)
+
+
+def test_a_capture_fake_exits_within_5_s_of_its_input_closing(launch):
+    engine = launch("capture")
+    engine.call(load(frames=100000, every=0.01))
+    engine.proc.stdout.readline()
+    engine.hang_up()
+    assert engine.exits_within(5)
+
+
+def test_a_capture_fake_with_linger_30_outlives_it(launch):
+    engine = launch("capture")
+    engine.call(load(linger=30))
+    engine.hang_up()
+    assert not engine.exits_within(5)
+
+
+def test_a_capture_load_reply_reports_a_pid(launch):
+    engine = launch("capture")
+    reply = engine.call(load())
+    assert reply["ok"] is True and isinstance(reply["pid"], int) and reply["pid"] != engine.proc.pid
+
+
+def livekit(mode):
+    script = ENGINES / "capture" / "livekit" / "engine.py"
+    return Engine([sys.executable, "-c", LIVEKIT_HARNESS, str(script), mode], ENGINES)
+
+
+def test_a_stalled_livekit_device_call_exits_within_5_s_of_input_closing():
+    engine = livekit("stalled")
+    try:
+        engine.send(load())
+        engine.hang_up()
+        assert engine.exits_within(5)
+    finally:
+        engine.kill()
+
+
+def test_a_livekit_load_reply_reports_a_pid():
+    engine = livekit("open")
+    try:
+        reply = engine.call(load())
+        assert reply["ok"] is True and isinstance(reply["pid"], int) and reply["pid"] == engine.proc.pid
+    finally:
+        engine.kill()
