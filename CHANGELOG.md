@@ -16,8 +16,8 @@ that has one adds it under Unreleased.
   terminal once its turn ends and checks the transcript that it ran. Only the commands in your new `commands` config
   list run, `compact` and `context` unless you add more
   ([#181](https://github.com/NerdoBaggins/agent-orb/issues/181)).
-- `orb command` and `orb.command` run under Copilot CLI too, so a widget's compact button compacts a Copilot session:
-  the plugin's extension queues the command in the session, where it runs after the turn in progress
+- `orb command compact` and `orb.command("compact", …)` run under Copilot CLI too, so a widget's compact button
+  compacts a Copilot session: the plugin's extension queues it in the session, where it runs after the turn in progress
   ([#221](https://github.com/NerdoBaggins/agent-orb/issues/221)).
 
 ### Fixed

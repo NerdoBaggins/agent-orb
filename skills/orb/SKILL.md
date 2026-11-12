@@ -207,7 +207,7 @@ It returns at once and the orb types the command into this session's terminal wh
 queued it and end your turn. For `/compact`, the argument is the instructions for what the summary keeps: one line,
 written for this session, in single quotes so the shell passes it as it is. Only the names in the user's `commands`
 list run (`compact` and `context` unless they set more); the orb says whether it ran. Under Copilot
-the orb queues it in this session instead, and it runs the same way once your turn ends.
+only `/compact` runs: the orb queues it in this session, and it runs the same way once your turn ends.
 
 ## Answering orb requests
 

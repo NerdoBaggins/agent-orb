@@ -114,6 +114,42 @@ def test_a_command_is_queued_in_the_session_as_typed(door, tmp_path):
     assert door.said() == {"queued": "/compact keep the plan"}
 
 
+def test_a_command_meant_for_a_session_the_door_no_longer_serves_is_not_queued(door, tmp_path):
+    with pytest.raises(SessionMoved):
+        linked(tmp_path, session="before-clear")._call_door("command", 5, "/compact")
+    linked(tmp_path)._call_door("command", 5, "/context")
+    assert door.said() == {"queued": "/context"}
+
+
+def test_a_command_queued_after_the_session_moved_follows_it_to_the_new_one(door, tmp_path):
+    link = linked(tmp_path, session="before-clear")
+    link.type_command(commands.Command("compact", "keep the plan"))
+    assert link.session_id == "s1" and door.said() == {"queued": "/compact keep the plan"}
+
+
+def test_a_command_copilot_does_not_log_is_refused_before_it_is_queued(door, tmp_path):
+    with pytest.raises(agents.LinkError, match="keeps no trace of /context"):
+        linked(tmp_path).type_command(commands.Command("context", ""))
+    linked(tmp_path).type_command(commands.Command("compact", ""))
+    assert door.said() == {"queued": "/compact"}
+
+
+def write_log(tmp_path, *events):
+    log = events_path(tmp_path, "s1")
+    log.parent.mkdir(parents=True, exist_ok=True)
+    log.write_text("".join(json.dumps(event) + "\n" for event in events), encoding="utf-8")
+    return log
+
+
+def test_the_turn_is_open_while_copilot_works_on_a_message_and_closed_once_it_answers(tmp_path):
+    link = linked(tmp_path)
+    asked = {"type": "user.message", "data": {"content": "go"}}
+    write_log(tmp_path, asked)
+    assert link.turn_open()
+    write_log(tmp_path, asked, {"type": "assistant.message", "data": {"content": "Done."}}, {"type": "assistant.turn_end"})
+    assert not link.turn_open()
+
+
 def test_text_that_is_not_a_slash_command_is_refused_before_it_is_queued(door, tmp_path):
     with pytest.raises(agents.LinkError, match="400"):
         linked(tmp_path)._call_door("command", 5, "compact")
@@ -133,10 +169,9 @@ def test_a_session_that_cannot_queue_commands_is_reported_rather_than_taken_as_q
 
 def test_only_a_compaction_after_the_command_was_queued_shows_it_ran(door, tmp_path):
     link = linked(tmp_path)
-    log = events_path(tmp_path, "s1")
-    log.parent.mkdir(parents=True)
-    done = json.dumps({"type": "session.compaction_complete", "data": {"success": True, "trigger": "manual"}}) + "\n"
-    log.write_text(done, encoding="utf-8")
+    compacted = {"type": "session.compaction_complete", "data": {"success": True, "trigger": "manual"}}
+    log = write_log(tmp_path, compacted)
+    done = json.dumps(compacted) + "\n"
     link.type_command(commands.Command("compact", "keep the plan"))
     assert not link.ran_since("compact", datetime.now(timezone.utc))
     with log.open("a", encoding="utf-8") as f:

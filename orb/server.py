@@ -170,6 +170,10 @@ class ClaudeLink:
             raise terminal.NoAdapter("no session process recorded by the channel")
         terminal.send_line(target, command.parts)
 
+    def unconfirmed(self, name: str) -> str:
+        return (f"/{name} was typed into the session's terminal, but its transcript does not show it ran; "
+                "if its prompt already held text, the command was typed after that text")
+
     def ran_since(self, name: str, since: datetime) -> bool:
         self.refresh()
         return command_ran_since(self.transcript, name, since)
@@ -660,15 +664,14 @@ class OrbServer:
             await asyncio.to_thread(self.link.type_command, command)
         except (terminal.NoAdapter, agents.LinkError) as e:
             return str(e)
-        log.info("command /%s typed into the session", command.name)
+        log.info("command /%s sent to the session", command.name)
         confirm_until = time.monotonic() + COMMAND_CONFIRM_S.get(command.name, COMMAND_CONFIRM_DEFAULT_S)
         while time.monotonic() < confirm_until:
             await asyncio.sleep(COMMAND_POLL_S)
             if await asyncio.to_thread(self.link.ran_since, command.name, since):
                 log.info("command /%s ran", command.name)
                 return None
-        return (f"/{command.name} was typed into the session's terminal, but its transcript does not show it ran; "
-                "if its prompt already held text, the command was typed after that text")
+        return self.link.unconfirmed(command.name)
 
     async def command_endpoint(self, request: web.Request) -> web.Response:
         """Answers before the command runs: the agent asking is the turn the command waits for."""

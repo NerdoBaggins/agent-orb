@@ -1,4 +1,4 @@
-"""A built-in agent command the orb types into the attached session's own terminal, such as `/compact <focus>`."""
+"""A built-in agent command the orb runs in the attached session, such as `/compact <focus>`."""
 import re
 from dataclasses import dataclass
 

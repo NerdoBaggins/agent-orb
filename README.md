@@ -235,8 +235,8 @@ the way Stop sends Escape, and then watches the session's transcript for the com
   check then reports that it did not run. Its Return answers a dialog Claude Code has open in that terminal, such as
   a picker you opened by hand, with the dialog's highlighted choice.
 - Under Copilot the orb queues the command in the session through the plugin's extension instead of typing it, so it
-  runs after the turn in progress just as if typed in Copilot's window; `/compact` counts as run once the session's
-  event log shows a successful manual compaction.
+  runs after the turn in progress just as if typed in Copilot's window. Only `/compact` runs there: it counts as run
+  once the session's event log shows a successful manual compaction, and Copilot logs no trace of the others.
 
 Where it types: iTerm2 writes into the session's pty and leaves the windows alone; Terminal brings the session's tab
 to the front and types through System Events; Windows writes key events into the session's console.

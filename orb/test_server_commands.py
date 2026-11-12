@@ -31,6 +31,9 @@ class CommandLink(FakeLink):
     def ran_since(self, name, since):
         return self.runs and bool(self.typed)
 
+    def unconfirmed(self, name):
+        return f"/{name} went in, but the fake shows no run"
+
 
 def quick(monkeypatch):
     monkeypatch.setattr(server_module, "COMMAND_POLL_S", 0.01)
@@ -105,7 +108,7 @@ def test_a_command_the_transcript_never_shows_is_reported_as_not_run(tmp_path, m
             ws = await c.ws_connect("/ws", params={"token": TOKEN})
             await ws.send_json(page_command())
             result = await command_result(ws)
-            assert not result["ok"] and "does not show it ran" in result["error"]
+            assert not result["ok"] and result["error"] == "/compact went in, but the fake shows no run"
     run(go())
 
 
@@ -183,7 +186,7 @@ def test_a_command_reaches_the_link_under_copilot_too(tmp_path, monkeypatch):
     run(go())
 
 
-@pytest.mark.parametrize("runs, level, text", [(True, "info", "/compact ran"), (False, "error", "does not show it ran")])
+@pytest.mark.parametrize("runs, level, text", [(True, "info", "/compact ran"), (False, "error", "the fake shows no run")])
 def test_the_agents_own_command_reports_how_it_went_as_a_notice(tmp_path, monkeypatch, runs, level, text):
     quick(monkeypatch)
 
