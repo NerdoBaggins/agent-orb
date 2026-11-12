@@ -13,7 +13,7 @@ from pathlib import Path
 from orb import agents
 from orb.background import copilot_running_tasks
 from orb import commands
-from orb.feed import ORB_TAG, copilot_busy, copilot_command_ran, copilot_feed, failed_request, task_summary, turn_ended_since, turn_since
+from orb.feed import ORB_TAG, copilot_busy, copilot_compacted, copilot_feed, failed_request, task_summary, turn_ended_since, turn_since
 from orb.state import read_turn
 
 SEND_TIMEOUT_S = 30
@@ -24,6 +24,7 @@ ACTIVITY_MAX_BYTES = 16_000_000
 ACTIVITY_BYTES = 600_000  # the tail of the event log the feed and the busy check read
 DOOR_ROUTES = {"foreground": ("GET", "/health"), "send": ("POST", "/prompt"), "abort": ("POST", "/abort"),
                "tasks": ("GET", "/tasks"), "command": ("POST", "/command")}
+COMMANDS_COPILOT_LOGS = frozenset({"compact"})
 
 
 # ---- Copilot's own session state ----
@@ -306,14 +307,28 @@ class CopilotLink:
 
     def type_command(self, command: commands.Command) -> None:
         """Queues the command in the session, where it runs after the turn in progress as if typed there."""
+        if command.name not in COMMANDS_COPILOT_LOGS:
+            raise agents.LinkError(f"Copilot's event log keeps no trace of /{command.name}, so the orb runs only "
+                                   + ", ".join(f"/{name}" for name in sorted(COMMANDS_COPILOT_LOGS)) + " there")
         if not self.session_id and not self.probe():
             raise agents.LinkError(self.describe(False))
+        try:
+            self._queue(command)
+        except SessionMoved:
+            if not self.probe():
+                raise agents.LinkError(self.describe(False))
+            self._queue(command)
+
+    def _queue(self, command: commands.Command) -> None:
         log = events_path(self.home, self.session_id)
         self.command_from = (log, log_size(log))
         self._run("command", SEND_TIMEOUT_S, command.line)
 
+    def unconfirmed(self, name: str) -> str:
+        return f"/{name} was queued in Copilot, but its event log does not show it ran"
+
     def ran_since(self, name: str, since: datetime) -> bool:
-        return bool(self.command_from) and copilot_command_ran(read_events(*self.command_from), name)
+        return bool(self.command_from) and copilot_compacted(read_events(*self.command_from))
 
     def turn_open(self) -> bool:
         if not self.session_id:

@@ -222,7 +222,7 @@ def cmd_command(args) -> int:
     repo, home = repo_and_home(args, os.environ)
     server = pick_server(state_dir(home, repo), args.agent)
     queued = post(server, "/command", {"name": args.name, "argument": " ".join(args.argument)})["queued"]
-    print(f"queued {queued}: it is typed into the session once its turn ends; the orb says whether it ran")
+    print(f"queued {queued}: it runs in the session once its turn ends; the orb says whether it ran")
     return 0
 
 
