@@ -106,7 +106,8 @@ uv run --project "<ORB_ROOT>" python -m orb panel show releases
 - Showing a name already open replaces it. Several panels become tabs. "Close that panel" means
   `orb panel close <name>` for the one the user means (the last shown if unclear).
 - Panels run sandboxed and cannot reach the orb server or this session except through `orb.send`. They may load
-  libraries from the internet (cdnjs, jsDelivr, unpkg).
+  libraries from the internet (cdnjs, jsDelivr, unpkg). They cannot use the clipboard, so never give a panel a copy
+  button: to hand the user text, copy it yourself on the host (`pbcopy` on macOS) and say it is on their clipboard.
 
 ### What a panel gets for free
 
