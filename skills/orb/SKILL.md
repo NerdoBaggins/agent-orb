@@ -203,11 +203,11 @@ answering. When the user asks for one, such as "compact, and keep the review fin
 uv run --project "<ORB_ROOT>" python -m orb command <name> ['<argument>']
 ```
 
-It returns at once and the orb types the command into this session's terminal when your turn ends, so say you have
+It returns at once and the orb runs the command in this session when your turn ends, so say you have
 queued it and end your turn. For `/compact`, the argument is the instructions for what the summary keeps: one line,
 written for this session, in single quotes so the shell passes it as it is. Only the names in the user's `commands`
 list run (`compact` and `context` unless they set more); the orb says whether it ran. Under Copilot
-only `/compact` runs: the orb queues it in this session, and it runs the same way once your turn ends.
+only `/compact` runs.
 
 ## Answering orb requests
 

@@ -134,6 +134,11 @@ def test_a_command_copilot_does_not_log_is_refused_before_it_is_queued(door, tmp
     assert door.said() == {"queued": "/compact"}
 
 
+def test_copilots_unconfirmed_notice_names_its_event_log_not_a_terminal(tmp_path):
+    notice = linked(tmp_path).unconfirmed("compact")
+    assert "event log" in notice and "terminal" not in notice
+
+
 def write_log(tmp_path, *events):
     log = events_path(tmp_path, "s1")
     log.parent.mkdir(parents=True, exist_ok=True)
