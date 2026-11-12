@@ -6,9 +6,10 @@ import { RECORD_NAME, copilotRoutes } from "../../copilot/routes.mjs";
 
 const session = await joinSession({});
 const repoRoot = process.cwd();
+const log = (message) => process.stderr.write(`[orb-extension] ${message}\n`);
 openDoor({
   recordFile: path.join(stateDir(process.env.ORB_HOME || os.homedir(), repoRoot), RECORD_NAME),
   record: { sessionId: session.sessionId, repoRoot },
-  routes: copilotRoutes(session),
-  log: (message) => process.stderr.write(`[orb-extension] ${message}\n`),
+  routes: copilotRoutes(session, log),
+  log,
 });
