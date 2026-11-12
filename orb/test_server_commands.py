@@ -329,3 +329,8 @@ def test_a_command_waits_while_the_orb_is_busy(tmp_path, monkeypatch):
             server.state = "idle"
             assert (await command_result(ws))["ok"]
     run(go())
+
+
+def test_claudes_unconfirmed_notice_says_a_half_typed_prompt_takes_the_command_with_it(tmp_path):
+    notice = server_module.ClaudeLink(tmp_path).unconfirmed("compact")
+    assert "typed into the session's terminal" in notice and "prompt already held text" in notice
