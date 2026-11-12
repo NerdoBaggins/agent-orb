@@ -235,7 +235,7 @@ class CopilotLink:
         self.orb_messages: set[str] = set()  # ids of the messages the orb sent, so the feed can mark them
         self.let_go: set[str] = set()  # those Stop stopped waiting for: their replies are spoken like any other
         self.answer_ids: dict[str, str] = {}  # orb message id -> the id its replies carry
-        self.command_from: tuple[Path, int] | None = None  # the event log and its size when a command was queued
+        self.command_from: tuple[Path, int] | None = None
         self.pending: dict | None = None  # the request in flight: its log, offset, message id, whether aborted
         self._run = run or self._call_door
 
@@ -306,7 +306,6 @@ class CopilotLink:
         raise agents.LinkError("Copilot has not answered after 30 minutes; it is still working in its own window")
 
     def type_command(self, command: commands.Command) -> None:
-        """Queues the command in the session, where it runs after the turn in progress as if typed there."""
         if command.name not in COMMANDS_COPILOT_LOGS:
             raise agents.LinkError(f"Copilot's event log keeps no trace of /{command.name}, so the orb runs only "
                                    + ", ".join(f"/{name}" for name in sorted(COMMANDS_COPILOT_LOGS)) + " there")

@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from orb import agents, commands
-from orb.copilot import CopilotLink, SessionMoved, events_path, read_door
+from orb.copilot import ACTIVITY_BYTES, CopilotLink, SessionMoved, events_path, read_door
 from orb.state import copilot_channel_file
 
 pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
@@ -137,6 +137,39 @@ def test_a_command_copilot_does_not_log_is_refused_before_it_is_queued(door, tmp
 def test_copilots_unconfirmed_notice_names_its_event_log_not_a_terminal(tmp_path):
     notice = linked(tmp_path).unconfirmed("compact")
     assert "event log" in notice and "terminal" not in notice
+
+
+def test_a_command_with_no_door_serving_is_refused_without_reaching_one(tmp_path):
+    link = CopilotLink(tmp_path / "copilot-channel.json", home=tmp_path)
+    with pytest.raises(agents.LinkError, match="Not attached"):
+        link.type_command(commands.Command("compact", ""))
+
+
+def test_a_command_whose_session_moved_to_none_is_refused_rather_than_resent(tmp_path):
+    link = linked(tmp_path, session="before-clear")
+    link._run = lambda mode, timeout, prompt="": (_ for _ in ()).throw(SessionMoved("moved"))
+    with pytest.raises(agents.LinkError, match="Not attached"):
+        link.type_command(commands.Command("compact", ""))
+
+
+def test_nothing_has_run_before_any_command_was_queued(tmp_path):
+    assert not linked(tmp_path).ran_since("compact", datetime.now(timezone.utc))
+
+
+def test_no_turn_is_open_before_the_link_has_found_a_session(tmp_path):
+    write_log(tmp_path, {"type": "user.message", "data": {"content": "go"}})
+    assert not linked(tmp_path, session=None).turn_open()
+
+
+def test_a_message_older_than_the_tail_the_link_reads_does_not_hold_the_turn_open(tmp_path):
+    asked = {"type": "user.message", "data": {"content": "go"}}
+    write_log(tmp_path, asked, {"type": "tool.execution_complete", "data": {"result": "x" * ACTIVITY_BYTES}})
+    assert not linked(tmp_path).turn_open()
+
+
+def test_a_command_padded_with_spaces_is_queued_trimmed(door, tmp_path):
+    linked(tmp_path)._call_door("command", 5, "  /compact keep it  ")
+    assert door.said() == {"queued": "/compact keep it"}
 
 
 def write_log(tmp_path, *events):
