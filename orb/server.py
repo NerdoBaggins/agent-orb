@@ -631,8 +631,6 @@ class OrbServer:
         await answer(True, result)
 
     async def allowed_command(self, name, argument) -> commands.Command:
-        if self.agent != "claude":
-            raise commands.CommandError("built-in commands run only under Claude Code")
         try:
             allowed = (await asyncio.to_thread(load_for, self.repo_root, self.home))["commands"]
         except ConfigError as e:
@@ -660,7 +658,7 @@ class OrbServer:
         since = datetime.now(timezone.utc)
         try:
             await asyncio.to_thread(self.link.type_command, command)
-        except terminal.NoAdapter as e:
+        except (terminal.NoAdapter, agents.LinkError) as e:
             return str(e)
         log.info("command /%s typed into the session", command.name)
         confirm_until = time.monotonic() + COMMAND_CONFIRM_S.get(command.name, COMMAND_CONFIRM_DEFAULT_S)

@@ -2,7 +2,7 @@ import pytest
 from datetime import datetime, timedelta, timezone
 
 from orb.feed import (INTERRUPTED, NOTIFICATION_TURN_GRACE_S, ORB_TAG, RESULT_LIMIT, claude_busy, claude_doing, claude_feed, command_ran_since,
-                      copilot_busy, copilot_feed, interrupted_since, turn_ended_since, turn_since, unread)
+                      copilot_busy, copilot_command_ran, copilot_feed, interrupted_since, turn_ended_since, turn_since, unread)
 from orb.gate import CHANNEL_SERVER
 
 
@@ -213,6 +213,25 @@ def test_copilot_is_busy_from_a_user_message_until_a_turn_ends_on_a_message_aski
     assert copilot_busy([typed("go")])
     assert copilot_busy([typed("go"), message("", calls), {"type": "assistant.turn_end"}])
     assert not copilot_busy([typed("go"), message("Done."), {"type": "assistant.turn_end"}])
+
+
+def compaction(success=True, **trigger):
+    return {"type": "session.compaction_complete", "data": {"success": success, **trigger}}
+
+
+@pytest.mark.parametrize("events", [[compaction(trigger="manual")], [compaction()]])
+def test_a_successful_manual_or_unattributed_compaction_shows_copilots_compact_ran(events):
+    assert copilot_command_ran(events, "compact")
+
+
+@pytest.mark.parametrize("events", [[compaction(trigger="threshold")], [compaction(success=False, trigger="manual")], []])
+def test_a_background_or_failed_compaction_does_not_show_copilots_compact_ran(events):
+    assert not copilot_command_ran(events, "compact")
+
+
+def test_copilots_executed_command_shows_that_command_ran_and_no_other():
+    events = [{"type": "command.execute", "data": {"commandName": "context"}}]
+    assert copilot_command_ran(events, "context") and not copilot_command_ran(events, "compact")
 
 
 def test_copilot_is_idle_after_an_abort_and_when_the_log_is_empty():

@@ -4,12 +4,13 @@ import shutil
 import socket
 import subprocess
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 
-from orb import agents
-from orb.copilot import CopilotLink, SessionMoved, read_door
+from orb import agents, commands
+from orb.copilot import CopilotLink, SessionMoved, events_path, read_door
 from orb.state import copilot_channel_file
 
 pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
@@ -23,7 +24,13 @@ const session = {
   sessionId: process.env.SESSION,
   send: async ({ prompt }) => { say({ sent: prompt }); return "m1"; },
   abort: async () => say({ aborted: true }),
-  rpc: { tasks: { list: async () => ({ tasks: [{ id: "shell-7" }] }) } },
+  rpc: {
+    tasks: { list: async () => ({ tasks: [{ id: "shell-7" }] }) },
+    commands: { enqueue: async ({ command }) => {
+      say({ queued: command });
+      return process.env.QUEUES === "no" ? { queued: false } : { queued: true, queueId: "q1" };
+    } },
+  },
 };
 openDoor({ recordFile: process.env.RECORD, record: { sessionId: process.env.SESSION, repoRoot: "/r" },
            routes: copilotRoutes(session), log: () => {} });
@@ -32,8 +39,8 @@ openDoor({ recordFile: process.env.RECORD, record: { sessionId: process.env.SESS
 
 
 class Door:
-    def __init__(self, record: Path, session: str = "s1"):
-        env = {**os.environ, "RECORD": str(record), "SESSION": session}
+    def __init__(self, record: Path, session: str = "s1", queues: bool = True):
+        env = {**os.environ, "RECORD": str(record), "SESSION": session, "QUEUES": "yes" if queues else "no"}
         self.proc = subprocess.Popen(["node", "--input-type=module", "-e", FAKE_SESSION], env=env,
                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8")
         deadline = time.time() + 10
@@ -100,6 +107,41 @@ def test_an_abort_meant_for_a_session_the_door_no_longer_serves_is_refused(door,
 
 def test_the_background_tasks_come_from_the_session(door, tmp_path):
     assert linked(tmp_path)._call_door("tasks", 5) == {"tasks": [{"id": "shell-7"}]}
+
+
+def test_a_command_is_queued_in_the_session_as_typed(door, tmp_path):
+    assert linked(tmp_path)._call_door("command", 5, "/compact keep the plan") == {"queueId": "q1"}
+    assert door.said() == {"queued": "/compact keep the plan"}
+
+
+def test_text_that_is_not_a_slash_command_is_refused_before_it_is_queued(door, tmp_path):
+    with pytest.raises(agents.LinkError, match="400"):
+        linked(tmp_path)._call_door("command", 5, "compact")
+    linked(tmp_path)._call_door("command", 5, "/context")
+    assert door.said() == {"queued": "/context"}
+
+
+def test_a_session_that_cannot_queue_commands_is_reported_rather_than_taken_as_queued(tmp_path):
+    record = tmp_path / "copilot-channel.json"
+    opened = Door(record, queues=False)
+    try:
+        with pytest.raises(agents.LinkError, match="501"):
+            linked(tmp_path)._call_door("command", 5, "/compact")
+    finally:
+        opened.close()
+
+
+def test_only_a_compaction_after_the_command_was_queued_shows_it_ran(door, tmp_path):
+    link = linked(tmp_path)
+    log = events_path(tmp_path, "s1")
+    log.parent.mkdir(parents=True)
+    done = json.dumps({"type": "session.compaction_complete", "data": {"success": True, "trigger": "manual"}}) + "\n"
+    log.write_text(done, encoding="utf-8")
+    link.type_command(commands.Command("compact", "keep the plan"))
+    assert not link.ran_since("compact", datetime.now(timezone.utc))
+    with log.open("a", encoding="utf-8") as f:
+        f.write(done)
+    assert link.ran_since("compact", datetime.now(timezone.utc))
 
 
 def test_the_link_follows_the_door_to_a_new_secret_after_copilot_restarts_the_extension(tmp_path):
