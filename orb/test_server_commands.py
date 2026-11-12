@@ -5,16 +5,16 @@ import types
 
 import pytest
 
-from orb import commands, server as server_module, terminal
+from orb import agents, commands, server as server_module, terminal
 from orb.state import session_file, write_json
 from orb.test_server import TOKEN, FakeLink, client_for, make, run, wait_for
 from orb.test_server_side import next_json, of_type
 
 
 class CommandLink(FakeLink):
-    def __init__(self, open_turns=0, runs=True, fails=None):
+    def __init__(self, open_turns=0, runs=True, fails=None, failure=terminal.NoAdapter):
         super().__init__()
-        self.open_turns, self.runs, self.fails = open_turns, runs, fails
+        self.open_turns, self.runs, self.fails, self.failure = open_turns, runs, fails, failure
         self.typed = []
 
     def turn_open(self):
@@ -25,7 +25,7 @@ class CommandLink(FakeLink):
 
     def type_command(self, command):
         if self.fails:
-            raise terminal.NoAdapter(self.fails)
+            raise self.failure(self.fails)
         self.typed.append((command.line, self.open_turns))
 
     def ran_since(self, name, since):
@@ -109,16 +109,18 @@ def test_a_command_the_transcript_never_shows_is_reported_as_not_run(tmp_path, m
     run(go())
 
 
-def test_a_terminal_that_cannot_be_typed_into_is_the_answer(tmp_path, monkeypatch):
+@pytest.mark.parametrize("failure, why", [(terminal.NoAdapter, "pid 7 has no terminal; cannot type into it"),
+                                          (agents.LinkError, "Copilot's door on port 9 did not answer /command")])
+def test_a_session_the_command_cannot_reach_is_the_answer(tmp_path, monkeypatch, failure, why):
     quick(monkeypatch)
 
     async def go():
         server = make(tmp_path)
-        server.link = CommandLink(fails="pid 7 has no terminal; cannot type into it")
+        server.link = CommandLink(fails=why, failure=failure)
         async with await client_for(server) as c:
             ws = await c.ws_connect("/ws", params={"token": TOKEN})
             await ws.send_json(page_command())
-            assert (await command_result(ws))["error"] == "pid 7 has no terminal; cannot type into it"
+            assert (await command_result(ws))["error"] == why
     run(go())
 
 
@@ -165,7 +167,7 @@ def test_a_second_command_while_one_waits_is_refused(tmp_path, monkeypatch):
     run(go())
 
 
-def test_commands_are_refused_under_copilot(tmp_path, monkeypatch):
+def test_a_command_reaches_the_link_under_copilot_too(tmp_path, monkeypatch):
     quick(monkeypatch)
 
     async def go():
@@ -173,8 +175,11 @@ def test_commands_are_refused_under_copilot(tmp_path, monkeypatch):
         server.agent = "copilot"
         server.link = CommandLink()
         async with await client_for(server) as c:
-            r = await c.post("/command", json={"name": "context"}, headers={"X-Orb-Token": TOKEN})
-            assert r.status == 400 and "only under Claude Code" in (await r.json())["error"]
+            r = await c.post("/command", json={"name": "compact", "argument": "keep the plan"},
+                             headers={"X-Orb-Token": TOKEN})
+            assert r.status == 202
+            await wait_for(lambda: server.link.typed)
+        assert server.link.typed == [("/compact keep the plan", 0)]
     run(go())
 
 

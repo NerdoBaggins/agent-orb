@@ -276,6 +276,19 @@ def turn_ended_since(events: list[dict] | None, since: datetime) -> bool:
     return any(ends_turn(event) and (_written_at(event) or since) > since for event in events or ())
 
 
+def copilot_command_ran(events: list[dict], name: str) -> bool:
+    """True when the events show built-in `/name` ran: for `/compact` a successful manual compaction, which a
+    threshold compaction is not."""
+    for event in events:
+        kind, data = event.get("type"), _data(event)
+        if (name == "compact" and kind == "session.compaction_complete" and data.get("success") is True
+                and data.get("trigger", "manual") == "manual"):
+            return True
+        if kind == "command.execute" and str(data.get("commandName", "")).lstrip("/") == name:
+            return True
+    return False
+
+
 def copilot_busy(events: list[dict] | None) -> bool:
     """True from a user message until the turn that ended with a message asking for no tools or completing the task,
     or an abort."""

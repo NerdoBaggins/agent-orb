@@ -7,11 +7,13 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 from orb import agents
 from orb.background import copilot_running_tasks
-from orb.feed import ORB_TAG, copilot_busy, copilot_feed, failed_request, task_summary, turn_ended_since, turn_since
+from orb import commands
+from orb.feed import ORB_TAG, copilot_busy, copilot_command_ran, copilot_feed, failed_request, task_summary, turn_ended_since, turn_since
 from orb.state import read_turn
 
 SEND_TIMEOUT_S = 30
@@ -21,7 +23,7 @@ REPLY_LIMIT_S = 1800
 ACTIVITY_MAX_BYTES = 16_000_000
 ACTIVITY_BYTES = 600_000  # the tail of the event log the feed and the busy check read
 DOOR_ROUTES = {"foreground": ("GET", "/health"), "send": ("POST", "/prompt"), "abort": ("POST", "/abort"),
-               "tasks": ("GET", "/tasks")}
+               "tasks": ("GET", "/tasks"), "command": ("POST", "/command")}
 
 
 # ---- Copilot's own session state ----
@@ -232,6 +234,7 @@ class CopilotLink:
         self.orb_messages: set[str] = set()  # ids of the messages the orb sent, so the feed can mark them
         self.let_go: set[str] = set()  # those Stop stopped waiting for: their replies are spoken like any other
         self.answer_ids: dict[str, str] = {}  # orb message id -> the id its replies carry
+        self.command_from: tuple[Path, int] | None = None  # the event log and its size when a command was queued
         self.pending: dict | None = None  # the request in flight: its log, offset, message id, whether aborted
         self._run = run or self._call_door
 
@@ -300,6 +303,23 @@ class CopilotLink:
                 raise agents.RequestEnded("Copilot's session was cleared before it answered")
             time.sleep(POLL_S)
         raise agents.LinkError("Copilot has not answered after 30 minutes; it is still working in its own window")
+
+    def type_command(self, command: commands.Command) -> None:
+        """Queues the command in the session, where it runs after the turn in progress as if typed there."""
+        if not self.session_id and not self.probe():
+            raise agents.LinkError(self.describe(False))
+        log = events_path(self.home, self.session_id)
+        self.command_from = (log, log_size(log))
+        self._run("command", SEND_TIMEOUT_S, command.line)
+
+    def ran_since(self, name: str, since: datetime) -> bool:
+        return bool(self.command_from) and copilot_command_ran(read_events(*self.command_from), name)
+
+    def turn_open(self) -> bool:
+        if not self.session_id:
+            return False
+        log = events_path(self.home, self.session_id)
+        return self.busy(read_events(log, max(0, log_size(log) - ACTIVITY_BYTES)))
 
     def doing(self) -> str | None:
         pending = self.pending
