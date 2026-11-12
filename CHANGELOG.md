@@ -17,8 +17,8 @@ that has one adds it under Unreleased.
   list run, `compact` and `context` unless you add more
   ([#181](https://github.com/NerdoBaggins/agent-orb/issues/181)).
 - `orb command compact` and `orb.command("compact", …)` run under Copilot CLI too, so a widget's compact button
-  compacts a Copilot session: the plugin's extension queues it in the session, where it runs after the turn in progress
-  ([#221](https://github.com/NerdoBaggins/agent-orb/issues/221)).
+  compacts a Copilot session: the plugin's extension compacts the session once the turn in progress ends
+  ([#221](https://github.com/NerdoBaggins/agent-orb/issues/221), [#225](https://github.com/NerdoBaggins/agent-orb/issues/225)).
 
 ### Fixed
 

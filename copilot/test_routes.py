@@ -26,21 +26,22 @@ const session = {
   abort: async () => say({ aborted: true }),
   rpc: {
     tasks: { list: async () => ({ tasks: [{ id: "shell-7" }] }) },
-    commands: { enqueue: async ({ command }) => {
-      say({ queued: command });
-      return process.env.QUEUES === "no" ? { queued: false } : { queued: true, queueId: "q1" };
+    history: { compact: async (params) => {
+      say({ compacted: params });
+      if (process.env.COMPACT_FAILS === "yes") throw new Error("compaction refused");
+      return { success: true };
     } },
   },
 };
 openDoor({ recordFile: process.env.RECORD, record: { sessionId: process.env.SESSION, repoRoot: "/r" },
-           routes: copilotRoutes(session), log: () => {} });
+           routes: copilotRoutes(session, (message) => say({ logged: message })), log: () => {} });
 """ % {"door": json.dumps((HERE.parent / "channel" / "door.mjs").as_uri()),
        "routes": json.dumps((HERE / "routes.mjs").as_uri())}
 
 
 class Door:
-    def __init__(self, record: Path, session: str = "s1", queues: bool = True):
-        env = {**os.environ, "RECORD": str(record), "SESSION": session, "QUEUES": "yes" if queues else "no"}
+    def __init__(self, record: Path, session: str = "s1", compact_fails: bool = False):
+        env = {**os.environ, "RECORD": str(record), "SESSION": session, "COMPACT_FAILS": "yes" if compact_fails else "no"}
         self.proc = subprocess.Popen(["node", "--input-type=module", "-e", FAKE_SESSION], env=env,
                                      stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8")
         deadline = time.time() + 10
@@ -109,29 +110,58 @@ def test_the_background_tasks_come_from_the_session(door, tmp_path):
     assert linked(tmp_path)._call_door("tasks", 5) == {"tasks": [{"id": "shell-7"}]}
 
 
-def test_a_command_is_queued_in_the_session_as_typed(door, tmp_path):
-    assert linked(tmp_path)._call_door("command", 5, "/compact keep the plan") == {"queueId": "q1"}
-    assert door.said() == {"queued": "/compact keep the plan"}
+def test_a_compact_compacts_the_session_as_manual_with_its_focus(door, tmp_path):
+    assert linked(tmp_path)._call_door("command", 5, "/compact keep the plan") == {"compacting": True}
+    assert door.said() == {"compacted": {"trigger": "manual", "customInstructions": "keep the plan"}}
 
 
-def test_a_command_meant_for_a_session_the_door_no_longer_serves_is_not_queued(door, tmp_path):
+def test_a_bare_compact_compacts_with_no_focus(door, tmp_path):
+    linked(tmp_path)._call_door("command", 5, "/compact")
+    assert door.said() == {"compacted": {"trigger": "manual"}}
+
+
+def test_a_focus_spanning_lines_is_kept_whole(door, tmp_path):
+    linked(tmp_path)._call_door("command", 5, "/compact keep\nthe plan")
+    assert door.said() == {"compacted": {"trigger": "manual", "customInstructions": "keep\nthe plan"}}
+
+
+def test_a_command_other_than_compact_is_refused_before_it_reaches_the_session(door, tmp_path):
+    for text in ("/context", "/compacted"):
+        with pytest.raises(agents.LinkError, match="400"):
+            linked(tmp_path)._call_door("command", 5, text)
+    linked(tmp_path)._call_door("command", 5, "/compact")
+    assert door.said() == {"compacted": {"trigger": "manual"}}
+
+
+def test_a_failed_compaction_is_logged_and_the_door_keeps_serving(tmp_path):
+    opened = Door(tmp_path / "copilot-channel.json", compact_fails=True)
+    try:
+        linked(tmp_path)._call_door("command", 5, "/compact")
+        assert opened.said() == {"compacted": {"trigger": "manual"}}
+        assert opened.said() == {"logged": "/compact failed: Error: compaction refused"}
+        assert linked(tmp_path)._call_door("tasks", 5) == {"tasks": [{"id": "shell-7"}]}
+    finally:
+        opened.close()
+
+
+def test_a_command_meant_for_a_session_the_door_no_longer_serves_is_not_compacted(door, tmp_path):
     with pytest.raises(SessionMoved):
         linked(tmp_path, session="before-clear")._call_door("command", 5, "/compact")
-    linked(tmp_path)._call_door("command", 5, "/context")
-    assert door.said() == {"queued": "/context"}
+    linked(tmp_path)._call_door("command", 5, "/compact keep it")
+    assert door.said() == {"compacted": {"trigger": "manual", "customInstructions": "keep it"}}
 
 
-def test_a_command_queued_after_the_session_moved_follows_it_to_the_new_one(door, tmp_path):
+def test_a_command_sent_after_the_session_moved_follows_it_to_the_new_one(door, tmp_path):
     link = linked(tmp_path, session="before-clear")
     link.type_command(commands.Command("compact", "keep the plan"))
-    assert link.session_id == "s1" and door.said() == {"queued": "/compact keep the plan"}
+    assert link.session_id == "s1" and door.said() == {"compacted": {"trigger": "manual", "customInstructions": "keep the plan"}}
 
 
-def test_a_command_copilot_does_not_log_is_refused_before_it_is_queued(door, tmp_path):
+def test_a_command_copilot_does_not_log_is_refused_before_it_is_sent(door, tmp_path):
     with pytest.raises(agents.LinkError, match="keeps no trace of /context"):
         linked(tmp_path).type_command(commands.Command("context", ""))
     linked(tmp_path).type_command(commands.Command("compact", ""))
-    assert door.said() == {"queued": "/compact"}
+    assert door.said() == {"compacted": {"trigger": "manual"}}
 
 
 def test_copilots_unconfirmed_notice_names_its_event_log_not_a_terminal(tmp_path):
@@ -152,7 +182,7 @@ def test_a_command_whose_session_moved_to_none_is_refused_rather_than_resent(tmp
         link.type_command(commands.Command("compact", ""))
 
 
-def test_nothing_has_run_before_any_command_was_queued(tmp_path):
+def test_nothing_has_run_before_any_command_was_sent(tmp_path):
     assert not linked(tmp_path).ran_since("compact", datetime.now(timezone.utc))
 
 
@@ -167,9 +197,9 @@ def test_a_message_older_than_the_tail_the_link_reads_does_not_hold_the_turn_ope
     assert not linked(tmp_path).turn_open()
 
 
-def test_a_command_padded_with_spaces_is_queued_trimmed(door, tmp_path):
-    linked(tmp_path)._call_door("command", 5, "  /compact keep it  ")
-    assert door.said() == {"queued": "/compact keep it"}
+def test_a_command_padded_with_spaces_compacts_with_its_focus_trimmed(door, tmp_path):
+    linked(tmp_path)._call_door("command", 5, "  /compact   keep it  ")
+    assert door.said() == {"compacted": {"trigger": "manual", "customInstructions": "keep it"}}
 
 
 def write_log(tmp_path, *events):
@@ -188,24 +218,14 @@ def test_the_turn_is_open_while_copilot_works_on_a_message_and_closed_once_it_an
     assert not link.turn_open()
 
 
-def test_text_that_is_not_a_slash_command_is_refused_before_it_is_queued(door, tmp_path):
+def test_text_that_is_not_a_slash_command_is_refused_before_it_reaches_the_session(door, tmp_path):
     with pytest.raises(agents.LinkError, match="400"):
         linked(tmp_path)._call_door("command", 5, "compact")
-    linked(tmp_path)._call_door("command", 5, "/context")
-    assert door.said() == {"queued": "/context"}
+    linked(tmp_path)._call_door("command", 5, "/compact")
+    assert door.said() == {"compacted": {"trigger": "manual"}}
 
 
-def test_a_session_that_cannot_queue_commands_is_reported_rather_than_taken_as_queued(tmp_path):
-    record = tmp_path / "copilot-channel.json"
-    opened = Door(record, queues=False)
-    try:
-        with pytest.raises(agents.LinkError, match="501"):
-            linked(tmp_path)._call_door("command", 5, "/compact")
-    finally:
-        opened.close()
-
-
-def test_only_a_compaction_after_the_command_was_queued_shows_it_ran(door, tmp_path):
+def test_only_a_compaction_after_the_command_was_sent_shows_it_ran(door, tmp_path):
     link = linked(tmp_path)
     compacted = {"type": "session.compaction_complete", "data": {"success": True, "trigger": "manual"}}
     log = write_log(tmp_path, compacted)
