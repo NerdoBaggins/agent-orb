@@ -234,18 +234,88 @@ def test_copilot_is_idle_after_an_abort_and_when_the_log_is_empty():
     assert not copilot_busy([])
 
 
-def test_copilot_activity_widens_past_a_tail_with_no_conversation_in_it(tmp_path, monkeypatch):
+def copilot_log(tmp_path, session, events):
     import json
     from orb import copilot
-    log = copilot.events_path(tmp_path, "s1")
-    log.parent.mkdir(parents=True)
-    huge = {"type": "session.compaction_complete", "data": {"blob": "x" * 5000}}
-    lines = [json.dumps(typed("hello")), json.dumps(message("Hi there.", mid="m9"))] + [json.dumps(huge)] * 20
-    log.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    monkeypatch.setattr(copilot, "ACTIVITY_BYTES", 2000)
+    log = copilot.events_path(tmp_path, session)
+    log.parent.mkdir(parents=True, exist_ok=True)
+    log.write_text("".join(json.dumps(e) + "\n" for e in events), encoding="utf-8")
+    return log
+
+
+def attached_link(tmp_path, session="s1"):
+    from orb import copilot
     link = copilot.CopilotLink(tmp_path / "copilot-channel.json", home=tmp_path)
-    link.session_id = "s1"
-    assert [i["text"] for i in link.activity()["feed"]] == ["hello", "Hi there."]
+    link.session_id = session
+    return link
+
+
+def feed_texts(link):
+    return [i["text"] for i in link.activity()["feed"]]
+
+
+def appended(log, text):
+    with log.open("a", encoding="utf-8") as f:
+        f.write(text)
+
+
+def test_copilot_activity_keeps_the_conversation_behind_turns_heavy_with_bookkeeping(tmp_path):
+    bookkeeping = {"type": "session.usage_checkpoint", "data": {"blob": "x" * 200_000}}
+    ping = [typed("(cache keep-alive)"), message(".", mid="p"), bookkeeping]
+    copilot_log(tmp_path, "s1", [typed("hello"), message("Hi there.", mid="m9")] + ping * 4)
+    assert feed_texts(attached_link(tmp_path))[:2] == ["hello", "Hi there."]
+
+
+def test_copilot_activity_adds_what_the_log_gains_between_reads(tmp_path):
+    import json
+    log = copilot_log(tmp_path, "s1", [typed("hello")])
+    link = attached_link(tmp_path)
+    link.activity()
+    appended(log, json.dumps(message("Hi there.", mid="m9")) + "\n")
+    assert feed_texts(link) == ["hello", "Hi there."]
+
+
+def test_copilot_activity_reads_a_half_written_event_once_its_line_is_finished(tmp_path):
+    import json
+    log = copilot_log(tmp_path, "s1", [typed("hello")])
+    line = json.dumps(message("Hi there.", mid="m9")) + "\n"
+    link = attached_link(tmp_path)
+    appended(log, line[:20])
+    link.activity()
+    appended(log, line[20:])
+    assert feed_texts(link) == ["hello", "Hi there."]
+
+
+def test_copilot_activity_starts_over_when_the_log_is_rewritten_shorter(tmp_path):
+    log = copilot_log(tmp_path, "s1", [typed("hello"), message("A long first answer.", mid="m1")])
+    link = attached_link(tmp_path)
+    link.activity()
+    copilot_log(tmp_path, "s1", [typed("anew")])
+    assert feed_texts(link) == ["anew"]
+
+
+def test_copilot_activity_follows_the_session_the_link_is_attached_to(tmp_path):
+    copilot_log(tmp_path, "s1", [typed("first session")])
+    copilot_log(tmp_path, "s2", [typed("second session")])
+    link = attached_link(tmp_path)
+    link.activity()
+    link.session_id = "s2"
+    assert feed_texts(link) == ["second session"]
+
+
+def test_copilot_activity_holds_only_the_newest_events(tmp_path, monkeypatch):
+    from orb import copilot
+    monkeypatch.setattr(copilot, "TAIL_EVENTS", 2)
+    copilot_log(tmp_path, "s1", [typed("one"), typed("two"), typed("three")])
+    assert feed_texts(attached_link(tmp_path)) == ["two", "three"]
+
+
+def test_copilot_activity_reads_history_only_as_far_back_as_its_limit(tmp_path, monkeypatch):
+    import json
+    from orb import copilot
+    monkeypatch.setattr(copilot, "HISTORY_BYTES", len(json.dumps(typed("recent"))) + 1)
+    copilot_log(tmp_path, "s1", [typed("old"), typed("recent")])
+    assert feed_texts(attached_link(tmp_path)) == ["recent"]
 
 
 ORB_TURN = user('<channel source="plugin:agent-orb:orb-channel" req="r1">\ngo ahead\n</channel>', ORB, meta=True, uid="o")

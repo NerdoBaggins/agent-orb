@@ -22,6 +22,9 @@ that has one adds it under Unreleased.
 
 ### Fixed
 
+- The Copilot transcript no longer shows only the last few turns: the orb reads a session's history once when it
+  attaches and then only what the log gains, so a run of background pings or a compaction cannot push the
+  conversation out of view ([#231](https://github.com/NerdoBaggins/agent-orb/issues/231)).
 - Stop while the orb is transcribing now drops what you said, instead of sending it to the agent once transcription
   ends ([#132](https://github.com/NerdoBaggins/agent-orb/issues/132)).
 - When a push-to-talk or wake-word clip arrives with stretches of lost audio, the orb now says so ("your mic audio

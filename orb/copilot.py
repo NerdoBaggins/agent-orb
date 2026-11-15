@@ -6,6 +6,7 @@ import os
 import time
 import urllib.error
 import urllib.request
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -20,8 +21,8 @@ SEND_TIMEOUT_S = 30
 POLL_S = 1
 CONTEXT_BYTES = 300_000  # how far before a send to look for the tool call it is waiting behind
 REPLY_LIMIT_S = 1800
-ACTIVITY_MAX_BYTES = 16_000_000
-ACTIVITY_BYTES = 600_000  # the tail of the event log the feed and the busy check read
+HISTORY_BYTES = 16_000_000  # how far back a session's log is read when the orb first attaches to it
+TAIL_EVENTS = 4000  # the newest events the feed and the busy check read, whatever their size
 DOOR_ROUTES = {"foreground": ("GET", "/health"), "send": ("POST", "/prompt"), "abort": ("POST", "/abort"),
                "tasks": ("GET", "/tasks"), "command": ("POST", "/command")}
 COMMANDS_COPILOT_LOGS = frozenset({"compact"})
@@ -68,21 +69,43 @@ def log_size(path: Path) -> int:
 def read_events(path: Path, offset: int) -> list[dict]:
     """Events appended since `offset` (a byte position taken before the send); a partly written last line is
     skipped and read on the next poll."""
+    return read_complete(path, offset)[0]
+
+
+def read_complete(path: Path, offset: int) -> tuple[list[dict], int]:
+    """The events in the whole lines written after `offset`, and the offset just past the last of them."""
     try:
         with path.open("rb") as f:
             f.seek(offset)
             raw = f.read()
     except OSError:
-        return []
+        return [], offset
+    whole = raw[:raw.rfind(b"\n") + 1]
     events = []
-    for line in raw.decode("utf-8", "replace").splitlines():
+    for line in whole.decode("utf-8", "replace").splitlines():
         try:
             event = json.loads(line)
         except json.JSONDecodeError:
             continue
         if isinstance(event, dict):
             events.append(event)
-    return events
+    return events, offset + len(whole)
+
+
+class EventTail:
+    """The newest events of one session's log: its history read once, then only what is appended to it."""
+
+    def __init__(self, path: Path):
+        self.path = path
+        self.offset = max(0, log_size(path) - HISTORY_BYTES)
+        self.events: deque[dict] = deque(maxlen=TAIL_EVENTS)
+
+    def read(self) -> list[dict]:
+        if log_size(self.path) < self.offset:
+            self.__init__(self.path)
+        appended, self.offset = read_complete(self.path, self.offset)
+        self.events.extend(appended)
+        return list(self.events)
 
 
 def _data(event: dict) -> dict:
@@ -237,6 +260,8 @@ class CopilotLink:
         self.answer_ids: dict[str, str] = {}  # orb message id -> the id its replies carry
         self.command_from: tuple[Path, int] | None = None
         self.pending: dict | None = None  # the request in flight: its log, offset, message id, whether aborted
+        self.feed_tail: EventTail | None = None
+        self.turn_tail: EventTail | None = None
         self._run = run or self._call_door
 
     def _call_door(self, mode: str, timeout_s: float, prompt: str = "") -> dict:
@@ -332,8 +357,8 @@ class CopilotLink:
     def turn_open(self) -> bool:
         if not self.session_id:
             return False
-        log = events_path(self.home, self.session_id)
-        return self.busy(read_events(log, max(0, log_size(log) - ACTIVITY_BYTES)))
+        self.turn_tail = self._tail_of_session(self.turn_tail)
+        return self.busy(self.turn_tail.read())
 
     def doing(self) -> str | None:
         pending = self.pending
@@ -351,21 +376,19 @@ class CopilotLink:
         """The session as it stands in its event log, whoever typed what; only the log's tail is read."""
         if not self.session_id:
             return {"busy": False, "doing": None, "feed": [], "since": None, "session": None}
+        self.feed_tail = self._tail_of_session(self.feed_tail)
+        events = self.feed_tail.read()
+        awaited = self.orb_messages - self.let_go
+        for message in awaited - self.answer_ids.keys():
+            found = answering_id(events, message)
+            if found:
+                self.answer_ids[message] = found
+        feed = copilot_feed(events, frozenset(self.orb_messages), frozenset(self.answer_ids.get(m, m) for m in awaited))
+        return {"busy": self.busy(events), "doing": open_work(events), "feed": feed, "since": turn_since(feed), "session": self.session_id}
+
+    def _tail_of_session(self, tail: EventTail | None) -> EventTail:
         log = events_path(self.home, self.session_id)
-        size, window = log_size(log), ACTIVITY_BYTES
-        while True:
-            events = read_events(log, max(0, size - window))
-            awaited = self.orb_messages - self.let_go
-            for message in awaited - self.answer_ids.keys():
-                found = answering_id(events, message)
-                if found:
-                    self.answer_ids[message] = found
-            feed = copilot_feed(events, frozenset(self.orb_messages),
-                                frozenset(self.answer_ids.get(m, m) for m in awaited))
-            # A compaction writes events of megabytes, so the tail can hold no conversation at all: widen it.
-            if feed or window >= min(size, ACTIVITY_MAX_BYTES):
-                return {"busy": self.busy(events), "doing": open_work(events), "feed": feed, "since": turn_since(feed), "session": self.session_id}
-            window *= 4
+        return tail if tail and tail.path == log else EventTail(log)
 
     def busy(self, events: list[dict]) -> bool:
         """From the turn the plugin's hooks recorded, or from the event log for a session they have not reached."""
