@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from orb import agents, commands
-from orb.copilot import ACTIVITY_BYTES, CopilotLink, SessionMoved, events_path, read_door
+from orb import agents, commands, copilot
+from orb.copilot import CopilotLink, SessionMoved, events_path, read_door
 from orb.state import copilot_channel_file
 
 pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
@@ -191,9 +191,10 @@ def test_no_turn_is_open_before_the_link_has_found_a_session(tmp_path):
     assert not linked(tmp_path, session=None).turn_open()
 
 
-def test_a_message_older_than_the_tail_the_link_reads_does_not_hold_the_turn_open(tmp_path):
+def test_a_message_older_than_the_tail_the_link_reads_does_not_hold_the_turn_open(tmp_path, monkeypatch):
+    monkeypatch.setattr(copilot, "TAIL_EVENTS", 1)
     asked = {"type": "user.message", "data": {"content": "go"}}
-    write_log(tmp_path, asked, {"type": "tool.execution_complete", "data": {"result": "x" * ACTIVITY_BYTES}})
+    write_log(tmp_path, asked, {"type": "tool.execution_complete", "data": {"result": "x"}})
     assert not linked(tmp_path).turn_open()
 
 
