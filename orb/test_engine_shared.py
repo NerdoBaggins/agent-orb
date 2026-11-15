@@ -85,7 +85,8 @@ def stt(home, launch, **settings):
 
 
 def tts(home, launch, **settings):
-    return Tts(lambda name: {"engine": name or "fake", **settings}, home, launch=launch)
+    return Tts(lambda name: {"engine": name or "fake", **settings},
+               lambda name: {"speed": 1.0, **{k: settings[k] for k in ("voice",) if k in settings}}, home, launch=launch)
 
 
 def running(home):
@@ -121,13 +122,14 @@ def test_servers_whose_load_settings_differ_get_separate_processes_each_with_its
     two.close()
 
 
-def test_servers_that_differ_only_in_tts_speed_share_one_process_and_each_render_carries_its_own_speed(home):
-    slow = tts(home, launcher({**OWNER, "pid": 1}), speed=1.0)
-    quick = tts(home, launcher({**OWNER, "pid": 2}), speed=1.5)
-    asked = [e.call({"op": "render", "text": "hi", "speed": e.speed})["speed"] for e in (slow, quick)]
-    assert asked == [1.0, 1.5] and len(running(home)) == 1
-    slow.close()
-    quick.close()
+def test_servers_that_differ_only_in_their_tts_voice_share_one_process_and_each_render_carries_its_own_voice(home):
+    first = tts(home, launcher({**OWNER, "pid": 1}), voice="ann")
+    second = tts(home, launcher({**OWNER, "pid": 2}), voice="bob")
+    sent = [first.call(lambda name: {"op": "render", "text": "hi", **first.call_for(name)})["voice"],
+            second.call(lambda name: {"op": "render", "text": "hi", **second.call_for(name)})["voice"]]
+    assert sent == ["ann", "bob"] and len(running(home)) == 1
+    first.close()
+    second.close()
 
 
 def test_closing_one_server_leaves_the_other_answered_and_closing_both_stops_the_engine_after_the_grace(home):
@@ -204,27 +206,6 @@ def test_an_engine_that_dies_is_reported_to_its_server_and_the_next_attach_start
     assert replacement.call(pcm)["text"] == "fake transcript"
     assert running(home)[0]["pid"] != first_pid
     replacement.close()
-
-
-def test_switching_one_servers_voice_leaves_the_voice_another_server_shares_alone(home):
-    voices = ["a", "b"]
-    mine = tts(home, launcher({**OWNER, "pid": 1}), voices=voices)
-    other = tts(home, launcher({**OWNER, "pid": 2}), voices=voices)
-    assert len(running(home)) == 1
-    mine.set_voice("b")
-    assert (mine.voices()["current"], other.voices()["current"]) == ("b", "a")
-    by_voice = {e["voice"]: owners_of(e) for e in running(home)}
-    assert by_voice == {None: [2], "b": [1]}
-    mine.close()
-    other.close()
-
-
-def test_a_voice_the_engine_refuses_keeps_the_server_on_the_voice_it_had(home):
-    mine = tts(home, launcher(), voices=["a", "b"])
-    with pytest.raises(EngineError, match="no fake voice 'zzz'"):
-        mine.set_voice("zzz")
-    assert mine.voices()["current"] == "a" and mine.process.alive
-    mine.close()
 
 
 def test_an_engine_that_fails_to_load_is_an_error_to_the_server_and_leaves_no_engine_running(home):

@@ -9,7 +9,7 @@ import pytest
 from orb import engines
 from orb.audio import SAMPLE_RATE
 from orb.engines import (BUILTIN_DIR, EngineError, EngineLoadError, available, EngineProcess, Manifest, Stt, Tts, cache_dir, check, find,
-                         missing_env, read_manifest, split_at_quiet_points, start)
+                         load_settings, missing_env, read_manifest, split_at_quiet_points, start)
 
 
 
@@ -23,6 +23,21 @@ def write_engine(root, kind, name, script, manifest=None):
 
 def settings(**kw):
     return lambda name: {**kw, "engine": name or kw["engine"]}
+
+
+def speaking(name):
+    return {"speed": 1.0}
+
+
+def requests_sent(engine):
+    sent, call = [], engine.process.call
+
+    def spy(request, *args, **kwargs):
+        sent.append(request)
+        return call(request, *args, **kwargs)
+
+    engine.process.call = spy
+    return sent
 
 
 # ---- discovery and manifests ----
@@ -123,7 +138,7 @@ def test_available_omits_a_refused_engine(tmp_path):
 def test_a_selected_refused_stt_or_tts_falls_back_and_the_reason_ends_using_the_default(tmp_path, monkeypatch, kind):
     monkeypatch.setitem(engines.DEFAULT, kind, "fake")
     folder = write_engine(tmp_path / ".config" / "voice-engines", kind, "old", "", _manifest_with(name="old", kind=kind))
-    engine = (Stt if kind == "stt" else Tts)(settings(engine="old"), tmp_path)
+    engine = Stt(settings(engine="old"), tmp_path) if kind == "stt" else Tts(settings(engine="old"), speaking, tmp_path)
     try:
         assert engine.name == "fake"
         assert engine.fallback_reason == f"{_protocol_refusal(folder, None)['missing']}; using fake"
@@ -282,17 +297,17 @@ def test_check_says_where_the_engine_was_found(tmp_path):
 
 # ---- the orb's engines: fallback and the kind-specific calls ----
 
-def test_tts_renders_through_the_process_with_the_current_speed(tmp_path):
-    tts = Tts(settings(engine="fake", speed=1.2), tmp_path)
+def test_tts_renders_through_the_process_with_the_speed_its_call_settings_give(tmp_path):
+    tts = Tts(settings(engine="fake"), lambda name: {"speed": 1.2}, tmp_path)
+    sent = requests_sent(tts)
     samples, rate = tts.render("Hello there.")
     assert rate == 8000 and samples.dtype == np.float32 and samples.size == int(8000 * 0.05 * 2)
-    tts.speed = 0.8
-    assert tts.call({"op": "render", "text": "x", "speed": tts.speed})["speed"] == 0.8
+    assert sent == [{"op": "render", "text": "Hello there.", "speed": 1.2}]
     tts.close()
 
 
 def test_the_fake_echoes_the_requests_voice(tmp_path):
-    tts = Tts(settings(engine="fake", voices=["held", "other"]), tmp_path)
+    tts = Tts(settings(engine="fake", voices=["held", "other"]), speaking, tmp_path)
     asked = tts.call({"op": "render", "text": "x", "voice": "asked", "lang": "fr-fr", "speed": 1.3})
     assert (asked["voice"], asked["lang"], asked["speed"]) == ("asked", "fr-fr", 1.3)
     held = tts.call({"op": "render", "text": "x"})
@@ -302,7 +317,7 @@ def test_the_fake_echoes_the_requests_voice(tmp_path):
 
 def test_a_missing_engine_falls_back_to_the_default_with_the_reason(tmp_path, monkeypatch):
     monkeypatch.setitem(engines.DEFAULT, "tts", "fake")
-    tts = Tts(settings(engine="nope"), tmp_path)
+    tts = Tts(settings(engine="nope"), speaking, tmp_path)
     assert tts.name == "fake" and "no tts engine named 'nope'" in tts.fallback_reason and tts.fallback_reason.endswith("; using fake")
     assert tts.render("x")[1] == 8000
     tts.close()
@@ -313,7 +328,7 @@ def frail_tts(tmp_path, monkeypatch, **frail):
     render's length says which engine answered it."""
     monkeypatch.setitem(engines.DEFAULT, "tts", "fake")
     write_engine(tmp_path / ".config" / "voice-engines", "tts", "frail", (BUILTIN_DIR / "tts" / "fake" / "engine.py").read_text())
-    return Tts(lambda name: {"engine": "fake"} if name == "fake" else {"engine": "frail", "seconds_per_word": 0.1, **frail}, tmp_path)
+    return Tts(lambda name: {"engine": "fake"} if name == "fake" else {"engine": "frail", "seconds_per_word": 0.1, **frail}, speaking, tmp_path)
 
 
 FRAIL_WORD, FAKE_WORD = 800, 400
@@ -367,7 +382,7 @@ def test_a_request_function_is_called_again_after_a_relaunch(tmp_path, monkeypat
     monkeypatch.setitem(engines.DEFAULT, "tts", "fake")
     write_engine(tmp_path / ".config" / "voice-engines", "tts", "frail", (BUILTIN_DIR / "tts" / "fake" / "engine.py").read_text())
     broken = []
-    tts = Tts(lambda name: {"engine": "fake"} if name == "fake" else {"engine": "frail", "die_after": 1, "fail": bool(broken)}, tmp_path)
+    tts = Tts(lambda name: {"engine": "fake"} if name == "fake" else {"engine": "frail", "die_after": 1, "fail": bool(broken)}, speaking, tmp_path)
     request = speed_by_engine(frail=1.5, fake=0.5)
     assert tts.call(request)["speed"] == 1.5
     tts.call(request)
@@ -379,7 +394,7 @@ def test_a_request_function_is_called_again_after_a_relaunch(tmp_path, monkeypat
 def test_the_default_engine_failing_is_an_error_not_a_fallback(tmp_path, monkeypatch):
     monkeypatch.setitem(engines.DEFAULT, "tts", "fake")
     with pytest.raises(EngineError, match="told to fail"):
-        Tts(settings(engine="fake", fail=True), tmp_path)
+        Tts(settings(engine="fake", fail=True), speaking, tmp_path)
 
 
 def test_the_fallback_uses_the_defaults_own_settings_not_the_failed_engines(tmp_path, monkeypatch):
@@ -387,7 +402,7 @@ def test_the_fallback_uses_the_defaults_own_settings_not_the_failed_engines(tmp_
     def settings_for(name):
         return {"engine": name or "nope", "seconds_per_word": 1.0} if name == "fake" else {"engine": name or "nope", "fail": True}
 
-    tts = Tts(settings_for, tmp_path)
+    tts = Tts(settings_for, speaking, tmp_path)
     assert tts.render("word")[0].size == 8000
     tts.close()
 
@@ -457,22 +472,17 @@ def test_available_lists_engines_with_a_manifest_from_both_folders_and_never_the
 
 
 def test_an_engine_that_offers_no_voices_gives_no_menu_and_is_not_replaced(tmp_path):
-    tts = Tts(settings(engine="fake"), tmp_path)
+    tts = Tts(settings(engine="fake"), speaking, tmp_path)
     try:
         assert tts.voices() is None and tts.name == "fake" and tts.fallback_reason is None
     finally:
         tts.close()
 
 
-def test_an_engine_with_voices_lists_them_and_switches_to_one_it_has(tmp_path):
-    tts = Tts(settings(engine="fake", voices=["ann", "bob"], voice="bob"), tmp_path)
+def test_an_engine_with_voices_lists_its_catalogue(tmp_path):
+    tts = Tts(settings(engine="fake", voices=["ann", "bob"]), speaking, tmp_path)
     try:
-        assert tts.voices() == {"voices": [{"id": "ann", "label": "Ann"}, {"id": "bob", "label": "Bob"}], "current": "bob"}
-        tts.set_voice("ann")
-        assert tts.voices()["current"] == "ann"
-        with pytest.raises(EngineError, match="no fake voice 'zed'"):
-            tts.set_voice("zed")
-        assert tts.voices()["current"] == "ann"
+        assert tts.voices() == [{"id": "ann", "label": "Ann"}, {"id": "bob", "label": "Bob"}]
     finally:
         tts.close()
 
@@ -504,3 +514,9 @@ def test_a_name_with_a_trailing_newline_is_not_a_plain_folder_name(tmp_path, nam
 
 def test_the_orbs_sample_rate_is_the_16_khz_every_speech_engine_expects():
     assert SAMPLE_RATE == 16_000
+
+
+def test_load_settings_drop_the_per_call_keys_of_tts_and_keep_an_stt_lang():
+    block = {"engine": "kokoro", "model": "m", "voice": "af_sky", "lang": "en-gb"}
+    assert load_settings("tts", block) == {"model": "m"}
+    assert load_settings("stt", {"engine": "moonshine", "lang": "en"}) == {"lang": "en"}

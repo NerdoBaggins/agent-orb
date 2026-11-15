@@ -27,6 +27,7 @@ ANSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 
 KINDS = ("capture", "stt", "tts", "wake", "vad", "voiceprint")
 DEFAULT = {"stt": "moonshine", "tts": "kokoro", "vad": "silero", "voiceprint": "resemblyzer"}
+PER_CALL = {"tts": ("voice", "lang")}
 BUILTIN_DIR = PLUGIN_ROOT / "engines"
 CACHE_ENV = "ORB_ENGINE_CACHE"
 LOAD_TIMEOUT_S = 300.0  # the first load may download a model
@@ -240,8 +241,8 @@ def resolve(kind: str, settings: dict, home: Path, env=os.environ) -> Manifest:
     return manifest
 
 
-def load_settings(settings: dict) -> dict:
-    return {k: v for k, v in settings.items() if k != "engine"}
+def load_settings(kind: str, settings: dict) -> dict:
+    return {k: v for k, v in settings.items() if k != "engine" and k not in PER_CALL.get(kind, ())}
 
 
 def start(kind: str, settings: dict, home: Path, env=os.environ) -> EngineProcess:
@@ -250,7 +251,7 @@ def start(kind: str, settings: dict, home: Path, env=os.environ) -> EngineProces
     name = settings["engine"]
     process = EngineProcess(manifest, cache_dir(home, kind, name), env)
     try:
-        process.loaded = process.call({"op": "load", "settings": load_settings(settings)}, LOAD_TIMEOUT_S)
+        process.loaded = process.call({"op": "load", "settings": load_settings(kind, settings)}, LOAD_TIMEOUT_S)
     except EngineError as e:
         process.close()
         raise EngineLoadError(f"{kind} engine {name!r} failed to load: {e}")
@@ -386,16 +387,16 @@ class Voiceprint(Engine):
 
 
 class Tts(Engine):
-    def __init__(self, settings_for, home: Path, env=os.environ, launch=start):
+    def __init__(self, settings_for, call_for, home: Path, env=os.environ, launch=start):
         super().__init__("tts", settings_for, home, env, launch)
-        self.speed = float(settings_for(None).get("speed", 1.0))
+        self.call_for = call_for
 
     def render(self, text: str) -> tuple[np.ndarray, int]:
-        reply = self.call({"op": "render", "text": text, "speed": self.speed})
+        reply = self.call(lambda name: {"op": "render", "text": text, **self.call_for(name)})
         return decode_pcm(reply["pcm"]), int(reply["rate"])
 
-    def voices(self) -> dict | None:
-        """{"voices": [{"id", "label"}], "current": id} from an engine that offers a choice, else None. Asked of the
+    def voices(self) -> list[dict] | None:
+        """The engine's catalogue, `[{"id", "label"}]`, or None from an engine that offers no choice. Asked of the
         process directly: an engine that does not know the op is not failing and must not be replaced."""
         try:
             reply = self.process.call({"op": "voices"})
@@ -404,12 +405,7 @@ class Tts(Engine):
         voices = reply.get("voices")
         if not isinstance(voices, list) or not all(isinstance(v, dict) and isinstance(v.get("id"), str) for v in voices):
             return None
-        return {"voices": [{"id": v["id"], "label": str(v.get("label", v["id"]))} for v in voices],
-                "current": reply.get("current")}
-
-    def set_voice(self, voice_id: str) -> None:
-        """Raises EngineError with the engine's reason; the engine keeps its previous voice."""
-        self.process.call({"op": "voice", "id": voice_id})
+        return [{"id": v["id"], "label": str(v.get("label", v["id"]))} for v in voices]
 
 
 def check(kind: str, settings: dict, home: Path, env=os.environ) -> str:

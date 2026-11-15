@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import queue
 import shutil
 import struct
@@ -12,9 +13,10 @@ from aiohttp.test_utils import TestClient, TestServer
 from orb import PLUGIN_ROOT, agents, engines
 from orb.audio import SAMPLE_RATE
 from orb.capture import Ended, Frame
-from orb.config import private_config_path
-from orb.engines import EngineError
-from orb.server import SERVER_STATES, OrbServer, audio_frame, page_sender
+from orb.config import DEFAULTS, private_config_path
+from orb.engines import EngineError, Tts, start
+from orb.server import SERVER_STATES, OrbServer, audio_frame, page_sender, voice_menu
+from orb.test_engines import requests_sent
 from orb.skins import STATES as SKIN_STATES
 
 TOKEN = "t0k3n-abc"
@@ -76,7 +78,7 @@ class FakeTts:
     name, fallback_reason, failure = "fake", None, None
 
     def __init__(self):
-        self.rendered, self.seconds_per_word, self.speed = [], 0.05, 1.0
+        self.rendered, self.seconds_per_word = [], 0.05
 
     def render(self, text: str):
         self.rendered.append(text)
@@ -686,18 +688,27 @@ def test_reply_is_rendered_per_sentence_and_streamed_then_idle_after_played(tmp_
     run(go())
 
 
-def test_speed_from_the_page_reaches_the_engine_this_repos_user_config_and_every_window(tmp_path):
+def test_speed_from_the_page_reaches_the_render_this_repos_user_config_and_every_window(tmp_path):
     async def go():
         server = make(tmp_path, voice=True)
         async with await client_for(server) as c:
             ws = await c.ws_connect("/ws", params={"token": TOKEN})
-            assert (await ws.receive_json())["speed"] == 1.0
+            assert (await ws.receive_json())["speed"] == DEFAULTS["tts"]["speed"]
             await ws.send_json({"type": "speed", "value": 1.3})
             assert (await ws.receive_json()) == {"type": "speed", "value": 1.3}
-            assert server.tts.speed == 1.3
+            assert server.call_for("kokoro")["speed"] == 1.3
             saved = json.loads(private_config_path(tmp_path / "home", server.repo_root).read_text(encoding="utf-8"))
             assert saved["tts"]["speed"] == {"claude": 1.3}
     run(go())
+
+
+def test_set_speed_updates_the_live_config(tmp_path):
+    server = make(tmp_path, voice=True)
+    run(server.set_speed(1.3))
+    assert server.config["tts"]["speed"] == {"claude": 1.3, "copilot": DEFAULTS["tts"]["speed"]}
+    assert server.speed == 1.3
+    run(server.set_speed(1.0))
+    assert server.config["tts"]["speed"] == {"claude": 1.0, "copilot": DEFAULTS["tts"]["speed"]}
 
 
 def test_speed_outside_the_range_is_clamped_and_garbage_is_ignored(tmp_path):
@@ -1020,8 +1031,35 @@ def test_a_voice_that_fails_to_load_leaves_the_current_one_speaking_and_says_why
     run(go())
 
 
+CATALOGUE = [{"id": "ann", "label": "Ann"}, {"id": "bob", "label": "Bob"}]
+
+
+def test_the_menu_marks_the_configured_voice_the_first_entry_when_none_is_configured_and_none_for_a_stale_id():
+    assert voice_menu(CATALOGUE, "bob") == {"voices": CATALOGUE, "current": "bob"}
+    assert voice_menu(CATALOGUE, None) == {"voices": CATALOGUE, "current": "ann"}
+    assert voice_menu(CATALOGUE, "zed") == {"voices": CATALOGUE, "current": None}
+    assert voice_menu(CATALOGUE, {"ann": 1.0}) == {"voices": CATALOGUE, "current": None}
+    assert voice_menu(None, "bob") is None
+
+
+def test_a_render_is_built_when_it_is_sent_from_the_live_config(tmp_path):
+    server = make(tmp_path, voice=True)
+    tts = Tts(lambda name: {"engine": "fake"}, server.call_for, tmp_path, launch=start)
+    sent = requests_sent(tts)
+    try:
+        server.config["tts"]["fake"] = {"voice": "ann", "lang": "fr-fr"}
+        server.config["tts"]["speed"] = 1.4
+        tts.render("hi")
+        server.config["tts"]["fake"]["voice"] = "bob"
+        tts.render("again")
+    finally:
+        tts.close()
+    assert sent == [{"op": "render", "text": "hi", "speed": 1.4, "voice": "ann", "lang": "fr-fr"},
+                    {"op": "render", "text": "again", "speed": 1.4, "voice": "bob", "lang": "fr-fr"}]
+
+
 @pytest.mark.timeout(60)
-def test_choosing_a_voice_switches_it_and_saves_it_in_that_engines_own_block(tmp_path):
+def test_picking_a_voice_sends_the_engine_nothing_saves_it_and_the_next_sentence_carries_it(tmp_path):
     user_tts_engine(tmp_path, "other")
     (tmp_path / "home" / ".config" / "orb").mkdir(parents=True)
     (tmp_path / "home" / ".config" / "orb" / "config.json").write_text(
@@ -1035,14 +1073,44 @@ def test_choosing_a_voice_switches_it_and_saves_it_in_that_engines_own_block(tmp
             await ws.send_json({"type": "tts_engine", "name": "other"})
             await ws.receive_json()
             switched = await ws.receive_json()
-            assert switched["voices"]["current"] == "ann" and [v["id"] for v in switched["voices"]["voices"]] == ["ann", "bob"]
+            assert switched["voices"] == {"voices": [{"id": "ann", "label": "Ann"}, {"id": "bob", "label": "Bob"}], "current": "ann"}
+            sent = requests_sent(server.tts)
             await ws.send_json({"type": "tts_voice", "id": "zed"})
             await ws.send_json({"type": "tts_voice", "id": "bob"})
             assert (await ws.receive_json())["voices"]["current"] == "bob"
-            assert server.tts.render("hi") is not None and server.tts.process.call({"op": "voices"})["current"] == "bob"
+            assert sent == []
+            server.tts.render("hi")
+            assert sent == [{"op": "render", "text": "hi", "speed": DEFAULTS["tts"]["speed"], "voice": "bob"}]
             saved = json.loads(private_config_path(tmp_path / "home", server.repo_root).read_text(encoding="utf-8"))
             assert saved["tts"] == {"engine": "other", "other": {"voice": "bob"}}
         server.tts.close()
+    run(go())
+
+
+@pytest.mark.timeout(60)
+def test_changing_speed_or_voice_starts_no_process_and_leaves_another_orb_alone(tmp_path):
+    launched = []
+
+    def counting(kind, settings, home, env=os.environ):
+        launched.append(kind)
+        return start(kind, settings, home, env)
+
+    def orb(name):
+        (tmp_path / name).mkdir()
+        server = make(tmp_path / name, voice=True)
+        server.tts = Tts(lambda n: {"engine": "fake", "voices": ["ann", "bob"]}, server.call_for, server.home, launch=counting)
+        server.voice_menu = server.menu_of(server.tts.voices())
+        return server
+
+    async def go():
+        mine, other = orb("mine"), orb("other")
+        before = (list(launched), other.call_for("fake"), dict(other.config["tts"]), other.voice_menu)
+        await mine.set_speed(1.4)
+        await mine.set_tts_voice("bob")
+        assert mine.call_for("fake") == {"speed": 1.4, "voice": "bob"}
+        assert (launched, other.call_for("fake"), other.config["tts"], other.voice_menu) == before
+        mine.tts.close()
+        other.tts.close()
     run(go())
 
 

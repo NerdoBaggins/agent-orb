@@ -15,15 +15,10 @@ from orb.engine_wire import Link, WireError
 from orb.state import pid_alive
 from orb.engines import CALL_TIMEOUT_S, LOAD_TIMEOUT_S, EngineError, Manifest, load_settings, resolve
 
-PER_CALL = {"tts": ("speed",)}  # asked with every render, so servers that differ only here still share a process
 HOST_START_WAIT_S = 30.0
 HOST_START_TRIES = 3
 ATTACH_TIMEOUT_S = LOAD_TIMEOUT_S + 30.0
 HEARTBEAT_TIMEOUT_S = 10.0
-
-
-def shared_load_settings(kind: str, settings: dict) -> dict:
-    return {k: v for k, v in load_settings(settings).items() if k not in PER_CALL.get(kind, ())}
 
 
 def host_command(home: Path) -> list[str]:
@@ -189,7 +184,7 @@ def launcher(owner: dict, heartbeat_s: float = HEARTBEAT_S, spawn=spawn_host):
     def launch(kind: str, settings: dict, home: Path, env=os.environ) -> RemoteEngine:
         manifest = resolve(kind, settings, home, env)
         name = settings["engine"]
-        attachment = Attachment(Path(home), kind, name, manifest, shared_load_settings(kind, settings),
+        attachment = Attachment(Path(home), kind, name, manifest, load_settings(kind, settings),
                                 {var: env[var] for var in manifest.env}, owner, heartbeat_s, spawn)
         link, loaded = take_lease(attachment, None)
         return RemoteEngine(attachment, link, loaded, None)

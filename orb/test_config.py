@@ -6,7 +6,7 @@ import pytest
 
 from orb.config import (DEFAULTS, REPO_KEYS, SIZE_MAX, SIZE_MIN, SIZE_NORMAL, ConfigError, credential_keys, engine_settings,
                         load, load_for, private_config_path, repo_config_path, save_skin_size, save_speed, save_widget,
-                        size_for, speed_for, tts_settings_for, user_config_path)
+                        size_for, speed_for, tts_call_settings, user_config_path)
 
 
 def write(path, data):
@@ -63,13 +63,19 @@ def test_load_for_reads_the_private_file_under_the_repo_id(tmp_path):
 def test_a_layer_naming_only_the_engine_inherits_that_engines_block_from_below(tmp_path):
     cfg = load_layers(tmp_path, user={"tts": {"voxtral": {"voice": "v1"}, "kokoro": {"lang": "en-us"}}},
                       private={"tts": {"engine": "voxtral"}})
-    assert tts_settings_for(cfg["tts"], "claude") == {"engine": "voxtral", "voice": "v1", "speed": DEFAULTS["tts"]["speed"]}
+    assert engine_settings(cfg["tts"]) == {"engine": "voxtral", "voice": "v1"}
 
 
 def test_the_selected_engine_gets_no_key_from_another_engines_block(tmp_path):
     cfg = load_layers(tmp_path, private={"tts": {"engine": "voxtral", "voxtral": {"voice": "v1"}}})
-    settings = tts_settings_for(cfg["tts"], "claude")
-    assert "lang" not in settings and "voice" in settings and settings["voice"] == "v1"
+    assert tts_call_settings(cfg["tts"], "claude", "voxtral") == {"speed": DEFAULTS["tts"]["speed"], "voice": "v1"}
+
+
+def test_tts_call_settings_carry_the_orbs_speed_and_the_engines_voice_and_lang():
+    section = {"engine": "kokoro", "speed": {"claude": 1.1, "copilot": 1.3},
+               "kokoro": {"voice": {"af_heart": 1.0}, "lang": "en-gb", "model": "m"}, "other": {"voice": "x"}}
+    assert tts_call_settings(section, "copilot", "kokoro") == {"speed": 1.3, "voice": {"af_heart": 1.0}, "lang": "en-gb"}
+    assert tts_call_settings(section, "claude", "absent") == {"speed": 1.1}
 
 
 def test_engine_blocks_merge_per_key_across_layers(tmp_path):
