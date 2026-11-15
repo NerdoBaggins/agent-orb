@@ -291,6 +291,15 @@ def test_tts_renders_through_the_process_with_the_current_speed(tmp_path):
     tts.close()
 
 
+def test_the_fake_echoes_the_requests_voice(tmp_path):
+    tts = Tts(settings(engine="fake", voices=["held", "other"]), tmp_path)
+    asked = tts.call({"op": "render", "text": "x", "voice": "asked", "lang": "fr-fr", "speed": 1.3})
+    assert (asked["voice"], asked["lang"], asked["speed"]) == ("asked", "fr-fr", 1.3)
+    held = tts.call({"op": "render", "text": "x"})
+    assert (held["voice"], held["lang"], held["speed"]) == ("held", None, None)
+    tts.close()
+
+
 def test_a_missing_engine_falls_back_to_the_default_with_the_reason(tmp_path, monkeypatch):
     monkeypatch.setitem(engines.DEFAULT, "tts", "fake")
     tts = Tts(settings(engine="nope"), tmp_path)

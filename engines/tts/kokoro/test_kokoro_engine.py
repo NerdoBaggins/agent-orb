@@ -3,6 +3,8 @@ import sys
 import types
 from pathlib import Path
 
+import numpy as np
+
 spec = importlib.util.spec_from_file_location("kokoro_engine", Path(__file__).with_name("engine.py"))
 engine = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(engine)
@@ -94,3 +96,45 @@ print('{"ok": true}')
     assert r.stdout == '{"ok": true}\n', r.stdout
     assert "fallback banner from the wrapper" in r.stderr and "preload diagnostic" in r.stderr
     assert "providers=['CUDAExecutionProvider', 'CPUExecutionProvider']" in r.stderr
+
+
+class StubKokoro:
+    def __init__(self):
+        self.styles_built, self.created = [], []
+
+    def get_voice_style(self, name):
+        self.styles_built.append(name)
+        return np.full(2, float(len(name)))
+
+    def create(self, text, voice, speed, lang):
+        self.created.append({"voice": voice, "lang": lang})
+        return np.zeros(1), 24000
+
+
+def test_a_render_uses_the_requests_voice_and_a_blend_is_built_once():
+    kokoro = StubKokoro()
+    styles = engine.Styles(kokoro)
+    blend = {"af_heart": 0.5, "bm_george": 0.5}
+    engine.render(styles, "default", "en-gb", {"text": "a", "voice": blend})
+    engine.render(styles, "default", "en-gb", {"text": "b", "voice": dict(reversed(blend.items()))})
+    expected = 0.5 * np.full(2, 8.0) + 0.5 * np.full(2, 9.0)
+    assert [c["voice"].tolist() for c in kokoro.created] == [expected.tolist()] * 2
+    assert sorted(kokoro.styles_built) == ["af_heart", "bm_george"]
+    engine.render(styles, "af_heart", "en-gb", {"text": "c"})
+    assert kokoro.created[-1]["voice"].tolist() == np.full(2, 8.0).tolist()
+
+
+def test_a_single_voice_keeps_its_own_language_and_a_blend_takes_the_requests():
+    kokoro = StubKokoro()
+    styles = engine.Styles(kokoro)
+
+    def lang_of(voice, **req):
+        engine.render(styles, "af_heart", "en-gb", {"text": "x", "voice": voice, **req})
+        return kokoro.created[-1]["lang"]
+
+    assert lang_of("ff_siwis", lang="es") == "fr-fr"
+    assert lang_of({"af_heart": 1.0}, lang="es") == "es"
+    assert lang_of("default", lang="es") == "es"
+    assert lang_of({"af_heart": 1.0}) == "en-gb"
+    engine.render(styles, "default", "en-gb", {"text": "x", "lang": "it"})
+    assert kokoro.created[-1]["lang"] == "it"
