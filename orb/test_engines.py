@@ -336,6 +336,37 @@ def test_an_engine_that_keeps_failing_gives_way_to_the_default_for_good(tmp_path
     tts.close()
 
 
+def speed_by_engine(**speeds):
+    return lambda name: {"op": "render", "text": "word", "speed": speeds[name]}
+
+
+def test_the_stand_in_is_asked_with_a_request_built_from_its_own_name(tmp_path, monkeypatch):
+    tts = frail_tts(tmp_path, monkeypatch, fail_renders=[1])
+    assert tts.call(speed_by_engine(frail=1.5, fake=0.5))["speed"] == 0.5
+    assert tts.call(speed_by_engine(frail=1.5, fake=0.5))["speed"] == 1.5
+    tts.close()
+
+
+def test_the_default_that_answers_for_good_is_asked_with_a_request_built_from_its_own_name(tmp_path, monkeypatch):
+    tts = frail_tts(tmp_path, monkeypatch, fail_renders=list(range(1, engines.STICKY_AFTER_FAILURES + 1)))
+    replies = [tts.call(speed_by_engine(frail=1.5, fake=0.5)) for _ in range(engines.STICKY_AFTER_FAILURES)]
+    assert tts.name == "fake" and [r["speed"] for r in replies] == [0.5] * engines.STICKY_AFTER_FAILURES
+    tts.close()
+
+
+def test_a_request_function_is_called_again_after_a_relaunch(tmp_path, monkeypatch):
+    monkeypatch.setitem(engines.DEFAULT, "tts", "fake")
+    write_engine(tmp_path / ".config" / "voice-engines", "tts", "frail", (BUILTIN_DIR / "tts" / "fake" / "engine.py").read_text())
+    broken = []
+    tts = Tts(lambda name: {"engine": "fake"} if name == "fake" else {"engine": "frail", "die_after": 1, "fail": bool(broken)}, tmp_path)
+    request = speed_by_engine(frail=1.5, fake=0.5)
+    assert tts.call(request)["speed"] == 1.5
+    tts.call(request)
+    broken.append(True)
+    assert tts.call(request)["speed"] == 0.5 and tts.name == "fake"
+    tts.close()
+
+
 def test_the_default_engine_failing_is_an_error_not_a_fallback(tmp_path, monkeypatch):
     monkeypatch.setitem(engines.DEFAULT, "tts", "fake")
     with pytest.raises(EngineError, match="told to fail"):

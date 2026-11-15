@@ -12,6 +12,7 @@ import re
 import subprocess
 import sys
 import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -260,6 +261,13 @@ def start(kind: str, settings: dict, home: Path, env=os.environ) -> EngineProces
     return process
 
 
+Request = dict | Callable[[str], dict]
+
+
+def build_request(request: Request, engine_name: str) -> dict:
+    return request(engine_name) if callable(request) else request
+
+
 class Engine:
     """The engine of one kind the orb speaks through. `settings_for(name)` gives any engine's settings, so the
     built-in default can take over when the selected one fails; `fallback_reason` says when it has. A call the
@@ -289,20 +297,20 @@ class Engine:
     def manifest(self) -> Manifest:
         return self.process.manifest
 
-    def call(self, request: dict, timeout: float = CALL_TIMEOUT_S) -> dict:
+    def call(self, request: Request, timeout: float = CALL_TIMEOUT_S) -> dict:
         if not self.process.alive:
             try:
                 self.process = self.launch(self.kind, self.settings_for(self.name), self.home, self.env)
             except EngineError as e:
                 self._fall_back(e)
         try:
-            reply = self.process.call(request, timeout)
+            reply = self.process.call(build_request(request, self.name), timeout)
         except EngineError as e:
             return self._answer_with_default(e, request, timeout)
         self.failure, self.failures_in_a_row = None, 0
         return reply
 
-    def _answer_with_default(self, error: EngineError, request: dict, timeout: float) -> dict:
+    def _answer_with_default(self, error: EngineError, request: Request, timeout: float) -> dict:
         default = DEFAULT.get(self.kind)
         if self.name == default or default is None:
             raise error
@@ -311,11 +319,11 @@ class Engine:
             self.process.close()
             self._fall_back(error)
             self.failure = f"{error}; {default} answers from now on"
-            return self.process.call(request, timeout)
+            return self.process.call(build_request(request, self.name), timeout)
         self.failure = f"{error}; {default} answered this one"
         stand_in = self.launch(self.kind, self.settings_for(default), self.home, self.env)
         try:
-            return stand_in.call(request, timeout)
+            return stand_in.call(build_request(request, default), timeout)
         finally:
             stand_in.close()
 
