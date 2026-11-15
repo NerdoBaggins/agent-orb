@@ -4,7 +4,8 @@
 # ///
 """Test engine: a 440 Hz tone per rendered text, `seconds_per_word` long per word (default 0.05), at 8 kHz so
 frames stay small; the reply echoes the text, and the speed, voice and language it was asked for. `fail` refuses to
-load; `die_after` exits after that many renders; `fail_renders`, a list of render counts, answers those renders with an error. `voices`, a list of ids, offers a voice menu starting on `voice` (default the first);
+load; `die_after` exits after that many renders; `fail_renders`, a list of render counts, answers those renders with an error.
+`voices`, a list of ids, is the catalogue, its first entry the default voice, and a render naming another is an error;
 without it the engine knows no `voices` op, like an engine that offers no choice. `delay_s` makes every request after
 the load take that long; `hold` ignores the hang-up; `hang_once`, a marker path, makes the first process to find
 none never answer its first request; `load_delay_s` makes the load take that long; `log_loads`, a path, gets the pid
@@ -53,7 +54,7 @@ def claim(marker: str | None) -> bool:
 
 
 RATE = 8_000
-seconds_per_word, die_after, count, voices, voice, fail_renders = 0.05, None, 0, None, None, ()
+seconds_per_word, die_after, count, voices, fail_renders = 0.05, None, 0, None, ()
 delay_s, hold, hang = 0.0, False, False
 for line in requests():
     req = json.loads(line)
@@ -70,7 +71,6 @@ for line in requests():
             die_after = settings.get("die_after")
             fail_renders = settings.get("fail_renders", ())
             voices = settings.get("voices")
-            voice = settings.get("voice", voices[0] if voices else None)
             delay_s = float(settings.get("delay_s", 0))
             hold = bool(settings.get("hold"))
             if hold:
@@ -82,12 +82,9 @@ for line in requests():
                     log.write(f"{os.getpid()}\n")
             out = {"ok": True, "pid": os.getpid()}
     elif req["op"] == "voices" and voices:
-        out = {"voices": [{"id": v, "label": v.title()} for v in voices], "current": voice}
-    elif req["op"] == "voice" and voices:
-        if req["id"] in voices:
-            voice, out = req["id"], {"ok": True}
-        else:
-            out = {"error": f"no fake voice {req['id']!r}"}
+        out = {"voices": [{"id": v, "label": v.title()} for v in voices]}
+    elif req["op"] == "render" and voices and isinstance(req.get("voice"), str) and req["voice"] not in voices:
+        out = {"error": f"no fake voice named {req['voice']!r}"}
     elif req["op"] == "render":
         count += 1
         if die_after is not None and count > die_after:
@@ -98,7 +95,7 @@ for line in requests():
             continue
         n = max(1, int(RATE * seconds_per_word * max(1, len(req["text"].split()))))
         pcm = struct.pack(f"<{n}f", *(0.2 * math.sin(2 * math.pi * 440 * i / RATE) for i in range(n)))
-        out = {"rate": RATE, "pcm": base64.b64encode(pcm).decode("ascii"), "text": req["text"], "speed": req.get("speed"), "voice": req.get("voice", voice), "lang": req.get("lang")}
+        out = {"rate": RATE, "pcm": base64.b64encode(pcm).decode("ascii"), "text": req["text"], "speed": req.get("speed"), "voice": req.get("voice", voices[0] if voices else None), "lang": req.get("lang")}
     else:
         out = {"error": f"unknown op {req['op']!r}"}
     sys.stdout.write(json.dumps(out) + "\n")
