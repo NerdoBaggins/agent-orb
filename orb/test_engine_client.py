@@ -3,9 +3,9 @@ from pathlib import Path
 import pytest
 
 from orb import engine_client, engines
-from orb.engine_client import Attachment, RemoteEngine, shared_load_settings, take_lease
+from orb.engine_client import Attachment, RemoteEngine, take_lease
 from orb.engine_wire import WireError
-from orb.engines import EngineError, Manifest
+from orb.engines import EngineError, Manifest, load_settings
 
 OWNER = {"pid": 1, "repo": "/r", "agent": "claude"}
 
@@ -37,16 +37,8 @@ def links(monkeypatch, *made):
 
 # ---- what makes two servers' load identical ----
 
-def test_tts_speed_is_not_part_of_what_load_receives_because_every_render_carries_it():
-    assert shared_load_settings("tts", {"engine": "kokoro", "speed": 1.4, "lang": "en-gb"}) == {"lang": "en-gb"}
-
-
 def test_a_speed_setting_an_stt_engine_has_stays_in_its_load_settings():
-    assert shared_load_settings("stt", {"engine": "x", "speed": 2}) == {"speed": 2}
-
-
-def test_the_voice_stays_in_the_load_settings_so_servers_that_chose_different_voices_stay_apart():
-    assert shared_load_settings("tts", {"engine": "kokoro", "voice": "af_sky"}) == {"voice": "af_sky"}
+    assert load_settings("stt", {"engine": "x", "speed": 2}) == {"speed": 2}
 
 
 # ---- reaching the host ----

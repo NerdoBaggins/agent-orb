@@ -320,7 +320,7 @@ a choice made in one repo stays there.
 | `mute_key` | `KeyM` |
 | `panels_key` | `KeyP` — hides the open panels, and brings them back as they were |
 | `stt` | `{"engine": "moonshine", "moonshine": {}}` |
-| `tts` | `{"engine": "kokoro", "speed": 1.18, "kokoro": {"voice": {"af_heart": 0.55, "bf_emma": 0.45}, "lang": "en-gb"}}` — `speed` is one number or per agent, `{"claude": 1.1, "copilot": 1.3}` |
+| `tts` | `{"engine": "kokoro", "speed": 1.18, "kokoro": {"voice": "default", "lang": "en-gb"}}` — `speed` is one number or per agent, `{"claude": 1.1, "copilot": 1.3}` |
 | `engines` | `{"shared": true}` — whether the orbs on this machine share one set of speech engines; `false` gives each orb its own (see [Shared engines](#shared-engines)); only your own files may set it |
 | `wake` | absent (push-to-talk only); see [Wake word](#wake-word) |
 | `capture` | absent (the browser records the microphone); `{"engine": "livekit"}` turns it on; see [Server capture](#server-capture) |

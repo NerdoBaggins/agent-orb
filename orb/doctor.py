@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from orb import actions, agents, browser, pages, skins, themes, widgets
-from orb.config import ConfigError, engine_settings, expand_dirs, load_for, tts_settings_for, widgets_on
+from orb.config import ConfigError, engine_settings, expand_dirs, load_for, widgets_on
 from orb.copilot import call_door, read_door
 from orb import engine_client, engines, wake, waking
 from orb.audio import SAMPLE_RATE
@@ -152,7 +152,7 @@ def run(repo: Path, home: Path, engines: bool = True) -> list[Check]:
     checks.append(check_engine_host(home))
     if engines:
         checks.append(check_engine("stt", engine_settings(config["stt"]), home))
-        checks.append(check_engine("tts", tts_settings_for(config["tts"], "claude"), home))
+        checks.append(check_engine("tts", engine_settings(config["tts"]), home))
     if config["wake"] is not None:
         checks += check_wake(config["wake"], home, engines)
     if engines and config["capture"] is not None:

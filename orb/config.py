@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import TypedDict
 
 from orb.commands import is_name
+from orb.engines import PER_CALL
 from orb.state import AGENTS, private_root
 
 DEFAULTS = {
@@ -22,7 +23,7 @@ DEFAULTS = {
     "panels_key": "KeyP",
     "theme": "default",
     "stt": {"engine": "moonshine", "moonshine": {}},
-    "tts": {"engine": "kokoro", "speed": 1.18, "kokoro": {"voice": {"af_heart": 0.55, "bf_emma": 0.45}, "lang": "en-gb"}},
+    "tts": {"engine": "kokoro", "speed": 1.18, "kokoro": {"voice": "default", "lang": "en-gb"}},
     "engines": {"shared": True},
     "wake": None,
     "capture": None,
@@ -333,8 +334,10 @@ def engine_settings(section: dict) -> dict:
     return {"engine": name, **section.get(name, {})}
 
 
-def tts_settings_for(tts: dict, agent: str) -> dict:
-    return {**engine_settings(tts), "speed": speed_for(tts, agent)}
+def tts_call_settings(section: dict, agent: str, engine: str) -> dict:
+    """What every render carries: the orb's speed and the voice and language the engine's block holds, as held."""
+    block = section.get(engine, {})
+    return {"speed": speed_for(section, agent), **{key: block[key] for key in PER_CALL["tts"] if key in block}}
 
 
 def save_for_repo(home: Path, repo_root: Path, update) -> None:
@@ -352,16 +355,20 @@ def save_for_repo(home: Path, repo_root: Path, update) -> None:
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
 
+def speed_table(previous, agent: str, speed: float) -> dict:
+    """`tts.speed` with this agent's pace set; a single number was every agent's pace."""
+    if isinstance(previous, dict):
+        speeds = previous
+    elif _is_number(previous):
+        speeds = {other: clamp_speed(previous) for other in AGENTS}
+    else:
+        speeds = {}
+    return {**speeds, agent: clamp_speed(speed)}
+
+
 def save_speed(home: Path, repo_root: Path, agent: str, speed: float) -> None:
     def update(data: dict) -> None:
         tts = data.get("tts") if isinstance(data.get("tts"), dict) else {}
-        previous = tts.get("speed")
-        if isinstance(previous, dict):
-            speeds = previous
-        elif _is_number(previous):
-            speeds = {other: clamp_speed(previous) for other in AGENTS}  # a single number was every agent's pace
-        else:
-            speeds = {}
-        data["tts"] = {**tts, "speed": {**speeds, agent: clamp_speed(speed)}}
+        data["tts"] = {**tts, "speed": speed_table(tts.get("speed"), agent, speed)}
 
     save_for_repo(home, repo_root, update)
