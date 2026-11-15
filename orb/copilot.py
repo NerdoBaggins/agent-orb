@@ -21,8 +21,8 @@ SEND_TIMEOUT_S = 30
 POLL_S = 1
 CONTEXT_BYTES = 300_000  # how far before a send to look for the tool call it is waiting behind
 REPLY_LIMIT_S = 1800
-HISTORY_BYTES = 16_000_000  # how far back a session's log is read when the orb first attaches to it
-TAIL_EVENTS = 4000  # the newest events the feed and the busy check read, whatever their size
+HISTORY_BYTES = 16_000_000
+TAIL_EVENTS = 4000
 DOOR_ROUTES = {"foreground": ("GET", "/health"), "send": ("POST", "/prompt"), "abort": ("POST", "/abort"),
                "tasks": ("GET", "/tasks"), "command": ("POST", "/command")}
 COMMANDS_COPILOT_LOGS = frozenset({"compact"})
@@ -67,13 +67,10 @@ def log_size(path: Path) -> int:
 
 
 def read_events(path: Path, offset: int) -> list[dict]:
-    """Events appended since `offset` (a byte position taken before the send); a partly written last line is
-    skipped and read on the next poll."""
     return read_complete(path, offset)[0]
 
 
 def read_complete(path: Path, offset: int) -> tuple[list[dict], int]:
-    """The events in the whole lines written after `offset`, and the offset just past the last of them."""
     try:
         with path.open("rb") as f:
             f.seek(offset)

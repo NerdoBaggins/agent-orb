@@ -275,6 +275,25 @@ def test_copilot_activity_adds_what_the_log_gains_between_reads(tmp_path):
     assert feed_texts(link) == ["hello", "Hi there."]
 
 
+def offsets_read(monkeypatch):
+    from orb import copilot
+    offsets, read = [], copilot.read_complete
+    monkeypatch.setattr(copilot, "read_complete", lambda path, offset: offsets.append(offset) or read(path, offset))
+    return offsets
+
+
+@pytest.mark.parametrize("poll", ["activity", "turn_open"])
+def test_a_later_poll_reads_only_what_the_log_gained_since_the_last(tmp_path, monkeypatch, poll):
+    import json
+    log = copilot_log(tmp_path, "s1", [typed("hello")])
+    link = attached_link(tmp_path)
+    getattr(link, poll)()
+    offsets = offsets_read(monkeypatch)
+    appended(log, json.dumps(message("Hi there.", mid="m9")) + "\n")
+    getattr(link, poll)()
+    assert offsets == [len(json.dumps(typed("hello"))) + 1]
+
+
 def test_copilot_activity_reads_a_half_written_event_once_its_line_is_finished(tmp_path):
     import json
     log = copilot_log(tmp_path, "s1", [typed("hello")])
@@ -287,7 +306,7 @@ def test_copilot_activity_reads_a_half_written_event_once_its_line_is_finished(t
 
 
 def test_copilot_activity_starts_over_when_the_log_is_rewritten_shorter(tmp_path):
-    log = copilot_log(tmp_path, "s1", [typed("hello"), message("A long first answer.", mid="m1")])
+    copilot_log(tmp_path, "s1", [typed("hello"), message("A long first answer.", mid="m1")])
     link = attached_link(tmp_path)
     link.activity()
     copilot_log(tmp_path, "s1", [typed("anew")])
