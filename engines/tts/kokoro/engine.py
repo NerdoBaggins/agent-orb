@@ -9,9 +9,8 @@
 # override-dependencies = ["onnxruntime>=1.20.1; sys_platform == 'darwin' or platform_machine not in 'x86_64 AMD64'"]
 # ///
 """Kokoro-82M through kokoro-onnx, the original (not int8) model. Model files download once into the cache the orb
-names in ORB_ENGINE_CACHE. Settings: `voice` (a name, "default" for the built-in blend, or a blend {name: weight}),
-`lang`; a render may carry its own `voice` and `lang`, and `speed` comes with each render. `voices` lists the
-model's voices for the orb's menu and `voice` switches."""
+names in ORB_ENGINE_CACHE. The engine holds no voice: each render carries its `voice` (a name, "default" for the built-in blend, or a blend
+{name: weight}), `lang` and `speed`. `voices` lists the model's voices for the orb's menu."""
 import base64
 import contextlib
 import glob
@@ -54,7 +53,7 @@ def requests():
 RELEASE = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/"
 FILES = ("kokoro-v1.0.onnx", "voices-v1.0.bin")
 DEFAULT_VOICE = {"af_heart": 0.55, "bf_emma": 0.45}
-DEFAULT_ID, BLEND_ID = "default", "blend"
+DEFAULT_ID, DEFAULT_LANG = "default", "en-gb"
 # A voice name's first letter is its language, the second its gender (af_heart: American English, female).
 LANGS = {"a": ("en-us", "American"), "b": ("en-gb", "British"), "e": ("es", "Spanish"), "f": ("fr-fr", "French"),
          "h": ("hi", "Hindi"), "i": ("it", "Italian"), "j": ("ja", "Japanese"), "p": ("pt-br", "Brazilian"),
@@ -148,29 +147,27 @@ def label(name: str) -> str:
 
 
 def lang_for(name: str, fallback: str) -> str:
-    """A single voice speaks its own language; the default blend and custom blends keep the configured `lang`."""
+    """A single voice speaks its own language; the default blend and custom blends keep the requested `lang`."""
     return LANGS[name[0]][0] if len(name) > 2 and name[2] == "_" and name[0] in LANGS else fallback
 
 
-def current_id(setting) -> str:
-    if setting in (None, DEFAULT_ID) or setting == DEFAULT_VOICE:
-        return DEFAULT_ID
-    return setting if isinstance(setting, str) else BLEND_ID
+class UnknownVoice(Exception):
+    pass
 
 
-def voice_menu(names: list[str], setting) -> dict:
+def voice_catalogue(names: list[str]) -> dict:
     voices = [{"id": DEFAULT_ID, "label": "default blend (Heart and Emma)"}]
-    if current_id(setting) == BLEND_ID:
-        voices.append({"id": BLEND_ID, "label": "your blend"})
-    voices += [{"id": name, "label": label(name)} for name in sorted(names)]
-    return {"voices": voices, "current": current_id(setting)}
+    return {"voices": voices + [{"id": name, "label": label(name)} for name in sorted(names)]}
 
 
-def style(kokoro, setting):
-    blend = DEFAULT_VOICE if current_id(setting) == DEFAULT_ID else setting
-    if isinstance(blend, str):
-        blend = {blend: 1.0}
-    return sum(float(w) * kokoro.get_voice_style(name) for name, w in blend.items())
+def style(kokoro, voice):
+    if voice == DEFAULT_ID:
+        voice = DEFAULT_VOICE
+    elif isinstance(voice, str):
+        if voice not in kokoro.get_voices():
+            raise UnknownVoice(f"no kokoro voice named {voice!r}")
+        voice = {voice: 1.0}
+    return sum(float(w) * kokoro.get_voice_style(name) for name, w in voice.items())
 
 
 class Styles:
@@ -186,15 +183,15 @@ class Styles:
         return self.built[key]
 
 
-def render(styles: Styles, setting, configured_lang: str, req: dict):
-    """The request's `voice` and `lang` where it has them, else the held ones."""
-    setting = req.get("voice", setting)
-    fallback = req.get("lang", configured_lang)
-    lang = lang_for(setting, fallback) if isinstance(setting, str) else fallback
-    return styles.kokoro.create(req["text"], voice=styles.of(setting), speed=float(req.get("speed", 1.0)), lang=lang)
+def render(styles: Styles, req: dict):
+    """The request's `voice` (absent: the default blend) and `lang` (absent: en-gb)."""
+    voice = req.get("voice", DEFAULT_ID)
+    lang = req.get("lang", DEFAULT_LANG)
+    lang = lang_for(voice, lang) if isinstance(voice, str) else lang
+    return styles.kokoro.create(req["text"], voice=styles.of(voice), speed=float(req.get("speed", 1.0)), lang=lang)
 
 
-def load(settings: dict):
+def load(settings: dict) -> Styles:
     import espeakng_loader
     from kokoro_onnx import EspeakConfig, Kokoro
 
@@ -205,35 +202,35 @@ def load(settings: dict):
     espeak = EspeakConfig(lib_path=str(espeakng_loader.get_library_path()),
                           data_path=str(short_data_path(Path(espeakng_loader.get_data_path()))))
     kokoro = Kokoro.from_session(make_session(paths[0]), str(paths[1]), espeak_config=espeak)
-    setting, configured_lang = settings.get("voice", DEFAULT_ID), settings.get("lang", "en-gb")
     styles = Styles(kokoro)
     # The first render after load runs about four times slower than the rest; paying it here keeps the first
     # reply's first audio inside the target.
-    render(styles, setting, configured_lang, {"text": "Ready."})
-    return styles, setting, configured_lang
+    render(styles, {"text": "Ready."})
+    return styles
+
+
+def answer(styles: Styles, req: dict) -> dict:
+    try:
+        if req["op"] == "voices":
+            return voice_catalogue(styles.kokoro.get_voices())
+        if req["op"] == "render":
+            samples, rate = render(styles, req)
+            return {"rate": int(rate), "pcm": base64.b64encode(np.asarray(samples, dtype="<f4").tobytes()).decode("ascii")}
+        return {"error": f"unknown op {req['op']!r}"}
+    except UnknownVoice as e:
+        return {"error": str(e)}
 
 
 def main() -> None:
-    styles = setting = configured_lang = None
+    styles = None
     for line in requests():
         req = json.loads(line)
         try:
             if req["op"] == "load":
-                styles, setting, configured_lang = load(req["settings"])
+                styles = load(req["settings"])
                 out = {"ok": True, "pid": os.getpid()}
-            elif req["op"] == "voices":
-                out = voice_menu(styles.kokoro.get_voices(), setting)
-            elif req["op"] == "voice":
-                if req["id"] != DEFAULT_ID and req["id"] not in styles.kokoro.get_voices():
-                    raise ValueError(f"no Kokoro voice named {req['id']!r}")
-                setting = req["id"]
-                styles.of(setting)
-                out = {"ok": True}
-            elif req["op"] == "render":
-                samples, rate = render(styles, setting, configured_lang, req)
-                out = {"rate": int(rate), "pcm": base64.b64encode(np.asarray(samples, dtype="<f4").tobytes()).decode("ascii")}
             else:
-                out = {"error": f"unknown op {req['op']!r}"}
+                out = answer(styles, req)
         except Exception as e:
             out = {"error": f"{type(e).__name__}: {e}"}
         sys.stdout.write(json.dumps(out) + "\n")

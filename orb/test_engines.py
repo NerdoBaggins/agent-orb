@@ -308,8 +308,8 @@ def test_tts_renders_through_the_process_with_the_speed_its_call_settings_give(t
 
 def test_the_fake_echoes_the_requests_voice(tmp_path):
     tts = Tts(settings(engine="fake", voices=["held", "other"]), speaking, tmp_path)
-    asked = tts.call({"op": "render", "text": "x", "voice": "asked", "lang": "fr-fr", "speed": 1.3})
-    assert (asked["voice"], asked["lang"], asked["speed"]) == ("asked", "fr-fr", 1.3)
+    asked = tts.call({"op": "render", "text": "x", "voice": "other", "lang": "fr-fr", "speed": 1.3})
+    assert (asked["voice"], asked["lang"], asked["speed"]) == ("other", "fr-fr", 1.3)
     held = tts.call({"op": "render", "text": "x"})
     assert (held["voice"], held["lang"], held["speed"]) == ("held", None, None)
     tts.close()
