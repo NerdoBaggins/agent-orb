@@ -10,7 +10,8 @@
 # ///
 """Kokoro-82M through kokoro-onnx, the original (not int8) model. Model files download once into the cache the orb
 names in ORB_ENGINE_CACHE. Settings: `voice` (a name, "default" for the built-in blend, or a blend {name: weight}),
-`lang`; `speed` comes with each render. `voices` lists the model's voices for the orb's menu and `voice` switches."""
+`lang`; a render may carry its own `voice` and `lang`, and `speed` comes with each render. `voices` lists the
+model's voices for the orb's menu and `voice` switches."""
 import base64
 import contextlib
 import glob
@@ -172,6 +173,27 @@ def style(kokoro, setting):
     return sum(float(w) * kokoro.get_voice_style(name) for name, w in blend.items())
 
 
+class Styles:
+    """The style vector of each voice setting, built once per distinct value."""
+
+    def __init__(self, kokoro):
+        self.kokoro, self.built = kokoro, {}
+
+    def of(self, setting):
+        key = json.dumps(setting, sort_keys=True)
+        if key not in self.built:
+            self.built[key] = style(self.kokoro, setting)
+        return self.built[key]
+
+
+def render(styles: Styles, setting, configured_lang: str, req: dict):
+    """The request's `voice` and `lang` where it has them, else the held ones."""
+    setting = req.get("voice", setting)
+    fallback = req.get("lang", configured_lang)
+    lang = lang_for(setting, fallback) if isinstance(setting, str) else fallback
+    return styles.kokoro.create(req["text"], voice=styles.of(setting), speed=float(req.get("speed", 1.0)), lang=lang)
+
+
 def load(settings: dict):
     import espeakng_loader
     from kokoro_onnx import EspeakConfig, Kokoro
@@ -183,33 +205,32 @@ def load(settings: dict):
     espeak = EspeakConfig(lib_path=str(espeakng_loader.get_library_path()),
                           data_path=str(short_data_path(Path(espeakng_loader.get_data_path()))))
     kokoro = Kokoro.from_session(make_session(paths[0]), str(paths[1]), espeak_config=espeak)
-    setting = settings.get("voice", DEFAULT_ID)
-    voice = style(kokoro, setting)
-    lang = lang_for(setting, settings.get("lang", "en-gb")) if isinstance(setting, str) else settings.get("lang", "en-gb")
+    setting, configured_lang = settings.get("voice", DEFAULT_ID), settings.get("lang", "en-gb")
+    styles = Styles(kokoro)
     # The first render after load runs about four times slower than the rest; paying it here keeps the first
     # reply's first audio inside the target.
-    kokoro.create("Ready.", voice=voice, speed=1.0, lang=lang)
-    return kokoro, voice, lang, setting, settings.get("lang", "en-gb")
+    render(styles, setting, configured_lang, {"text": "Ready."})
+    return styles, setting, configured_lang
 
 
 def main() -> None:
-    kokoro = voice = lang = setting = configured_lang = None
+    styles = setting = configured_lang = None
     for line in requests():
         req = json.loads(line)
         try:
             if req["op"] == "load":
-                kokoro, voice, lang, setting, configured_lang = load(req["settings"])
+                styles, setting, configured_lang = load(req["settings"])
                 out = {"ok": True, "pid": os.getpid()}
             elif req["op"] == "voices":
-                out = voice_menu(kokoro.get_voices(), setting)
+                out = voice_menu(styles.kokoro.get_voices(), setting)
             elif req["op"] == "voice":
-                if req["id"] != DEFAULT_ID and req["id"] not in kokoro.get_voices():
+                if req["id"] != DEFAULT_ID and req["id"] not in styles.kokoro.get_voices():
                     raise ValueError(f"no Kokoro voice named {req['id']!r}")
-                setting, voice = req["id"], style(kokoro, req["id"])
-                lang = lang_for(setting, configured_lang)
+                setting = req["id"]
+                styles.of(setting)
                 out = {"ok": True}
             elif req["op"] == "render":
-                samples, rate = kokoro.create(req["text"], voice=voice, speed=float(req.get("speed", 1.0)), lang=lang)
+                samples, rate = render(styles, setting, configured_lang, req)
                 out = {"rate": int(rate), "pcm": base64.b64encode(np.asarray(samples, dtype="<f4").tobytes()).decode("ascii")}
             else:
                 out = {"error": f"unknown op {req['op']!r}"}
