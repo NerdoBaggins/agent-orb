@@ -22,8 +22,8 @@ that has one adds it under Unreleased.
 
 ### Fixed
 
-- The Copilot transcript no longer shows only the last few turns: the orb reads a session's history once when it
-  attaches and then keeps its newest 4000 events, so one compaction or a few large events no longer push the
+- The Copilot transcript no longer shows only the last few turns: the orb reads the last 16 MB of a session's log when
+  it attaches and then keeps its newest 4000 events, so one compaction or a few large events no longer push the
   conversation out of view; 4000 events that are not messages still do
   ([#231](https://github.com/NerdoBaggins/agent-orb/issues/231), [#236](https://github.com/NerdoBaggins/agent-orb/issues/236)).
 - Stop while the orb is transcribing now drops what you said, instead of sending it to the agent once transcription
