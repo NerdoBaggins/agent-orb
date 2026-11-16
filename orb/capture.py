@@ -72,5 +72,5 @@ class Capture:
         self.last_frame = time.monotonic()
         return frame
 
-    def close(self) -> None:
-        self.process.close()
+    def close(self) -> bool:
+        return self.process.close()

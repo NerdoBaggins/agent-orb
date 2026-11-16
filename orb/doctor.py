@@ -174,19 +174,26 @@ def check_capture(section: dict, home: Path, platform: str = sys.platform) -> Ch
         return Check("capture engine", False, f"{e}{grant}")
     except EngineError as e:
         return Check("capture engine", False, str(e))
-    delivered, started = 0, None
     try:
-        while started is None or time.monotonic() - started < CAPTURE_PROBE_S:
-            event = probe.next_event()
-            if isinstance(event, Ended):
-                return Check("capture engine", False, f"{event.reason}{grant}")
-            if isinstance(event, Frame) and started is None:
-                started = time.monotonic()
-            elif isinstance(event, Frame):
-                delivered += event.samples.size
-        elapsed = time.monotonic() - started
+        result = measure_capture(probe, grant)
     finally:
-        probe.close()
+        exited = probe.close()
+    if not exited:
+        return Check("capture engine", False, f"{probe.process.label} did not exit within 5 s of its input closing")
+    return result
+
+
+def measure_capture(probe: Capture, grant: str) -> Check:
+    delivered, started = 0, None
+    while started is None or time.monotonic() - started < CAPTURE_PROBE_S:
+        event = probe.next_event()
+        if isinstance(event, Ended):
+            return Check("capture engine", False, f"{event.reason}{grant}")
+        if isinstance(event, Frame) and started is None:
+            started = time.monotonic()
+        elif isinstance(event, Frame):
+            delivered += event.samples.size
+    elapsed = time.monotonic() - started
     share = delivered / SAMPLE_RATE / elapsed
     whole = share >= WHOLE_SHARE
     return Check("capture engine", whole, f"{probe.name} on {probe.device}: {share:.0%} of {CAPTURE_PROBE_S:.0f} s arrived as audio"

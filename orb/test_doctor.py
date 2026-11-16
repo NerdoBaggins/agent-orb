@@ -217,6 +217,11 @@ def test_the_capture_check_does_not_count_the_engines_shutdown_as_missing_audio(
     assert check.ok, check.detail
 
 
+def test_the_doctor_capture_check_fails_when_the_engine_needed_the_kill(tmp_path):
+    check = check_capture({"engine": "fake", "frames": 1000, "every": 0.04, "linger": 30}, tmp_path)
+    assert not check.ok and check.detail == "capture engine 'fake' did not exit within 5 s of its input closing"
+
+
 def test_the_capture_check_ends_when_the_engine_sends_only_notices(tmp_path, monkeypatch):
     monkeypatch.setattr(capture_module, "STALL_S", 0.3)
     check = check_capture({"engine": "fake", "notice": "the microphone is not available", "every": 0.05}, tmp_path)
