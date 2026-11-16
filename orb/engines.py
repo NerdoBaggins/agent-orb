@@ -21,6 +21,7 @@ import numpy as np
 from orb import PLUGIN_ROOT
 from orb.audio import SAMPLE_RATE
 from orb.pages import plain_name
+from orb.state import kill_pid
 
 log = logging.getLogger("orb")
 ANSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
@@ -33,6 +34,7 @@ CACHE_ENV = "ORB_ENGINE_CACHE"
 LOAD_TIMEOUT_S = 300.0  # the first load may download a model
 CALL_TIMEOUT_S = 120.0
 FRAME_TIMEOUT_S = 5.0
+EXIT_WAIT_S = 5.0
 STICKY_AFTER_FAILURES = 3
 PROTOCOL = 2
 
@@ -216,17 +218,26 @@ class EngineProcess:
             raise EngineError(f"{self.label}: {reply['error']}")
         return reply
 
-    def close(self) -> None:
-        if self.process.poll() is None:
-            try:
-                self.process.stdin.close()
-            except OSError:
-                pass
-            try:
-                self.process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self.process.kill()
-                self.process.wait()
+    def close(self) -> bool:
+        """Closes the input and waits 5 s. True when the process left on its own; otherwise it and the engine pid
+        its load reply named are killed, a warning is logged, and the result is False."""
+        if self.process.poll() is not None:
+            return True
+        try:
+            self.process.stdin.close()
+        except OSError:
+            pass
+        try:
+            self.process.wait(timeout=EXIT_WAIT_S)
+        except subprocess.TimeoutExpired:
+            pid = self.loaded.get("pid")
+            if type(pid) is int:
+                kill_pid(pid)
+            self.process.kill()
+            self.process.wait()
+            log.warning("%s did not exit within %.0f s of its input closing and was killed", self.label, EXIT_WAIT_S)
+            return False
+        return True
 
 
 def resolve(kind: str, settings: dict, home: Path, env=os.environ) -> Manifest:
@@ -411,5 +422,6 @@ class Tts(Engine):
 def check(kind: str, settings: dict, home: Path, env=os.environ) -> str:
     """Starts and loads the engine, closes it, and says where it was found; raises EngineError with the reason."""
     process = start(kind, settings, home, env)
-    process.close()
+    if not process.close():
+        raise EngineError(f"{kind} engine '{process.manifest.name}' did not exit within 5 s of its input closing")
     return f"{process.manifest.name} {process.manifest.version} loads from {process.manifest.path}"

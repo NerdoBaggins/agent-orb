@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import signal
 import stat
 import sys
 from datetime import datetime
@@ -238,6 +239,17 @@ def pid_alive(pid: int) -> bool:
     except PermissionError:
         return True
     return True
+
+
+def kill_pid(pid: int) -> None:
+    """Ends the process outright; one that has already gone is not an error."""
+    try:
+        os.kill(pid, signal.SIGTERM if sys.platform == "win32" else signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    except OSError:
+        if sys.platform != "win32" or pid_alive(pid):
+            raise
 
 
 def running_server(record: dict | None, alive=pid_alive) -> dict | None:

@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import sys
+import time
 
 import numpy as np
 import pytest
@@ -9,7 +10,8 @@ import pytest
 from orb import engines
 from orb.audio import SAMPLE_RATE
 from orb.engines import (BUILTIN_DIR, EngineError, EngineLoadError, available, EngineProcess, Manifest, Stt, Tts, cache_dir, check, find,
-                         load_settings, missing_env, read_manifest, split_at_quiet_points, start)
+                         load_settings, missing_env, read_manifest, split_at_quiet_points, start, Wake)
+from orb.state import kill_pid, pid_alive
 
 
 
@@ -520,3 +522,57 @@ def test_load_settings_drop_the_per_call_keys_of_tts_and_keep_an_stt_lang():
     block = {"engine": "kokoro", "model": "m", "voice": "af_sky", "lang": "en-gb"}
     assert load_settings("tts", block) == {"model": "m"}
     assert load_settings("stt", {"engine": "moonshine", "lang": "en"}) == {"lang": "en"}
+
+
+def gone(pid, within=1.0):
+    deadline = time.monotonic() + within
+    while pid_alive(pid) and time.monotonic() < deadline:
+        time.sleep(0.02)
+    return not pid_alive(pid)
+
+
+def test_closing_an_engine_that_ignores_its_input_kills_the_pid_it_reported_and_leaves_no_launcher(tmp_path):
+    process = start("tts", {"engine": "fake", "hold": True}, tmp_path)
+    engine_pid, launcher_pid = process.loaded["pid"], process.process.pid
+    try:
+        assert pid_alive(engine_pid)
+        began = time.monotonic()
+        assert process.close() is False
+        assert time.monotonic() - began < 6
+        assert gone(engine_pid) and gone(launcher_pid)
+    finally:
+        kill_pid(engine_pid)
+
+
+def test_an_engine_that_never_answers_load_has_its_launcher_killed(tmp_path, monkeypatch):
+    write_engine(tmp_path / ".config" / "voice-engines", "tts", "mute", "import sys, time\nsys.stdin.readline()\ntime.sleep(3600)\n",
+                 {"name": "mute", "version": "1", "kind": "tts", "protocol": 2, "run": [sys.executable, "engine.py"]})
+    monkeypatch.setattr(engines, "LOAD_TIMEOUT_S", 0.5)
+    closed = []
+    real_close = EngineProcess.close
+    monkeypatch.setattr(EngineProcess, "close", lambda self: (closed.append(self), real_close(self))[1])
+    with pytest.raises(EngineLoadError, match="gave no answer to 'load'"):
+        start("tts", {"engine": "mute"}, tmp_path)
+    process = closed[0]
+    try:
+        assert gone(process.process.pid)
+    finally:
+        kill_pid(process.process.pid)
+
+
+@pytest.mark.parametrize("kind, held, refused", [("capture", {}, False), ("capture", {"linger": 30}, True), ("stt", {}, False), ("tts", {}, False),
+                                                  ("tts", {"hold": True}, True), ("vad", {}, False), ("voiceprint", {}, False), ("wake", {}, False)])
+def test_check_raises_for_the_holding_capture_fake_and_passes_every_other_fake(tmp_path, kind, held, refused):
+    if not refused:
+        assert check(kind, {"engine": "fake", **held}, tmp_path).startswith("fake 1.0.0 loads from ")
+        return
+    with pytest.raises(EngineError) as raised:
+        check(kind, {"engine": "fake", **held}, tmp_path)
+    assert str(raised.value) == f"{kind} engine 'fake' did not exit within 5 s of its input closing"
+
+
+def test_a_wake_frame_not_answered_in_5_s_fails_as_a_frame(tmp_path, monkeypatch):
+    monkeypatch.setattr(engines, "FRAME_TIMEOUT_S", 0.5)
+    wake = Wake(settings(engine="fake", delay_s=3), tmp_path)
+    with pytest.raises(EngineError, match="wake engine 'fake' gave no answer to 'frame'"):
+        wake.score(np.zeros(1280, dtype=np.float32))
