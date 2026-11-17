@@ -22,6 +22,11 @@ that has one adds it under Unreleased.
 
 ### Fixed
 
+- The transcript shows the newest turns when you come back to it from another panel's tab or the orb-only view,
+  instead of staying where it was until the next turn arrives; if you had scrolled up, it stays where you left it
+  ([#240](https://github.com/NerdoBaggins/agent-orb/issues/240)).
+- A reply's numbered list no longer has its numbers cut off at the transcript's left edge
+  ([#239](https://github.com/NerdoBaggins/agent-orb/issues/239)).
 - The Copilot transcript no longer shows only the last few turns: the orb reads the last 16 MB of a session's log when
   it attaches and then keeps its newest 4000 events, so one compaction or a few large events no longer push the
   conversation out of view; 4000 events that are not messages still do

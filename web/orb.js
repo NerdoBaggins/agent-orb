@@ -1710,6 +1710,7 @@
       if (box.dataset.watched) return;
       box.dataset.watched = "1";
       box.addEventListener("scroll", () => { this.following = nearBottom(box.scrollTop, box.clientHeight, box.scrollHeight); });
+      new ResizeObserver(() => { if (this.following) box.scrollTop = box.scrollHeight; }).observe(box);
     },
     buildDay(label) {
       const line = document.createElement("div");
