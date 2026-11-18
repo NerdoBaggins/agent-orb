@@ -3,6 +3,7 @@ through engine_client. HOME and every config folder sit under tmp_path."""
 import os
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import time
@@ -280,14 +281,115 @@ def test_a_second_host_started_while_one_runs_exits_and_leaves_the_first_serving
     assert second.returncode == 0 and host_of(home).pid == first
 
 
-def test_a_stale_record_from_a_host_that_died_is_replaced_by_a_new_host(home):
-    stt(home, launcher(spawn=spawner(["--grace=60", "--host-idle=60", "--tick=0.1"])), text="x")
-    dead = host_of(home).pid
-    hard_kill(dead)
-    assert eventually(lambda: host_gone(dead))
-    fresh = stt(home, launcher(), text="again")
-    assert fresh.transcribe(CLIP) == "again" and host_of(home).pid != dead
-    fresh.close()
+STARTING_SERVER = """
+import sys
+import time
+from pathlib import Path
+from orb import engine_client
+from orb.engines import Stt
+from orb.test_engine_shared import spawner
+
+home, spawns, loads, owner = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3], int(sys.argv[4])
+spawn = spawner(["--grace=60", "--host-idle=60", "--tick=0.1"])
+
+
+def counted_spawn(*args):
+    with open(spawns, "a") as log:
+        log.write("spawned\\n")
+    spawn(*args)
+
+
+launch = engine_client.launcher({"pid": owner, "repo": "/starting", "agent": "claude"}, counted_spawn)
+print("ready", flush=True)
+sys.stdin.readline()
+server = Stt(lambda name: {"engine": name or "fake", "text": "held", "log_loads": loads}, home, launch=launch)
+print("attached", flush=True)
+time.sleep(600)
+"""
+
+
+def test_two_orbs_opened_together_start_one_host_and_one_engine(home, tmp_path):
+    spawns, loads = tmp_path / "spawns.txt", tmp_path / "loads.txt"
+    orbs = [subprocess.Popen([sys.executable, "-c", STARTING_SERVER, str(home), str(spawns), str(loads), str(pid)], cwd=PLUGIN_ROOT,
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True) for pid in (101, 102)]
+    try:
+        assert [orb.stdout.readline().strip() for orb in orbs] == ["ready", "ready"]
+        for orb in orbs:
+            orb.stdin.write("\n")
+            orb.stdin.flush()
+        assert [orb.stdout.readline().strip() for orb in orbs] == ["attached", "attached"]
+        [engine] = running(home)
+        assert owners_of(engine) == [101, 102]
+        assert len(spawns.read_text().split()) == 1 and len(loads.read_text().split()) == 1
+        assert len([record for record in recorded_hosts(home) if record]) == 1
+    finally:
+        for orb in orbs:
+            orb.kill()
+            orb.wait()
+
+
+UNANSWERING_HOST = """
+import os
+import socket
+import sys
+import time
+from pathlib import Path
+from orb import engine_wire
+
+home, host_identity = Path(sys.argv[1]), sys.argv[2]
+lock = engine_wire.hold_lock(engine_wire.lock_file(home, host_identity))
+listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+listener.bind(("127.0.0.1", 0))
+listener.listen()
+engine_wire.write_record(home, host_identity, engine_wire.HostRecord(listener.getsockname()[1], "token", os.getpid(), None))
+print("listening", flush=True)
+time.sleep(600)
+"""
+
+
+def test_a_recorded_host_that_does_not_answer_a_ping_is_killed_and_replaced(home):
+    host_identity = engine_wire.identity(PLUGIN_ROOT)
+    hung = subprocess.Popen([sys.executable, "-c", UNANSWERING_HOST, str(home), host_identity], cwd=PLUGIN_ROOT, stdout=subprocess.PIPE, text=True)
+    try:
+        assert hung.stdout.readline().strip() == "listening"
+        link = engine_client.open_link(home, PLUGIN_ROOT, spawner())
+        assert hung.wait(timeout=10) is not None
+        assert link.request({"op": "ping"}, 5.0)["pid"] == host_of(home).pid != hung.pid
+        link.close()
+    finally:
+        hung.kill()
+        hung.wait()
+
+
+def test_a_stale_record_whose_lock_is_free_is_replaced_without_killing_anything(home):
+    bystander = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(600)"])
+    try:
+        unused = socket.socket()
+        unused.bind(("127.0.0.1", 0))
+        port = unused.getsockname()[1]
+        unused.close()
+        engine_wire.write_record(home, engine_wire.identity(PLUGIN_ROOT), engine_wire.HostRecord(port, "token", bystander.pid, None))
+        link = engine_client.open_link(home, PLUGIN_ROOT, spawner())
+        assert link.request({"op": "ping"}, 5.0)["pid"] == host_of(home).pid != bystander.pid
+        assert bystander.poll() is None
+        link.close()
+    finally:
+        bystander.kill()
+        bystander.wait()
+
+
+def test_a_host_started_while_its_predecessor_is_exiting_waits_for_the_lock(home):
+    slow_to_close = [stt(home, launcher(spawn=spawner(["--grace=60", "--host-idle=60", "--tick=0.1"])), text=text, hold=True) for text in ("a", "b")]
+    predecessor = host_of(home)
+    link = engine_wire.connect(predecessor)
+    link.request({"op": "stop"}, 5.0)
+    link.close()
+    assert eventually(lambda: host_of(home) is None, seconds=5.0)
+    successor = engine_client.open_link(home, PLUGIN_ROOT, spawner(["--grace=60", "--host-idle=60", "--tick=0.1"]))
+    assert host_of(home).pid != predecessor.pid and not host_gone(predecessor.pid)
+    successor.close()
+    for server in slow_to_close:
+        server.close()
 
 
 def test_orb_engines_lists_each_engine_with_the_servers_attached(home, capsys):

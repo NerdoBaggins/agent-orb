@@ -137,16 +137,18 @@ class Link:
                 pass
 
 
-def connect(record: HostRecord) -> Link:
+def connect(record: HostRecord, timeout: float = CONNECT_TIMEOUT_S) -> Link:
+    """A connection the host has accepted, within `timeout` in all."""
+    deadline = time.monotonic() + timeout
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.settimeout(CONNECT_TIMEOUT_S)
+    sock.settimeout(timeout)
     try:
         sock.connect(("127.0.0.1", record.port))
     except OSError as e:
         sock.close()
         raise WireError(f"cannot reach the engine host: {e}")
     link = Link(sock)
-    if link.request({"op": "hello", "token": record.token}, CONNECT_TIMEOUT_S).get("ok") is not True:
+    if link.request({"op": "hello", "token": record.token}, max(deadline - time.monotonic(), 0.01)).get("ok") is not True:
         link.close()
         raise WireError("the engine host refused the connection")
     return link
