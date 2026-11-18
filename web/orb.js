@@ -554,12 +554,9 @@
   setInterval(() => { if (orb.wake && !ptt.live()) ptt.ensure(); }, 3000);
 
   const mic = $("mic");
-  // Chrome can deliver a press as mousedown with no pointerdown (it then takes the press as a chord of a pointer it
-  // believes is already down), so the mouse events start a press too; whichever arrives first starts it.
   let pressing = false;
   function micPress(ev) {
     ev.preventDefault();
-    if (pressing && ptt.wanted) return;
     pressing = true;
     if (orb.state === "idle" || orb.state === "thinking") {
       if (ev.pointerId !== undefined) mic.setPointerCapture(ev.pointerId);
