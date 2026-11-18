@@ -181,3 +181,17 @@ def test_a_mic_press_cut_short_by_a_blur_does_not_end_a_later_key_held_recording
         await page.evaluate("window.dispatchEvent(new MouseEvent('mouseup', { button: 0 }))")
 
     assert state_after(tmp_path, press_blur_then_hold_key_and_mouseup, listening)["recording"] is True
+
+
+@pytest.mark.timeout(60)
+def test_a_mic_click_while_the_key_hold_is_still_opening_the_mic_does_not_cancel_it(tmp_path):
+    async def hold_key_click_mic_then_open(page):
+        await page.evaluate(CONTROLLED_MIC)
+        await page.keyboard.down("Space")
+        await page.wait_for_function("window.opens.length > 0")
+        await page.locator("#mic").hover()
+        await page.mouse.down()
+        await page.mouse.up()
+        await page.evaluate("(async () => { const mic = await real(); for (const o of opens) o.resolve(mic); })()")
+
+    assert state_after(tmp_path, hold_key_click_mic_then_open, listening) == RECORDING
