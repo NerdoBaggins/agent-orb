@@ -114,3 +114,11 @@ def test_a_tap_on_the_mic_button_on_the_first_use_does_not_leave_the_mic_recordi
         await page.mouse.up()
 
     assert state_after(tmp_path, tap) == NOT_RECORDING
+
+
+@pytest.mark.timeout(60)
+def test_the_mic_button_records_from_a_mousedown_that_comes_without_a_pointerdown(tmp_path):
+    async def mousedown_only(page):
+        await page.locator("#mic").dispatch_event("mousedown", {"button": 0, "buttons": 1})
+
+    assert state_after(tmp_path, mousedown_only, listening) == RECORDING
