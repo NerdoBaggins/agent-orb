@@ -14,10 +14,11 @@ OWNER = {"pid": 1, "repo": "/r", "agent": "claude"}
 
 class FakeLink:
     def __init__(self, *replies):
-        self.replies, self.sent, self.closed = list(replies), [], False
+        self.replies, self.sent, self.timeouts, self.closed = list(replies), [], [], False
 
     def request(self, message, timeout):
         self.sent.append(message)
+        self.timeouts.append(timeout)
         reply = self.replies.pop(0)
         if isinstance(reply, Exception):
             raise reply
@@ -193,7 +194,7 @@ def test_a_host_that_does_not_release_its_lock_after_stop_is_an_error_naming_its
 
 
 def test_an_attach_to_a_host_that_is_exiting_goes_to_a_new_one(tmp_path, monkeypatch):
-    exiting, fresh = FakeLink({"closing": True}), FakeLink({"loaded": {"ok": True}})
+    exiting, fresh = FakeLink({"closing": True}), FakeLink({"attached": True}, {"loaded": {"ok": True}})
     links(monkeypatch, exiting, fresh)
     link, loaded = attach(attachment(tmp_path))
     assert (link, loaded, exiting.closed) == (fresh, {"ok": True}, True)
@@ -221,7 +222,7 @@ def test_an_attach_refused_by_a_closing_host_waits_for_its_record_to_go_before_t
 
     clock = ExitingHostClock()
     monkeypatch.setattr(engine_client, "time", clock)
-    queue, opened_at = [FakeLink({"closing": True}), FakeLink({"loaded": {}})], []
+    queue, opened_at = [FakeLink({"closing": True}), FakeLink({"attached": True}, {"loaded": {}})], []
     monkeypatch.setattr(engine_client, "open_link", lambda home, plugin_root, spawn: opened_at.append(clock.now) or queue.pop(0))
     attach(attachment(tmp_path))
     assert opened_at[0] == 0.0 and 0.5 <= opened_at[1] < 1.0
@@ -232,15 +233,36 @@ def test_the_hosts_reason_for_refusing_an_attach_reaches_the_caller_and_the_link
     links(monkeypatch, refusing)
     with pytest.raises(EngineError, match="failed to load: boom"):
         attach(attachment(tmp_path))
-    assert refusing.closed
+    assert refusing.closed and [m["op"] for m in refusing.sent] == ["attach"]
 
 
 def test_an_attach_carries_the_name_settings_credentials_and_owner(tmp_path, monkeypatch):
-    granted = FakeLink({"loaded": {}})
+    granted = FakeLink({"attached": True}, {"loaded": {}})
     links(monkeypatch, granted)
     attach(Attachment(tmp_path, "tts", "kokoro", attachment(tmp_path).manifest, {"lang": "x"}, {"K": "v"}, OWNER))
-    assert granted.sent == [{"op": "attach", "kind": "tts", "name": "kokoro", "settings": {"lang": "x"}, "env": {"K": "v"},
-                             "owner": OWNER}]
+    assert granted.sent[0] == {"op": "attach", "kind": "tts", "name": "kokoro", "settings": {"lang": "x"}, "env": {"K": "v"},
+                               "owner": OWNER}
+
+
+def test_an_attach_waits_5_s_for_the_handshake_and_the_load_limit_for_the_load(tmp_path, monkeypatch):
+    granted = FakeLink({"attached": True}, {"loaded": {}})
+    links(monkeypatch, granted)
+    attach(attachment(tmp_path))
+    assert (granted.sent[1], granted.timeouts) == ({"op": "ready"}, [5.0, engines.LOAD_TIMEOUT_S])
+
+
+def test_a_load_that_failed_reaches_the_caller_from_the_ready_reply_and_the_link_is_closed(tmp_path, monkeypatch):
+    failing = FakeLink({"attached": True}, {"error": "stt engine 'fake' failed to load: boom"})
+    links(monkeypatch, failing)
+    with pytest.raises(EngineError, match="failed to load: boom"):
+        attach(attachment(tmp_path))
+    assert failing.closed
+
+
+def test_a_host_lost_while_the_engine_loads_is_an_engine_error_naming_the_engine(tmp_path, monkeypatch):
+    links(monkeypatch, FakeLink({"attached": True}, WireError("the engine host closed the connection")))
+    with pytest.raises(EngineError, match="stt engine 'fake': the engine host closed the connection"):
+        attach(attachment(tmp_path))
 
 
 # ---- one attachment ----

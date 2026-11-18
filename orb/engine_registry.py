@@ -9,20 +9,22 @@ HOST_IDLE_S = 10.0
 
 @dataclass(frozen=True)
 class Key:
-    """Two servers share an engine process only when every part of this is equal."""
+    """Two servers share an engine process only when every part of this is equal; `connection` is set only for an engine
+    that is not shared."""
     kind: str
     name: str
     settings: str
     env: str
+    connection: int | None
 
     @property
     def label(self) -> str:
         return f"{self.kind} {self.name}"
 
 
-def make_key(kind: str, name: str, settings: dict, env: dict) -> Key:
+def make_key(kind: str, name: str, settings: dict, env: dict, connection: int | None = None) -> Key:
     digest = hashlib.sha256(json.dumps(sorted(env.items())).encode("utf-8")).hexdigest()[:16]
-    return Key(kind, name, json.dumps(settings, sort_keys=True), digest)
+    return Key(kind, name, json.dumps(settings, sort_keys=True, separators=(",", ":")), digest, connection)
 
 
 @dataclass
@@ -53,6 +55,11 @@ class Registry:
         attached = self.owners.pop(conn, None)
         if attached is not None and not self.users(attached.key):
             self.idle_since[attached.key] = self.clock()
+
+    def forget(self, conn: object) -> None:
+        """Drops a connection with no grace for its engine: the engine was never used, or was not shared."""
+        self.owners.pop(conn, None)
+        self.note_activity()
 
     def reap(self) -> list[Key]:
         """The keys whose last owner went at least the grace period ago; they are no longer known."""

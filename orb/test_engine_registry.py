@@ -26,24 +26,17 @@ def registry(clock):
     return Registry(clock, grace=120, host_idle=10)
 
 
-def key(settings=None, env=None, kind="stt", name="fake"):
-    return make_key(kind, name, settings or {}, env or {})
+def key(settings=None, env=None, kind="stt", name="fake", connection=None):
+    return make_key(kind, name, settings or {}, env or {}, connection)
 
 
 # ---- keying ----
 
-def test_the_order_of_the_load_settings_does_not_split_a_key():
-    assert key({"a": 1, "b": 2}) == key({"b": 2, "a": 1})
-
-
-@pytest.mark.parametrize("other", [
-    key({"text": "x"}),
-    key(env={"API_KEY": "1"}),
-    key(name="other"),
-    key(kind="tts"),
-])
-def test_a_difference_in_what_load_receives_or_in_who_may_use_it_is_a_different_key(other):
-    assert other != key()
+def test_the_key_ignores_setting_order_and_splits_on_kind_name_settings_env_and_connection():
+    base = key({"a": 1, "b": 2})
+    splits = [key({"a": 1, "b": 3}), key({"a": 1, "b": 2}, kind="tts"), key({"a": 1, "b": 2}, name="other"),
+              key({"a": 1, "b": 2}, env={"API_KEY": "1"}), key({"a": 1, "b": 2}, connection=1), key({"a": 1, "b": 2}, connection=2)]
+    assert key({"b": 2, "a": 1}) == base and base not in splits and len(set(splits)) == len(splits)
 
 
 def test_two_credentials_with_different_values_never_share_a_key_and_the_key_does_not_hold_either():
@@ -158,3 +151,12 @@ def test_the_last_connection_closing_starts_a_grace_and_an_attach_within_it_keep
     registry.attach("b", k, OWNER)
     clock.advance(1000)
     assert registry.reap() == [] and registry.users(k) == ["b"]
+
+
+def test_forgetting_a_connection_starts_no_grace_and_lets_the_host_count_as_idle(registry, clock):
+    k = key()
+    registry.attach("a", k, OWNER)
+    registry.forget("a")
+    assert registry.grace_left(k) is None and registry.keys() == set()
+    clock.advance(10)
+    assert registry.host_done() is True
