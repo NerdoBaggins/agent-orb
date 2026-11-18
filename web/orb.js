@@ -558,6 +558,7 @@
   function micPress(ev) {
     ev.preventDefault();
     if (orb.state === "idle" || orb.state === "thinking") {
+      if (ptt.keyDown && ptt.opening) return;
       pressing = true;
       if (ev.pointerId !== undefined) mic.setPointerCapture(ev.pointerId);
       ptt.hold();
