@@ -3,6 +3,7 @@ line typed and entered to run a built-in command. The session is identified by `
 process that spawned the channel, and the adapter confirms it still looks like a Claude Code process before sending
 anything."""
 import ntpath
+import re
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -11,6 +12,7 @@ from pathlib import Path
 from orb import PLUGIN_ROOT
 
 CLAUDE_IMAGE_NAMES = ("claude.exe", "claude", "node", "node.exe", "bun", "bun.exe")
+WINDOWS_UPDATER_RENAMED_CLAUDE = re.compile(r"claude\.exe\.old\.\d+\.\d+", re.IGNORECASE)
 
 
 @dataclass
@@ -20,7 +22,8 @@ class Target:
 
     def looks_like_claude(self) -> bool:
         # ntpath splits on both separators on every platform; pathlib's Path treats `\` as a name character on POSIX.
-        return ntpath.basename(self.image).lower() in CLAUDE_IMAGE_NAMES
+        name = ntpath.basename(self.image)
+        return name.lower() in CLAUDE_IMAGE_NAMES or WINDOWS_UPDATER_RENAMED_CLAUDE.fullmatch(name) is not None
 
 
 def process_image(pid: int) -> str | None:

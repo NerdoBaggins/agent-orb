@@ -14,6 +14,16 @@ def test_target_recognises_claude_images():
     assert not Target(1, r"C:\Windows\explorer.exe").looks_like_claude()
 
 
+def test_target_recognises_claude_renamed_by_its_windows_self_update():
+    assert Target(1, r"C:\Users\x\.local\bin\claude.exe.old.1794278772170.10880").looks_like_claude()
+
+
+@pytest.mark.parametrize("image", ["claude.exe.old", "claude.exe.old.1", "claude.exe.old.1.2.evil.exe",
+                                   "notclaude.exe.old.1.2", "claude.exe.bak", "node.exe.old.1.2"])
+def test_target_refuses_names_only_resembling_the_self_update_rename(image):
+    assert not Target(1, image).looks_like_claude()
+
+
 def test_escape_is_refused_for_a_process_that_is_not_claude():
     with pytest.raises(NoAdapter, match="not a Claude Code process; nothing sent"):
         send_escape(Target(1, "explorer.exe"))

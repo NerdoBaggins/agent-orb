@@ -24,6 +24,9 @@ that has one adds it under Unreleased.
 
 - The mic button starts on a mouse press even when Chrome sends no pointer event for it, which had left every click
   ignored while the talk key still worked ([#249](https://github.com/NerdoBaggins/agent-orb/issues/249)).
+- On Windows, `orb command` and the orb's Stop keep reaching a Claude Code session after Claude Code updates itself
+  while the session runs, instead of refusing it as "not a Claude Code process"
+  ([#219](https://github.com/NerdoBaggins/agent-orb/issues/219)).
 - The transcript shows the newest turns when you come back to it from another panel's tab or the orb-only view,
   instead of staying where it was until the next turn arrives; if you had scrolled up, it stays where you left it
   ([#240](https://github.com/NerdoBaggins/agent-orb/issues/240)).
