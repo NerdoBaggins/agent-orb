@@ -559,11 +559,25 @@
   setInterval(() => { if (orb.wake && !ptt.live()) ptt.ensure(); }, 3000);
 
   const mic = $("mic");
-  mic.addEventListener("pointerdown", (ev) => {
+  // Chrome can deliver a press as mousedown with no pointerdown (it then takes the press as a chord of a pointer it
+  // believes is already down), so the mouse events start a press too; whichever arrives first starts it.
+  let pressing = false;
+  function micPress(ev) {
     ev.preventDefault();
-    if (orb.state === "idle" || orb.state === "thinking") { mic.setPointerCapture(ev.pointerId); ptt.hold(); }
-    else if (orb.state !== "listening") stopNow();
-  });
+    if (pressing && ptt.wanted) return;
+    pressing = true;
+    if (orb.state === "idle" || orb.state === "thinking") {
+      if (ev.pointerId !== undefined) mic.setPointerCapture(ev.pointerId);
+      ptt.hold();
+    } else if (orb.state !== "listening") stopNow();
+  }
+  function micRelease() {
+    if (!pressing) return;
+    pressing = false;
+    ptt.release();
+  }
+  mic.addEventListener("pointerdown", micPress);
+  mic.addEventListener("mousedown", micPress);
   $("stop").addEventListener("click", () => {
     orb.stopping = true;
     updateMic();
@@ -575,8 +589,9 @@
     player.stop();
     send({ type: "stop" });
   }
-  mic.addEventListener("pointerup", () => ptt.release());
-  mic.addEventListener("pointercancel", () => ptt.release());
+  mic.addEventListener("pointerup", micRelease);
+  mic.addEventListener("pointercancel", micRelease);
+  addEventListener("mouseup", micRelease);
 
   function inTextField(target) {
     return target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
