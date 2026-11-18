@@ -232,7 +232,9 @@ body.bar-on-orb #tabs { padding-right: 8px; } /* the pill sits on the orb's side
 .settings-nav-cat, .settings-nav-sub { font: inherit; text-align: left; color: var(--orb-fg); background: none; border: 1px solid transparent; border-radius: 4px; padding: 4px 8px; cursor: pointer; }
 .settings-nav-cat::before { content: "\25B8"; display: inline-block; width: 14px; color: var(--orb-dim); font-size: 14px; transition: transform 0.15s; }
 .settings-nav-cat[aria-expanded="true"]::before { transform: rotate(90deg); }
-.settings-nav-cat.on { border-color: var(--orb-accent); }
+.settings-nav-cat.on, .settings-nav-sub.on { border-color: var(--orb-accent); }
+.settings-nav-sub.on { color: var(--orb-fg); }
+.settings-page [data-sub][hidden], .settings-page [data-kind][hidden] { display: none; }
 .settings-nav-sub { padding-left: 30px; font-size: 13px; color: var(--orb-dim); }
 .settings-nav-cat:hover, .settings-nav-sub:hover, .settings-nav-cat:focus-visible, .settings-nav-sub:focus-visible { color: var(--orb-fg); background: var(--orb-surface); }
 .settings-main { min-width: 0; max-width: 780px; }

@@ -49,8 +49,8 @@ test("the defaults line names who each default folder is for and never prints a 
   assert.equal(defaultLabel("user"), "Every repo");
   assert.equal(defaultLabel("built-in"), "Built in");
   assert.equal(defaultLabel("brand-new"), "brand-new");
-  assert.equal(defaultsSummary([{ scope: "mine", path: "/m/secret-9419" }, { scope: "user", path: "/u" }]), "Also searched: Just this repo and Every repo (see Default folders above).");
-  assert.equal(defaultsSummary([{ scope: "built-in", path: "/plugin/cache/0.4.0" }]), "Also searched: Built in (see Default folders above).");
+  assert.equal(defaultsSummary([{ scope: "mine", path: "/m/secret-9419" }, { scope: "user", path: "/u" }]), "Also searched: Just this repo and Every repo (see Default folders).");
+  assert.equal(defaultsSummary([{ scope: "built-in", path: "/plugin/cache/0.4.0" }]), "Also searched: Built in (see Default folders).");
   assert.doesNotMatch(defaultsSummary([{ scope: "built-in", path: "/plugin/cache/0.4.0" }]), /cache/);
   assert.equal(defaultsSummary([]), "");
 });

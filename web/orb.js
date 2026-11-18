@@ -1118,24 +1118,23 @@
     rememberPage(page) {
       try { localStorage.setItem(SETTINGS_PAGE_KEY, page); } catch (e) { return; }
     },
-    showPage(name) {
+    showPage(name, sub = null) {
       const tree = this.navTree();
       const chosen = tree.find((c) => c.page === name) || tree[0];
       for (const [page, node] of Object.entries(this.pages)) node.hidden = page !== chosen.page;
+      for (const part of this.pages[chosen.page].querySelectorAll("[data-sub], [data-kind]")) part.hidden = sub !== null && (part.dataset.sub ?? part.dataset.kind) !== sub;
       this.rememberPage(chosen.page);
       const nodes = [];
       for (const c of tree) {
-        const cat = uiButton("settings-nav-cat", c.name, `Show the ${c.name} settings`, () => this.showPage(c.page));
-        cat.classList.toggle("on", c === chosen);
+        const cat = uiButton("settings-nav-cat", c.name, `Show every ${c.name} setting`, () => this.showPage(c.page));
+        cat.classList.toggle("on", c === chosen && sub === null);
         cat.setAttribute("aria-expanded", String(c === chosen));
         nodes.push(cat);
         if (c !== chosen) continue;
-        for (const [sub, label, before] of c.subs) {
-          nodes.push(uiButton("settings-nav-sub", label, `Go to ${label}`, () => {
-            before();
-            const target = this.pages[c.page].querySelector(`[data-sub="${sub}"], [data-kind="${sub}"]`);
-            if (target) target.scrollIntoView({ block: "start", behavior: "smooth" });
-          }));
+        for (const [key, label, before] of c.subs) {
+          const item = uiButton("settings-nav-sub", label, `Show only ${label}`, () => { before(); this.showPage(c.page, key); });
+          item.classList.toggle("on", key === sub);
+          nodes.push(item);
         }
       }
       this.nav.replaceChildren(...nodes);

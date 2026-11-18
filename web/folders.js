@@ -57,7 +57,7 @@ function extraRow(dir) {
 function defaultsSummary(defaults) {
   const labels = (defaults || []).map((d) => defaultLabel(d.scope));
   if (!labels.length) return "";
-  return `Also searched: ${labels.length > 1 ? `${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]}` : labels[0]} (see Default folders above).`;
+  return `Also searched: ${labels.length > 1 ? `${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]}` : labels[0]} (see Default folders).`;
 }
 
 function initiallyOpen(stored, states) {

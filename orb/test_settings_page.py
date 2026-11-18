@@ -130,8 +130,8 @@ def test_the_defaults_are_explained_once_and_each_section_only_says_which_apply(
 
     asyncio.run(run_page(tmp_path, [], act, server))
     assert seen["blocks"] == 1 and "Every repo" in seen["block"] and "Built in" in seen["block"]
-    assert seen["panel"] == seen["widget"] == "Also searched: Just this repo and Every repo (see Default folders above)."
-    assert seen["skin"] == seen["theme"] == "Also searched: Every repo and Built in (see Default folders above)."
+    assert seen["panel"] == seen["widget"] == "Also searched: Just this repo and Every repo (see Default folders)."
+    assert seen["skin"] == seen["theme"] == "Also searched: Every repo and Built in (see Default folders)."
     assert seen["rows"] == 0
 
 
