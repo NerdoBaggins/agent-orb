@@ -14,9 +14,9 @@ from typing import NamedTuple
 AGENTS = ("claude", "copilot")
 
 
-def normalized_root(repo_root: Path) -> str:
+def normalized_root(repo_root: Path, platform: str = sys.platform) -> str:
     text = str(Path(repo_root).resolve())
-    return text.casefold() if sys.platform == "win32" else text
+    return text.casefold() if platform == "win32" else text
 
 
 def repo_id(repo_root: Path) -> str:
