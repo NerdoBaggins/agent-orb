@@ -122,3 +122,36 @@ def test_the_mic_button_records_from_a_mousedown_that_comes_without_a_pointerdow
         await page.locator("#mic").dispatch_event("mousedown", {"button": 0, "buttons": 1})
 
     assert state_after(tmp_path, mousedown_only, listening) == RECORDING
+
+
+@pytest.mark.timeout(60)
+def test_a_mouseup_ends_a_recording_the_mic_button_started_from_a_mousedown(tmp_path):
+    async def mousedown_then_mouseup(page):
+        await page.locator("#mic").dispatch_event("mousedown", {"button": 0, "buttons": 1})
+        await page.wait_for_function("document.body.dataset.state === 'listening'", timeout=MIC_OPENS_S * 1000)
+        await page.evaluate("window.dispatchEvent(new MouseEvent('mouseup', { button: 0 }))")
+
+    seen = state_after(tmp_path, mousedown_then_mouseup, lambda server: server.state != "listening")
+    assert seen["recording"] is False and seen["starts"] == 1
+
+
+@pytest.mark.timeout(60)
+def test_a_mouseup_elsewhere_does_not_end_a_recording_held_with_the_key(tmp_path):
+    async def hold_key_then_mouseup(page):
+        await page.keyboard.down("Space")
+        await page.wait_for_function("document.body.dataset.state === 'listening'", timeout=MIC_OPENS_S * 1000)
+        await page.evaluate("document.body.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0 }))")
+
+    assert state_after(tmp_path, hold_key_then_mouseup, listening) == RECORDING
+
+
+@pytest.mark.timeout(60)
+def test_a_second_mic_press_after_a_failed_open_records_when_the_first_release_was_lost(tmp_path):
+    async def failed_open_then_press_again(page):
+        await page.evaluate(CONTROLLED_MIC)
+        await page.locator("#mic").dispatch_event("pointerdown", {"button": 0, "buttons": 1, "pointerId": 1})
+        await page.wait_for_function("window.opens.length > 0")
+        await page.evaluate("(async () => { opens[0].reject(new Error('gone')); await tick(); navigator.mediaDevices.getUserMedia = real; })()")
+        await page.locator("#mic").dispatch_event("mousedown", {"button": 0, "buttons": 1})
+
+    assert state_after(tmp_path, failed_open_then_press_again, listening) == RECORDING
