@@ -2,21 +2,18 @@
 orb.css for the orb's controls and panels.css for every panel. Discovery is the user's theme_dirs, then
 ~/.config/orb/themes/<name>/, then the plugin's built-ins; anything unknown or broken falls back to `default` with the reason kept."""
 import json
-import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from orb import PLUGIN_ROOT
 from orb.pages import PageError, folders_in, listing, plain_name, reachable_folder
-from orb.config import ConfigError, credential_keys, validate_types
+from orb.config import SAFE_CSS_VALUE, ConfigError, credential_keys, validate_types
 
 DEFAULT = "default"
 BUILTIN_DIR = PLUGIN_ROOT / "themes"
 # The tokens a theme may set, each written into both pages as --orb-<name>. The defaults live in web/orb.css and
 # web/panel.css, so a theme names only what it changes.
 TOKENS = ("stage", "bg", "surface", "fg", "dim", "accent", "line", "edge", "ok", "warn", "err", "font", "display", "mono")
-# A token value is written into a <style> block, so it may not close the declaration, the rule or the element.
-SAFE_VALUE = re.compile(r"^[^;{}<>\\]{1,200}$")
 SHEETS = ("orb.css", "panels.css")
 
 
@@ -64,7 +61,7 @@ def validate(folder: Path) -> Theme:
     for name, value in tokens.items():
         if name not in TOKENS:
             raise ThemeError(f"{manifest}: unknown token {name!r}; the tokens are {', '.join(TOKENS)}")
-        if not isinstance(value, str) or not SAFE_VALUE.match(value):
+        if not isinstance(value, str) or not SAFE_CSS_VALUE.match(value):
             raise ThemeError(f"{manifest}: token {name!r} must be a CSS value without ; {{ }} < > or \\")
     skin = data.get("skin")
     if skin is not None and not (isinstance(skin, str) and skin):
@@ -133,11 +130,20 @@ def select(name: str, home: Path, named: list[Path] = ()) -> Theme:
         return theme
 
 
+def root_rule(tokens: dict) -> str:
+    if not tokens:
+        return ""
+    return ":root { " + " ".join(f"--orb-{name}: {value};" for name, value in tokens.items()) + " }"
+
+
 def token_css(theme: Theme) -> str:
     """The theme's tokens as a :root rule, written after the page's own defaults so they win."""
-    if not theme.tokens:
-        return ""
-    return ":root { " + " ".join(f"--orb-{name}: {value};" for name, value in theme.tokens.items()) + " }"
+    return root_rule(theme.tokens)
+
+
+def look_css(look: dict) -> str:
+    """The user's changes to the base look, written before any theme's tokens so a theme still wins."""
+    return root_rule({key.replace("_", "-"): value for key, value in look.items()})
 
 
 def theme_file(theme: Theme, relative: str) -> Path | None:

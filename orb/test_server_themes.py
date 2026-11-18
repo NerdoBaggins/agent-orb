@@ -523,3 +523,57 @@ def test_the_page_poll_sends_a_skin_folder_added_while_the_orb_is_open_to_the_pi
             finally:
                 watcher.cancel()
     run(go())
+
+
+# ---- the base look ----
+
+def look_call(c, look=None):
+    if look is None:
+        return c.get("/settings/look", params={"token": TOKEN})
+    return c.post("/settings/look", params={"token": TOKEN}, json={"look": look})
+
+
+def test_the_look_is_written_before_the_themes_tokens_so_a_theme_still_wins(tmp_path):
+    hud(tmp_path)
+    choose(tmp_path, theme="hud")
+
+    async def go():
+        server = make(tmp_path)
+        async with await client_for(server) as c:
+            assert (await look_call(c, {"font": "Georgia", "text_size": 1.2})).status == 200
+            page = await (await c.get("/", params={"token": TOKEN})).text()
+            look = page.index("--orb-font: Georgia; --orb-text-size: 1.2;")
+            assert page.index("/static/orb.css") < look < page.index("--orb-accent: #00e5ff;")
+            await show(c, "chart")
+            assert "--orb-font: Georgia;" in await (await c.get(server.panel_url("chart"))).text()
+    run(go())
+
+
+def test_an_empty_look_resets_the_page_to_what_ships(tmp_path):
+    async def go():
+        server = make(tmp_path)
+        async with await client_for(server) as c:
+            await look_call(c, {"mono": "Menlo"})
+            assert (await (await look_call(c, {})).json())["look"] == {}
+            assert "orb-look" not in await (await c.get("/", params={"token": TOKEN})).text()
+    run(go())
+
+
+def test_a_look_the_config_would_refuse_is_refused_and_not_kept(tmp_path):
+    async def go():
+        server = make(tmp_path)
+        async with await client_for(server) as c:
+            assert (await look_call(c, {"font": "x}"})).status == 400
+            assert (await (await look_call(c)).json())["look"] == {}
+    run(go())
+
+
+def test_the_look_names_the_fonts_the_active_theme_sets_itself(tmp_path):
+    themed(tmp_path / "home", "serif", {"tokens": {"display": "Georgia", "accent": "#fff"}})
+    choose(tmp_path, theme="serif")
+
+    async def go():
+        server = make(tmp_path)
+        async with await client_for(server) as c:
+            assert (await (await look_call(c)).json())["theme_fonts"] == ["display"]
+    run(go())

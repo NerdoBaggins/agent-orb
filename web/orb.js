@@ -297,6 +297,9 @@
       case "theme":
         if (m.name !== themePicker.current) location.reload();  // the theme's stylesheets load with the page
         break;
+      case "look":
+        location.reload();  // the look's tokens load with the page and with every panel
+        break;
       case "skin_option":
         skinOptions.apply(m.option, m.value);
         break;
@@ -949,6 +952,75 @@
     },
   };
 
+  const LOOK_FONT_CHOICES = [
+    ["Courier New", '"Courier New", Courier, monospace'],
+    ["Georgia", 'Georgia, "Times New Roman", serif'],
+    ["Menlo / Consolas", 'Menlo, Consolas, "DejaVu Sans Mono", monospace'],
+    ["System UI", 'system-ui, -apple-system, "Segoe UI", sans-serif'],
+    ["Trebuchet MS", '"Trebuchet MS", Helvetica, sans-serif'],
+    ["Verdana", "Verdana, Geneva, sans-serif"],
+  ].sort(([a], [b]) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+  const LOOK_FONT_ROLES = [["font", "Text"], ["display", "Headings"], ["mono", "Code"]];
+  const TEXT_SIZE = { min: 0.8, max: 1.6, step: 0.1, normal: 1 };
+  const SHIPPED = "", OTHER = "other";
+
+  const lookUi = {
+    state: null,
+    async load() { this.state = await orbCall("/settings/look"); },
+    async change(look) {
+      try { this.state = await orbCall("/settings/look", { look }); } catch (e) { this.note.textContent = String(e.message || e); }
+    },
+    with(key, value) {
+      const look = { ...this.state.look };
+      if (value === SHIPPED || value === TEXT_SIZE.normal) delete look[key]; else look[key] = value;
+      return look;
+    },
+    fontRow(key, label) {
+      const current = this.state.look[key] ?? SHIPPED;
+      const known = LOOK_FONT_CHOICES.some(([, stack]) => stack === current);
+      const row = settingsUi.element("label", "look-row");
+      const pick = settingsUi.element("select", "look-font");
+      pick.append(new Option("as shipped", SHIPPED), ...LOOK_FONT_CHOICES.map(([name, stack]) => new Option(name, stack)), new Option("other…", OTHER));
+      pick.value = current === SHIPPED || known ? current : OTHER;
+      const typed = settingsUi.element("input", "look-font-other");
+      typed.placeholder = "a font name, as CSS writes it";
+      typed.value = known ? "" : current;
+      typed.hidden = pick.value !== OTHER;
+      pick.addEventListener("change", () => {
+        typed.hidden = pick.value !== OTHER;
+        if (pick.value === OTHER) typed.focus(); else this.change(this.with(key, pick.value));
+      });
+      typed.addEventListener("change", () => this.change(this.with(key, typed.value.trim())));
+      row.append(settingsUi.element("span", "look-label", label), pick, typed);
+      return row;
+    },
+    sizeRow() {
+      const size = this.state.look.text_size ?? TEXT_SIZE.normal;
+      const step = (by) => this.change(this.with("text_size", Math.round(Math.min(TEXT_SIZE.max, Math.max(TEXT_SIZE.min, size + by)) * 10) / 10));
+      const row = settingsUi.element("div", "look-row");
+      row.append(settingsUi.element("span", "look-label", "Text size"),
+        uiButton("look-step", "A−", "Smaller text in panels, widgets and the transcript", () => step(-TEXT_SIZE.step)),
+        settingsUi.element("span", "look-size", size === TEXT_SIZE.normal ? "normal" : `${Math.round(size * 100)}%`),
+        uiButton("look-step", "A+", "Larger text in panels, widgets and the transcript", () => step(TEXT_SIZE.step)));
+      return row;
+    },
+    group() {
+      const group = settingsUi.element("section", "settings-group");
+      group.append(settingsUi.element("h2", "settings-group-title", "Look"));
+      if (!this.state) return group;
+      const masked = this.state.theme_fonts.map((key) => LOOK_FONT_ROLES.find(([k]) => k === key)[1].toLowerCase());
+      if (masked.length) group.append(settingsUi.element("p", "settings-sec-purpose",
+        `The ${this.state.theme} theme sets its own fonts for ${masked.join(", ")}, so a font chosen here shows only under a theme that doesn't.`));
+      for (const [key, label] of LOOK_FONT_ROLES) group.append(this.fontRow(key, label));
+      group.append(this.sizeRow());
+      this.note = settingsUi.element("p", "settings-error");
+      const reset = uiButton("panel-folder", "reset to shipped", "Put back the fonts and text size the orb ships with", () => this.change({}));
+      reset.disabled = !Object.keys(this.state.look).length;
+      group.append(reset, this.note);
+      return group;
+    },
+  };
+
   const SETTINGS_OPEN_KEY = "orb-settings-open";
   const settingsUi = {
     states: null,
@@ -966,7 +1038,7 @@
     },
     async refresh() {
       try {
-        this.states = await orbCall("/settings/folders");
+        [this.states] = await Promise.all([orbCall("/settings/folders"), lookUi.load()]);
         this.error = "";
       } catch (e) {
         this.error = String(e.message || e);
@@ -1006,7 +1078,7 @@
       const group = this.element("section", "settings-group");
       group.append(this.element("h2", "settings-group-title", "Folders"), this.defaultsBlock());
       for (const def of FOLDER_SECTIONS) group.append(this.buildSection(def));
-      box.replaceChildren(top, group);
+      box.replaceChildren(top, lookUi.group(), group);
       for (const def of FOLDER_SECTIONS) this.setOpen(def.kind, this.open.has(def.kind), false);
     },
     defaultsBlock() {

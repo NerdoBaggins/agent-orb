@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from orb.config import (DEFAULTS, REPO_KEYS, SIZE_MAX, SIZE_MIN, SIZE_NORMAL, ConfigError, credential_keys, engine_settings,
-                        load, load_for, private_config_path, repo_config_path, save_skin_size, save_speed, save_widget,
+                        load, load_for, private_config_path, repo_config_path, save_look, save_skin_size, save_speed, save_widget,
                         size_for, speed_for, tts_settings_for, user_config_path)
 
 
@@ -424,3 +424,34 @@ def test_a_repos_file_cannot_add_a_command(tmp_path):
 def test_a_command_written_with_its_slash_is_refused(tmp_path):
     with pytest.raises(ConfigError, match="command names without the slash"):
         load_layers(tmp_path, user={"commands": ["/compact"]})
+
+
+# ---- look ----
+
+def test_a_look_font_that_would_close_its_style_rule_is_refused(tmp_path):
+    with pytest.raises(ConfigError, match="look.font"):
+        load_layers(tmp_path, private={"look": {"font": "Georgia; } body { display: none"}})
+
+
+@pytest.mark.parametrize("size", [0.7, 1.7, "big"])
+def test_a_look_text_size_outside_its_range_is_refused(tmp_path, size):
+    with pytest.raises(ConfigError, match="look.text_size"):
+        load_layers(tmp_path, private={"look": {"text_size": size}})
+
+
+def test_a_look_key_that_is_not_a_font_or_the_text_size_is_refused(tmp_path):
+    with pytest.raises(ConfigError, match="unknown key 'accent'"):
+        load_layers(tmp_path, private={"look": {"accent": "#fff"}})
+
+
+def test_a_repos_file_cannot_set_the_look(tmp_path):
+    config = load_layers(tmp_path, repo={"look": {"font": "Georgia"}})
+    assert config["look"] == {} and any("look ignored" in w for w in config.warnings)
+
+
+def test_saving_an_empty_look_removes_it_and_keeps_the_rest(tmp_path):
+    repo = tmp_path / "repo"
+    save_look(tmp_path, repo, {"font": "Georgia", "text_size": 1.2})
+    save_look(tmp_path, repo, {})
+    saved = json.loads(private_config_path(tmp_path, repo).read_text(encoding="utf-8"))
+    assert "look" not in saved

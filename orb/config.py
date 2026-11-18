@@ -31,15 +31,16 @@ DEFAULTS = {
     "widget_dirs": [],
     "widgets": {},
     "commands": ["compact", "context"],
+    "look": {},
 }
 TYPES = {"ptt_key": str, "skin": str, "skin_options": dict, "skin_sizes": dict, "speak": bool, "mute_key": str, "skin_key": str, "panels_key": str, "theme": str, "stt": dict, "tts": dict,
          "wake": dict, "capture": dict, "panel_dirs": list,
-         "theme_dirs": list, "skin_dirs": list, "widget_dirs": list, "widgets": dict, "commands": list}
+         "theme_dirs": list, "skin_dirs": list, "widget_dirs": list, "widgets": dict, "commands": list, "look": dict}
 FOLDER_KEYS = ("panel_dirs", "theme_dirs", "skin_dirs", "widget_dirs")
 REPO_KEYS = ("ptt_key", "mute_key", "skin_key", "panels_key", "speak")
 # How far a layer's value overlays the one beneath: a section merges per key, its blocks (one per engine, skin
 # or widget) merge per key, and anything inside a block replaces. A voice blend is one value, not a merge.
-MERGE_DEPTH = {"stt": 2, "tts": 2, "skin_options": 2, "skin_sizes": 1, "wake": 1, "capture": 1, "widgets": 2}
+MERGE_DEPTH = {"stt": 2, "tts": 2, "skin_options": 2, "skin_sizes": 1, "wake": 1, "capture": 1, "widgets": 2, "look": 1}
 WIDGET_PLACE_KEYS = ("x", "y", "width", "height")
 WIDGET_PANE_KEYS = ("pane_width", "pane_height")  # the orb pane's size when the widget was placed; its size scales from it
 
@@ -52,6 +53,10 @@ class WidgetEntry(TypedDict, total=False):
     height: float
     pane_width: float
     pane_height: float
+# A value written into a <style> block, so it may not close the declaration, the rule or the element.
+SAFE_CSS_VALUE = re.compile(r"^[^;{}<>\\]{1,200}$")
+LOOK_FONTS = ("font", "display", "mono")
+TEXT_SIZE_MIN, TEXT_SIZE_MAX, TEXT_SIZE_NORMAL = 0.8, 1.6, 1.0
 ENGINE_SECTIONS = ("stt", "tts")
 SECTION_KEYS = {"stt": ("engine",), "tts": ("engine", "speed")}
 LEGACY_TTS_KEYS = ("voice", "lang")  # the flat shape from before engine blocks: Kokoro's settings at the top
@@ -147,6 +152,7 @@ def validate_types(data: dict, label: str) -> None:
     for skin, size in data.get("skin_sizes", {}).items():
         if not _is_finite(size):
             raise ConfigError(f"{label} config: skin_sizes.{skin} must be a number, the orb's scale with that skin")
+    validate_look(data.get("look", {}), f"{label} config: look")
     for name, entry in data.get("widgets", {}).items():
         validate_widget_entry(entry, f"{label} config: widgets.{name}")
     for name in data.get("commands", []):
@@ -171,6 +177,29 @@ def validate_widget_entry(entry, at: str) -> None:
     for pair in (("x", "y"), ("width", "height"), WIDGET_PANE_KEYS):
         if (pair[0] in entry) != (pair[1] in entry):
             raise ConfigError(f"{at}: {pair[0]} and {pair[1]} go together; give both or neither")
+
+
+def validate_look(look: dict, at: str) -> None:
+    for key, value in look.items():
+        if key == "text_size":
+            if not _is_finite(value) or not TEXT_SIZE_MIN <= value <= TEXT_SIZE_MAX:
+                raise ConfigError(f"{at}.text_size must be a number from {TEXT_SIZE_MIN} to {TEXT_SIZE_MAX}")
+        elif key in LOOK_FONTS:
+            if not isinstance(value, str) or not SAFE_CSS_VALUE.match(value):
+                raise ConfigError(f"{at}.{key} must be a CSS font list without ; {{ }} < > or \\")
+        else:
+            raise ConfigError(f"{at}: unknown key {key!r}; the keys are {', '.join((*LOOK_FONTS, 'text_size'))}")
+
+
+def save_look(home: Path, repo_root: Path, look: dict) -> None:
+    """An empty look removes the key, so the orb is back to what it ships with."""
+    def update(data: dict) -> None:
+        if look:
+            data["look"] = look
+        else:
+            data.pop("look", None)
+
+    save_for_repo(home, repo_root, update)
 
 
 def lift_legacy_tts(data: dict, label: str, path: Path) -> list[str]:

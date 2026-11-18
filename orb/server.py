@@ -34,8 +34,8 @@ from orb.audio import SAMPLE_RATE, TAP_S, speakable, split_sentences
 from orb.clips import LOSSY_SHARE, gap_notice, lost_share
 from orb.capture import Capture, Ended, Frame
 from orb.side import side_intent, status_sentence
-from orb.config import (WIDGET_PANE_KEYS, WIDGET_PLACE_KEYS, ConfigError, WidgetEntry, clamp_size, clamp_speed, engine_settings, expand_dirs, load_for,
-                        overlay, save_for_repo, save_skin_size, save_speed, save_widget, size_for, speed_for, tts_settings_for, validate_widget_entry,
+from orb.config import (LOOK_FONTS, WIDGET_PANE_KEYS, WIDGET_PLACE_KEYS, ConfigError, WidgetEntry, clamp_size, clamp_speed, engine_settings, expand_dirs, load_for,
+                        overlay, save_for_repo, save_look, save_skin_size, save_speed, save_widget, size_for, speed_for, tts_settings_for, validate_look, validate_widget_entry,
                         widgets_on)
 from orb import waking
 from orb.engines import EngineError, Stt, Tts, Voiceprint
@@ -276,6 +276,7 @@ class OrbServer:
         self.theme_dirs = expand_dirs(self.config["theme_dirs"], home)
         self.theme = themes.select(self.config["theme"], home, self.theme_dirs)
         self.theme_note: str | None = None
+        self.look: dict = dict(self.config["look"])
         self.picker_lists = self.installed_pickers()
         self.app = web.Application(middlewares=[self.guard], client_max_size=PANEL_POST_MAX_BYTES)
         self.app.router.add_get("/", self.index)
@@ -289,6 +290,8 @@ class OrbServer:
         self.app.router.add_post("/settings/folders", self.settings_folders_change)
         self.app.router.add_post("/settings/reveal", self.settings_reveal)
         self.app.router.add_post("/settings/browse", self.settings_browse)
+        self.app.router.add_get("/settings/look", self.settings_look)
+        self.app.router.add_post("/settings/look", self.settings_look_change)
         self.app.router.add_post("/panel", self.panel_show)
         self.app.router.add_post("/panel/close", self.panel_close)
         self.app.router.add_post("/widget", self.widget_endpoint)
@@ -401,6 +404,26 @@ class OrbServer:
             return web.json_response(answer | ({"removed_index": removed_index} if removed_index is not None else {}))
         except pages.PageError as e:
             raise web.HTTPBadRequest(text=str(e))
+
+    def look_state(self) -> dict:
+        return {"look": self.look, "theme": self.theme.name, "theme_fonts": [key for key in LOOK_FONTS if key in self.theme.tokens]}
+
+    async def settings_look(self, request: web.Request) -> web.Response:
+        return web.json_response(self.look_state())
+
+    async def settings_look_change(self, request: web.Request) -> web.Response:
+        """Replaces the whole look; an empty one is the reset. Every page reloads, since the look loads with it."""
+        look = (await request.json()).get("look")
+        if not isinstance(look, dict):
+            raise web.HTTPBadRequest(text="send a look, an object of font, display, mono and text_size")
+        try:
+            validate_look(look, "look")
+        except ConfigError as e:
+            raise web.HTTPBadRequest(text=str(e))
+        self.look = look
+        await asyncio.to_thread(save_look, self.home, self.repo_root, look)
+        await self.broadcast({"type": "look"})
+        return web.json_response(self.look_state())
 
     async def reload_picker_dirs(self) -> None:
         config = await asyncio.to_thread(load_for, self.repo_root, self.home)
@@ -878,8 +901,8 @@ class OrbServer:
     def theme_tags(self, href: str, sheet: str) -> str:
         """After a page's default stylesheet: the theme's tokens, then its own sheet for that page, so both win over
         the default and anything the page itself styles later wins over them."""
-        css = themes.token_css(self.theme)
-        tags = f'<style id="orb-theme">{css}</style>' if css else ""
+        base, css = themes.look_css(self.look), themes.token_css(self.theme)
+        tags = (f'<style id="orb-look">{base}</style>' if base else "") + (f'<style id="orb-theme">{css}</style>' if css else "")
         if sheet in self.theme.sheets:
             tags += f'<link rel="stylesheet" href="{href}">'
         return tags
