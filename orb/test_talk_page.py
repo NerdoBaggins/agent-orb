@@ -155,3 +155,29 @@ def test_a_second_mic_press_after_a_failed_open_records_when_the_first_release_w
         await page.locator("#mic").dispatch_event("mousedown", {"button": 0, "buttons": 1})
 
     assert state_after(tmp_path, failed_open_then_press_again, listening) == RECORDING
+
+
+@pytest.mark.timeout(60)
+def test_a_mic_click_does_not_end_a_recording_held_with_the_key(tmp_path):
+    async def hold_key_then_click_mic(page):
+        await page.keyboard.down("Space")
+        await page.wait_for_function("document.body.dataset.state === 'listening'", timeout=MIC_OPENS_S * 1000)
+        await page.locator("#mic").hover()
+        await page.mouse.down()
+        await page.mouse.up()
+
+    assert state_after(tmp_path, hold_key_then_click_mic, listening) == RECORDING
+
+
+@pytest.mark.timeout(60)
+def test_a_mic_press_cut_short_by_a_blur_does_not_end_a_later_key_held_recording(tmp_path):
+    async def press_blur_then_hold_key_and_mouseup(page):
+        await page.locator("#mic").dispatch_event("mousedown", {"button": 0, "buttons": 1})
+        await page.wait_for_function("document.body.dataset.state === 'listening'", timeout=MIC_OPENS_S * 1000)
+        await page.evaluate("window.dispatchEvent(new Event('blur'))")
+        await page.wait_for_function("document.body.dataset.state !== 'listening'", timeout=MIC_OPENS_S * 1000)
+        await page.keyboard.down("Space")
+        await page.wait_for_function("document.body.dataset.state === 'listening'", timeout=MIC_OPENS_S * 1000)
+        await page.evaluate("window.dispatchEvent(new MouseEvent('mouseup', { button: 0 }))")
+
+    assert state_after(tmp_path, press_blur_then_hold_key_and_mouseup, listening)["recording"] is True
