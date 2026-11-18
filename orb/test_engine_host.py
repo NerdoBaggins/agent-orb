@@ -1,14 +1,15 @@
 import json
+import os
 import socket
 import threading
 
 import pytest
 
-from orb import engine_host
+from orb import engine_host, engine_registry, engine_wire, state
 from orb.engine_host import Host, Session, parse_attach
-from orb.engine_leases import Registry
+from orb.engine_registry import Registry
 from orb.engines import EngineError
-from orb.test_engine_leases import Clock
+from orb.test_engine_registry import Clock
 
 
 class FakeProcess:
@@ -51,11 +52,11 @@ def starter():
 
 @pytest.fixture
 def host(tmp_path, clock, starter):
-    return Host(tmp_path, Registry(clock, lease_ttl=20, grace=30, host_idle=10), starter, {"PATH": "/bin"})
+    return Host(tmp_path, Registry(clock, grace=120, host_idle=10), starter, {"PATH": "/bin"})
 
 
-def attach_message(kind="stt", name="fake", settings=None, env=None, voice=None, pid=1):
-    return {"op": "attach", "kind": kind, "name": name, "settings": settings or {}, "env": env or {}, "voice": voice,
+def attach_message(kind="stt", name="fake", settings=None, env=None, pid=1):
+    return {"op": "attach", "kind": kind, "name": name, "settings": settings or {}, "env": env or {},
             "owner": {"pid": pid, "repo": "/r", "agent": "claude"}}
 
 
@@ -83,30 +84,6 @@ def test_servers_whose_load_settings_differ_get_separate_processes(host, starter
     assert len(starter.started) == 2
 
 
-def test_servers_asking_for_different_voices_get_separate_processes(host, starter):
-    join(host)
-    join(host, voice="af_sky")
-    assert len(starter.started) == 2
-
-
-def test_a_server_that_asks_for_a_voice_has_it_set_before_it_is_attached(host, starter):
-    join(host, kind="tts", voice="af_sky")
-    assert processes(starter)[0].calls == [{"op": "voice", "id": "af_sky"}]
-
-
-def test_a_voice_the_engine_refuses_leaves_no_engine_running_and_says_why(host, starter):
-    original = starter.__call__
-
-    def refusing(kind, settings, home, env):
-        process = original(kind, settings, home, env)
-        process.fail = "no voice like that"
-        return process
-
-    host.start = refusing
-    _, reply = join(host, kind="tts", voice="nope")
-    assert reply == {"error": "no voice like that"} and processes(starter)[0].closed and host.listing(Session(), {})["engines"] == []
-
-
 def test_the_engine_gets_the_servers_credentials_on_top_of_the_hosts_environment(host, starter):
     join(host, env={"API_KEY": "k"})
     assert starter.started[0][2] == {"PATH": "/bin", "API_KEY": "k"}
@@ -129,15 +106,16 @@ def test_an_engine_kind_the_host_does_not_serve_is_refused(host, kind):
     assert "serves stt and tts engines" in reply["error"]
 
 
-@pytest.mark.parametrize("change", [{"name": 3}, {"settings": []}, {"env": {"A": 1}}, {"voice": 2}, {"owner": "me"}])
+@pytest.mark.parametrize("change", [{"name": 3}, {"settings": []}, {"env": {"A": 1}}, {"owner": "me"}])
 def test_a_malformed_attach_is_an_error_not_a_crash(host, change):
     reply = host.handle(Session(), {**attach_message(), **change})
     assert "error" in reply
 
 
-def test_a_connection_holds_one_lease(host):
+def test_a_second_attach_on_one_connection_is_refused_before_it_starts_an_engine(host, starter):
     session, _ = join(host)
-    assert "already holds a lease" in host.handle(session, attach_message())["error"]
+    assert "already attached" in host.handle(session, attach_message(name="other"))["error"]
+    assert len(starter.started) == 1
 
 
 def test_an_unknown_op_is_an_error(host):
@@ -145,20 +123,20 @@ def test_an_unknown_op_is_an_error(host):
 
 
 def test_parse_attach_keeps_what_the_key_is_made_of():
-    want = parse_attach(attach_message(settings={"a": 1}, voice="v"))
-    assert (want.key.kind, want.key.name, want.key.voice, want.settings) == ("stt", "fake", "v", {"a": 1})
+    want = parse_attach(attach_message(settings={"a": 1}))
+    assert (want.key.kind, want.key.name, want.settings) == ("stt", "fake", {"a": 1})
 
 
-# ---- leases, calls and grace ----
+# ---- connections, calls and grace ----
 
-def test_a_call_runs_on_the_engine_the_lease_is_on(host, starter):
+def test_a_call_runs_on_the_engine_the_connection_is_attached_to(host, starter):
     session, _ = join(host)
     reply = host.handle(session, {"op": "call", "request": {"op": "transcribe"}, "timeout": 5})
     assert reply == {"reply": {"echo": {"op": "transcribe"}}}
 
 
-def test_a_call_without_a_lease_is_refused_as_lapsed(host):
-    assert host.handle(Session(), {"op": "call", "request": {"op": "x"}, "timeout": 5})["gone"] is True
+def test_a_call_on_a_connection_that_has_not_attached_is_an_error(host):
+    assert "has not attached" in host.handle(Session(), {"op": "call", "request": {"op": "x"}, "timeout": 5})["error"]
 
 
 @pytest.mark.parametrize("message", [{"request": "x", "timeout": 5}, {"request": {}, "timeout": 0}, {"request": {}, "timeout": "soon"}])
@@ -167,7 +145,7 @@ def test_a_malformed_call_is_an_error(host, message):
     assert "error" in host.handle(session, {"op": "call", **message})
 
 
-def test_an_engine_error_is_passed_on_and_the_lease_stays_while_the_engine_lives(host, starter):
+def test_an_engine_error_is_passed_on_and_the_attachment_stays_while_the_engine_lives(host, starter):
     session, _ = join(host)
     processes(starter)[0].fail = "bad clip"
     assert host.handle(session, {"op": "call", "request": {"op": "x"}, "timeout": 5}) == {"error": "bad clip", "gone": False}
@@ -191,13 +169,13 @@ def test_the_next_attach_to_a_dead_engine_starts_a_new_one_and_closes_the_dead(h
 def test_a_failed_start_is_an_error_and_leaves_nothing_behind(host, starter):
     starter.fail = "fake stt was told to fail"
     session, reply = join(host)
-    assert reply == {"error": "fake stt was told to fail"} and session.lease is None and host.listing(session, {})["engines"] == []
+    assert reply == {"error": "fake stt was told to fail"} and session.key is None and host.listing(session, {})["engines"] == []
 
 
-def test_closing_the_last_connection_frees_the_lease_and_the_engine_stops_after_the_grace(host, starter, clock):
+def test_closing_the_last_connection_stops_the_engine_after_the_grace(host, starter, clock):
     session, _ = join(host)
     host.drop(session)
-    clock.advance(29)
+    clock.advance(119)
     host.sweep()
     assert not processes(starter)[0].closed
     clock.advance(1)
@@ -205,40 +183,13 @@ def test_closing_the_last_connection_frees_the_lease_and_the_engine_stops_after_
     assert processes(starter)[0].closed
 
 
-def test_the_engine_keeps_running_while_another_server_still_holds_a_lease(host, starter, clock):
+def test_the_engine_keeps_running_while_another_server_is_still_attached(host, starter, clock):
     first, _ = join(host)
     join(host)
     host.drop(first)
     clock.advance(1000)
     host.sweep()
     assert not processes(starter)[0].closed
-
-
-def test_a_server_that_stops_sending_heartbeats_loses_its_lease_and_the_engine_stops(host, starter, clock):
-    session, _ = join(host)
-    clock.advance(21)
-    host.sweep()
-    assert host.handle(session, {"op": "heartbeat"})["gone"] is True
-    clock.advance(30)
-    host.sweep()
-    assert processes(starter)[0].closed
-
-
-def test_heartbeats_keep_the_lease_and_the_engine(host, starter, clock):
-    session, _ = join(host)
-    for _ in range(10):
-        clock.advance(15)
-        assert host.handle(session, {"op": "heartbeat"}) == {"ok": True}
-        host.sweep()
-    assert not processes(starter)[0].closed
-
-
-def test_detach_releases_the_lease_at_once(host, starter, clock):
-    session, _ = join(host)
-    host.handle(session, {"op": "detach"})
-    clock.advance(30)
-    host.sweep()
-    assert processes(starter)[0].closed
 
 
 def test_the_listing_names_each_engine_and_the_servers_attached_to_it(host):
@@ -252,7 +203,7 @@ def test_the_listing_shows_the_grace_left_for_an_engine_nobody_uses(host, clock)
     session, _ = join(host)
     host.drop(session)
     clock.advance(10)
-    assert host.listing(Session(), {})["engines"][0]["grace_left"] == 20
+    assert host.listing(Session(), {})["engines"][0]["grace_left"] == 110
 
 
 # ---- the host's own life ----
@@ -378,6 +329,23 @@ def test_a_connection_that_gave_the_secret_may_then_stay_silent_past_the_first_m
     trusted.send({"op": "ping"})
     assert json.loads(trusted.client.recv(1024))["ok"] is True
     trusted.client.close()
+
+
+def test_the_host_never_reads_an_orbs_pid(host, wire, monkeypatch):
+    reads = []
+    for module in (state, engine_host, engine_registry, engine_wire):
+        monkeypatch.setattr(module, "pid_alive", lambda *args: reads.append(args), raising=False)
+    monkeypatch.setattr(os, "kill", lambda *args: reads.append(args))
+    wire.send({"op": "hello", "token": TOKEN})
+    assert wire.client.recv(1024) == b'{"ok": true}\n'
+    wire.send(attach_message(pid=4242))
+    assert "loaded" in json.loads(wire.client.recv(1024))
+    wire.client.close()
+    wire.thread.join(5)
+    other, _ = join(host, pid=4243)
+    host.drop(other)
+    assert not wire.thread.is_alive() and host.registry.owners == {}
+    assert reads == []
 
 
 def test_the_host_listens_on_the_loopback_interface_only():

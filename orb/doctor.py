@@ -110,13 +110,13 @@ def check_engine_host(home: Path) -> Check:
         return Check("engine host", False, str(e))
     if running is None:
         return Check("engine host", True, "not running; the first orb that needs a speech engine starts it")
-    orphans = engine_client.unleased(running)
+    orphans = engine_client.unowned(running)
     if orphans:
         names = ", ".join(f"{e['kind']} {e['name']} (pid {e['pid']})" for e in orphans)
         return Check("engine host", False, f"answers, but {names} has no server attached and no grace period running; "
                      "stop it with `kill <pid>` and report it")
-    leases = sum(len(e["owners"]) for e in running)
-    return Check("engine host", True, f"answers; {len(running)} engine(s), {leases} server(s) attached")
+    attached = sum(len(e["owners"]) for e in running)
+    return Check("engine host", True, f"answers; {len(running)} engine(s), {attached} server(s) attached")
 
 
 def check_theme_tts(theme: themes.Theme, home: Path) -> Check:

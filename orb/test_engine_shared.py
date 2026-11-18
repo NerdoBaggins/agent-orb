@@ -15,7 +15,7 @@ from orb.engines import EngineError, Stt, Tts, encode_pcm
 from orb.state import pid_alive, state_root
 from orb.test_engine_wire import make_copy
 
-FAST = ["--grace=1", "--lease-ttl=120", "--host-idle=1", "--tick=0.1"]
+FAST = ["--grace=1", "--host-idle=1", "--tick=0.1"]
 CLIP = np.zeros(1600, dtype=np.float32)
 OWNER = {"pid": 1, "repo": "/repo-a", "agent": "claude"}
 
@@ -82,8 +82,8 @@ def eventually(condition, seconds=30.0):
     return False
 
 
-def launcher(owner=OWNER, spawn=None, heartbeat_s=0.2, plugin_root=PLUGIN_ROOT):
-    return engine_client.launcher(owner, heartbeat_s, spawn or spawner(), plugin_root)
+def launcher(owner=OWNER, spawn=None, plugin_root=PLUGIN_ROOT):
+    return engine_client.launcher(owner, spawn or spawner(), plugin_root)
 
 
 def stt(home, launch, **settings):
@@ -166,15 +166,15 @@ import time
 from pathlib import Path
 from orb import engine_client
 from orb.engines import Stt
-launch = engine_client.launcher({"pid": 99, "repo": "/killed", "agent": "claude"}, 0.2)
-Stt(lambda name: {"engine": name or "fake", "text": "held"}, Path(sys.argv[1]), launch=launch)
+launch = engine_client.launcher({"pid": 99, "repo": "/killed", "agent": "claude"})
+server = Stt(lambda name: {"engine": name or "fake", "text": "held"}, Path(sys.argv[1]), launch=launch)
 print("attached", flush=True)
 time.sleep(600)
 """
 
 
-def test_a_server_killed_hard_loses_its_lease_and_the_engine_stops_when_it_was_the_last_user(home):
-    engine_client.open_link(home, PLUGIN_ROOT, spawner(["--grace=1", "--lease-ttl=120", "--host-idle=60", "--tick=0.1"])).close()
+def test_a_server_killed_hard_is_detached_and_the_engine_stops_when_it_was_the_last_user(home):
+    engine_client.open_link(home, PLUGIN_ROOT, spawner(["--grace=1", "--host-idle=60", "--tick=0.1"])).close()
     doomed = subprocess.Popen([sys.executable, "-c", KILLED_SERVER, str(home)], cwd=PLUGIN_ROOT, stdout=subprocess.PIPE, text=True)
     try:
         assert doomed.stdout.readline().strip() == "attached"
@@ -189,13 +189,18 @@ def test_a_server_killed_hard_loses_its_lease_and_the_engine_stops_when_it_was_t
         doomed.wait()
 
 
-def test_a_server_that_stays_connected_but_stops_heartbeating_loses_its_lease(home):
-    flags = ["--grace=60", "--lease-ttl=0.5", "--host-idle=60", "--tick=0.1"]
-    silent = stt(home, launcher(spawn=spawner(flags), heartbeat_s=3600), text="x")
-    assert eventually(lambda: owners_of(running(home)[0]) == [])
-    with pytest.raises(EngineError, match="lapsed"):
-        silent.process.call({"op": "transcribe", "pcm": encode_pcm(CLIP)})
-    assert silent.process.alive is False
+def test_kill_9_of_an_orb_removes_its_owner_within_2_s(home):
+    engine_client.open_link(home, PLUGIN_ROOT, spawner(["--grace=60", "--host-idle=60", "--tick=0.1"])).close()
+    doomed = subprocess.Popen([sys.executable, "-c", KILLED_SERVER, str(home)], cwd=PLUGIN_ROOT, stdout=subprocess.PIPE, text=True)
+    try:
+        assert doomed.stdout.readline().strip() == "attached"
+        assert owners_of(running(home)[0]) == [99]
+        hard_kill(doomed.pid)
+        doomed.wait()
+        assert eventually(lambda: running(home)[0]["owners"] == [], seconds=2.0)
+    finally:
+        doomed.kill()
+        doomed.wait()
 
 
 def test_an_engine_that_dies_is_reported_to_its_server_and_the_next_attach_starts_a_new_one(home):
@@ -255,15 +260,28 @@ def test_the_host_exits_when_no_engine_remains(home):
     assert host_of(home) is None
 
 
+def test_the_engine_closes_a_grace_after_its_last_owner_and_the_host_a_host_idle_after_its_last_engine(home):
+    server = stt(home, launcher(spawn=spawner(["--grace=2", "--host-idle=1", "--tick=0.1"])), text="x")
+    engine_pid, host_pid = running(home)[0]["pid"], host_of(home).pid
+    server.close()
+    closed = time.monotonic()
+    assert eventually(lambda: not pid_alive(engine_pid))
+    engine_closed = time.monotonic() - closed
+    assert eventually(lambda: host_gone(host_pid))
+    host_closed = time.monotonic() - closed - engine_closed
+    assert 1.0 <= engine_closed <= 3.0
+    assert 0.5 <= host_closed <= 2.0
+
+
 def test_a_second_host_started_while_one_runs_exits_and_leaves_the_first_serving(home):
-    stt(home, launcher(spawn=spawner(["--grace=60", "--lease-ttl=30", "--host-idle=60", "--tick=0.1"])), text="x")
+    stt(home, launcher(spawn=spawner(["--grace=60", "--host-idle=60", "--tick=0.1"])), text="x")
     first = host_of(home).pid
     second = subprocess.run([sys.executable, "-m", "orb.engine_host", f"--home={home}"], cwd=PLUGIN_ROOT, timeout=30, capture_output=True)
     assert second.returncode == 0 and host_of(home).pid == first
 
 
 def test_a_stale_record_from_a_host_that_died_is_replaced_by_a_new_host(home):
-    stt(home, launcher(spawn=spawner(["--grace=60", "--lease-ttl=30", "--host-idle=60", "--tick=0.1"])), text="x")
+    stt(home, launcher(spawn=spawner(["--grace=60", "--host-idle=60", "--tick=0.1"])), text="x")
     dead = host_of(home).pid
     hard_kill(dead)
     assert eventually(lambda: host_gone(dead))
@@ -279,14 +297,6 @@ def test_orb_engines_lists_each_engine_with_the_servers_attached(home, capsys):
     out = capsys.readouterr().out
     assert "stt fake" in out and "claude in /some/repo (server pid 4242)" in out
     server.close()
-
-
-def test_a_server_that_keeps_sending_heartbeats_keeps_its_lease_past_the_ttl(home):
-    flags = ["--grace=60", "--lease-ttl=0.5", "--host-idle=60", "--tick=0.1"]
-    steady = stt(home, launcher(spawn=spawner(flags), heartbeat_s=0.1), text="x")
-    time.sleep(2.0)
-    assert owners_of(running(home)[0]) == [1] and steady.transcribe(CLIP) == "x"
-    steady.close()
 
 
 def attach(home, plugin_root, text, pid):
