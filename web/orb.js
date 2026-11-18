@@ -9,6 +9,7 @@
     state: "idle",
     level: 0,
     attached: false,
+    micLatched: false,
     voice: false,
     waiting: null,
     pttKey: "Space",
@@ -166,7 +167,7 @@
     const working = orb.state === "thinking";
     const stopping = busy && !working && orb.state !== "listening";
     mic.disabled = working ? !orb.voice : !busy && !((orb.attached || orb.enrolling) && orb.voice);
-    const label = working ? "hold to ask" : busy ? (orb.state === "listening" ? "release to send" : "stop") : "hold to talk";
+    const label = working ? "tap or hold to ask" : busy ? (orb.state === "listening" ? (orb.micLatched ? "tap to send" : "release to send") : "stop") : "tap or hold to talk";
     mic.innerHTML = stopping ? STOP_ICON : MIC_ICON;
     mic.title = label;
     mic.setAttribute("aria-label", label);
@@ -559,8 +560,15 @@
   setInterval(() => { if (orb.wake && !ptt.live()) ptt.ensure(); }, 3000);
 
   const mic = $("mic");
+  // A press shorter than this is a tap, as a trackpad sends it: the mic stays open until the next tap.
+  const TAP_MS = 350;
+  let pressedAt = 0;
   mic.addEventListener("pointerdown", (ev) => {
     ev.preventDefault();
+    const latched = orb.micLatched && ptt.wanted;
+    orb.micLatched = false;
+    if (latched) { ptt.release(); updateMic(); return; }
+    pressedAt = ev.timeStamp;
     if (orb.state === "idle" || orb.state === "thinking") { mic.setPointerCapture(ev.pointerId); ptt.hold(); }
     else if (orb.state !== "listening") stopNow();
   });
@@ -575,8 +583,11 @@
     player.stop();
     send({ type: "stop" });
   }
-  mic.addEventListener("pointerup", () => ptt.release());
-  mic.addEventListener("pointercancel", () => ptt.release());
+  mic.addEventListener("pointerup", (ev) => {
+    if (ptt.wanted && ev.timeStamp - pressedAt < TAP_MS) { orb.micLatched = true; updateMic(); }
+    else ptt.release();
+  });
+  mic.addEventListener("pointercancel", () => { orb.micLatched = false; ptt.release(); });
 
   function inTextField(target) {
     return target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
