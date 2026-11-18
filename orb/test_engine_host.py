@@ -1,7 +1,10 @@
+import json
+import socket
 import threading
 
 import pytest
 
+from orb import engine_host
 from orb.engine_host import Host, Session, parse_attach
 from orb.engine_leases import Registry
 from orb.engines import EngineError
@@ -311,3 +314,81 @@ def test_close_all_closes_every_engine(host, starter):
     join(host, settings={"a": 2})
     host.close_all()
     assert all(p.closed for p in processes(starter))
+
+
+# ---- stopping on request ----
+
+def test_a_stop_is_answered_and_the_host_is_told_to_exit(host):
+    assert host.handle(Session(), {"op": "stop"}) == {"ok": True} and host.stopping.is_set()
+
+
+def test_an_attach_after_a_stop_is_told_to_retry(host):
+    host.handle(Session(), {"op": "stop"})
+    assert join(host)[1] == {"closing": True}
+
+
+# ---- who may talk to the host ----
+
+TOKEN = "the-secret"
+
+
+class Wire:
+    """A client end joined to serve_connection running on a thread of its own."""
+
+    def __init__(self, host):
+        self.client, server = socket.socketpair()
+        self.client.settimeout(5)
+        self.thread = threading.Thread(target=engine_host.serve_connection, args=(host, server, TOKEN), daemon=True)
+        self.thread.start()
+
+    def send(self, message):
+        self.client.sendall((json.dumps(message) + "\n").encode("utf-8"))
+
+    def closes_without_reply(self):
+        return self.client.recv(1024) == b""
+
+
+@pytest.fixture
+def wire(host):
+    wire = Wire(host)
+    yield wire
+    wire.client.close()
+
+
+@pytest.mark.parametrize("op", ["attach", "ready", "call", "list", "ping", "stop"])
+@pytest.mark.parametrize("first", [{}, {"token": "not-the-secret"}, {"token": 7}], ids=["no secret", "wrong secret", "secret that is not text"])
+def test_a_first_message_that_is_not_the_secret_is_closed_with_no_reply_for_every_op(host, wire, op, first):
+    wire.send({"op": op, **first})
+    assert wire.closes_without_reply() and not host.stopping.is_set()
+
+
+def test_a_connection_that_sends_nothing_is_closed_after_5_s(host, monkeypatch):
+    monkeypatch.setattr(engine_host, "FIRST_MESSAGE_TIMEOUT_S", 0.2)
+    silent = Wire(host)
+    assert silent.closes_without_reply()
+    silent.client.close()
+
+
+def test_a_connection_that_gave_the_secret_may_then_stay_silent_past_the_first_message_limit(host, monkeypatch):
+    monkeypatch.setattr(engine_host, "FIRST_MESSAGE_TIMEOUT_S", 0.2)
+    trusted = Wire(host)
+    trusted.send({"op": "hello", "token": TOKEN})
+    assert trusted.client.recv(1024) == b'{"ok": true}\n'
+    threading.Event().wait(0.6)
+    trusted.send({"op": "ping"})
+    assert json.loads(trusted.client.recv(1024))["ok"] is True
+    trusted.client.close()
+
+
+def test_the_host_listens_on_the_loopback_interface_only():
+    listener, record = engine_host.listen("1.0.0")
+    try:
+        assert listener.getsockname()[0] == "127.0.0.1" and record.port == listener.getsockname()[1]
+    finally:
+        listener.close()
+
+
+def test_a_listening_host_records_the_version_it_started_from():
+    listener, record = engine_host.listen("1.2.3")
+    listener.close()
+    assert record.version == "1.2.3"

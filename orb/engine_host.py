@@ -15,13 +15,14 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from orb import engine_wire, engines, logs
+from orb import PLUGIN_ROOT, engine_wire, engines, logs
 from orb.engine_leases import GRACE_S, HOST_IDLE_S, LEASE_TTL_S, Key, Registry, make_key
 from orb.engines import CALL_TIMEOUT_S, EngineError
 
 log = logging.getLogger("orb")
 SHARED_KINDS = ("stt", "tts")
 TICK_S = 1.0
+FIRST_MESSAGE_TIMEOUT_S = 5.0
 GONE = {"error": "this server's lease on the engine has lapsed", "gone": True}
 
 
@@ -60,11 +61,12 @@ class Host:
         self.key_locks: dict[Key, threading.Lock] = {}
         self.pending = 0
         self.closing = False
+        self.stopping = threading.Event()
 
     def handle(self, session: Session, message: dict) -> dict:
         op = message.get("op")
         handler = {"attach": self.attach, "call": self.call, "heartbeat": self.heartbeat, "detach": self.detach,
-                   "list": self.listing, "ping": self.ping}.get(op)
+                   "list": self.listing, "ping": self.ping, "stop": self.stop}.get(op)
         if handler is None:
             return {"error": f"unknown op {op!r}"}
         try:
@@ -74,6 +76,12 @@ class Host:
 
     def ping(self, session: Session, message: dict) -> dict:
         return {"ok": True, "pid": os.getpid()}
+
+    def stop(self, session: Session, message: dict) -> dict:
+        with self.lock:
+            self.closing = True
+        self.stopping.set()
+        return {"ok": True}
 
     def attach(self, session: Session, message: dict) -> dict:
         if session.lease is not None:
@@ -192,10 +200,12 @@ def serve_connection(host: Host, conn: socket.socket, token: str) -> None:
     session = Session()
     reader = conn.makefile("rb")
     try:
+        conn.settimeout(FIRST_MESSAGE_TIMEOUT_S)
         hello = json.loads(reader.readline() or "null")
         sent = hello.get("token") if isinstance(hello, dict) else None
         if not isinstance(sent, str) or not hmac.compare_digest(sent, token):
             return
+        conn.settimeout(None)
         conn.sendall(b'{"ok": true}\n')
         for line in reader:
             message = json.loads(line)
@@ -218,47 +228,34 @@ def accept_loop(host: Host, listener: socket.socket, token: str, stopping: threa
             continue
         except OSError:
             return
-        conn.settimeout(None)
         threading.Thread(target=serve_connection, args=(host, conn, token), daemon=True).start()
 
 
-def listen(home: Path) -> tuple[socket.socket, engine_wire.HostRecord]:
-    path = engine_wire.socket_file(home)
-    token = secrets.token_urlsafe(24)
-    if engine_wire.choose_transport(path) == "unix":
-        path.unlink(missing_ok=True)
-        listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        listener.bind(str(path))
-        os.chmod(path, 0o600)
-        address = str(path)
-    else:
-        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        listener.bind(("127.0.0.1", 0))
-        address = listener.getsockname()[1]
+def listen(version: str | None) -> tuple[socket.socket, engine_wire.HostRecord]:
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.bind(("127.0.0.1", 0))
     listener.listen()
-    return listener, engine_wire.HostRecord("unix" if isinstance(address, str) else "tcp", address, token, os.getpid())
+    return listener, engine_wire.HostRecord(listener.getsockname()[1], secrets.token_urlsafe(24), os.getpid(), version)
 
 
-def run(home: Path, registry: Registry, tick: float = TICK_S) -> int:
-    lock = engine_wire.hold_lock(engine_wire.lock_file(home))
+def run(home: Path, host_identity: str, version: str | None, registry: Registry, tick: float = TICK_S) -> int:
+    lock = engine_wire.hold_lock(engine_wire.lock_file(home, host_identity))
     if lock is None:
         return 0
-    host, stopping = Host(home, registry), threading.Event()
-    listener, record = listen(home)
-    engine_wire.write_record(home, record)
+    host = Host(home, registry)
+    listener, record = listen(version)
+    engine_wire.write_record(home, host_identity, record)
     for number in (signal.SIGTERM, signal.SIGINT):
-        signal.signal(number, lambda *_: stopping.set())
-    threading.Thread(target=accept_loop, args=(host, listener, record.token, stopping), daemon=True).start()
-    log.info("engine host listening on %s %s", record.transport, record.address)
+        signal.signal(number, lambda *_: host.stopping.set())
+    threading.Thread(target=accept_loop, args=(host, listener, record.token, host.stopping), daemon=True).start()
+    log.info("engine host listening on port %s", record.port)
     try:
-        while not stopping.wait(tick):
+        while not host.stopping.wait(tick):
             if host.sweep():
                 break
     finally:
-        engine_wire.remove_record(home, record.pid)
+        engine_wire.remove_record(home, host_identity, record.pid)
         listener.close()
-        if record.transport == "unix":
-            Path(record.address).unlink(missing_ok=True)
         host.close_all()
         log.info("engine host stopped")
         lock.close()
@@ -268,13 +265,15 @@ def run(home: Path, registry: Registry, tick: float = TICK_S) -> int:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--home", type=Path, default=Path.home())
+    parser.add_argument("--identity", default=engine_wire.identity(PLUGIN_ROOT), help=argparse.SUPPRESS)
+    parser.add_argument("--version", default=engine_wire.plugin_version(PLUGIN_ROOT), help=argparse.SUPPRESS)
     parser.add_argument("--grace", type=float, default=GRACE_S, help=argparse.SUPPRESS)
     parser.add_argument("--lease-ttl", type=float, default=LEASE_TTL_S, help=argparse.SUPPRESS)
     parser.add_argument("--host-idle", type=float, default=HOST_IDLE_S, help=argparse.SUPPRESS)
     parser.add_argument("--tick", type=float, default=TICK_S, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
-    logs.setup(engine_wire.log_file(args.home))
-    return run(args.home, Registry(time.monotonic, args.lease_ttl, args.grace, args.host_idle), args.tick)
+    logs.setup(engine_wire.log_file(args.home, args.identity))
+    return run(args.home, args.identity, args.version, Registry(time.monotonic, args.lease_ttl, args.grace, args.host_idle), args.tick)
 
 
 if __name__ == "__main__":

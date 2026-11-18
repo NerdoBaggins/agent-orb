@@ -19,21 +19,27 @@ HOST_START_WAIT_S = 30.0
 HOST_START_TRIES = 3
 ATTACH_TIMEOUT_S = LOAD_TIMEOUT_S + 30.0
 HEARTBEAT_TIMEOUT_S = 10.0
+START_LOCK_WAIT_S = 15.0
+HOST_STOP_WAIT_S = 10.0
 
 
-def host_command(home: Path) -> list[str]:
-    return ["uv", "run", "--project", str(PLUGIN_ROOT), "python", "-m", "orb.engine_host", f"--home={home}"]
+def host_command(home: Path, host_identity: str, version: str | None) -> list[str]:
+    command = ["uv", "run", "--project", str(PLUGIN_ROOT), "python", "-m", "orb.engine_host", f"--home={home}",
+               f"--identity={host_identity}"]
+    if version is not None:
+        command.append(f"--version={version}")
+    return command
 
 
-def spawn_host(home: Path) -> None:
-    engine_wire.log_file(home).parent.mkdir(parents=True, exist_ok=True)
+def spawn_host(home: Path, host_identity: str, version: str | None) -> None:
+    engine_wire.log_file(home, host_identity).parent.mkdir(parents=True, exist_ok=True)
     flags = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW} if sys.platform == "win32" else {"start_new_session": True}
-    subprocess.Popen(host_command(home), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                     cwd=str(PLUGIN_ROOT), **flags)
+    subprocess.Popen(host_command(home, host_identity, version), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL, cwd=str(PLUGIN_ROOT), **flags)
 
 
-def reach_host(home: Path) -> Link | None:
-    record = engine_wire.read_record(home)
+def reach_host(home: Path, host_identity: str) -> Link | None:
+    record = engine_wire.read_record(home, host_identity)
     if record is None:
         return None
     try:
@@ -42,19 +48,54 @@ def reach_host(home: Path) -> Link | None:
         return None
 
 
-def open_link(home: Path, spawn=spawn_host, wait_s: float = HOST_START_WAIT_S) -> Link:
-    """A connection to the user's engine host, started if none is running."""
-    link = reach_host(home)
+def stop_host(home: Path, host_identity: str, record: engine_wire.HostRecord) -> None:
+    """Asks the recorded host to stop and returns once it has released its lifetime lock, which it does as it exits."""
+    try:
+        link = engine_wire.connect(record)
+        link.request({"op": "stop"}, HEARTBEAT_TIMEOUT_S)
+        link.close()
+    except WireError:
+        pass
+    gone = engine_wire.hold_lock(engine_wire.lock_file(home, host_identity), HOST_STOP_WAIT_S)
+    if gone is None:
+        raise EngineError(f"the engine host did not stop; see {engine_wire.log_file(home, host_identity)}")
+    gone.close()
+
+
+def replace_outdated_host(home: Path, host_identity: str, version: str) -> None:
+    """Stops the host recorded for this identity when it was started from another version. The record is read again
+    under the start lock, so an orb that lost the race to replace it finds the new host and leaves it alone."""
+    record = engine_wire.read_record(home, host_identity)
+    if record is None or record.version == version:
+        return
+    start_lock = engine_wire.hold_lock(engine_wire.start_lock_file(home, host_identity), START_LOCK_WAIT_S)
+    if start_lock is None:
+        raise EngineError(f"the engine host is being started by another orb; see {engine_wire.log_file(home, host_identity)}")
+    try:
+        record = engine_wire.read_record(home, host_identity)
+        if record is not None and record.version != version:
+            stop_host(home, host_identity, record)
+    finally:
+        start_lock.close()
+
+
+def open_link(home: Path, plugin_root: Path, spawn=spawn_host, wait_s: float = HOST_START_WAIT_S) -> Link:
+    """A connection to the engine host of this plugin copy, started if none is running. A Copilot copy is updated in
+    place, so its host is replaced when it was started from another version than the one on disk now."""
+    host_identity, version = engine_wire.identity(plugin_root), engine_wire.plugin_version(plugin_root)
+    if engine_wire.copy_kind(plugin_root) is engine_wire.CopyKind.COPILOT:
+        replace_outdated_host(home, host_identity, version)
+    link = reach_host(home, host_identity)
     if link is not None:
         return link
-    spawn(home)
+    spawn(home, host_identity, version)
     deadline = time.monotonic() + wait_s
     while time.monotonic() < deadline:
-        link = reach_host(home)
+        link = reach_host(home, host_identity)
         if link is not None:
             return link
         time.sleep(0.05)
-    raise EngineError(f"the engine host did not start within {wait_s:.0f} s; see {engine_wire.log_file(home)}")
+    raise EngineError(f"the engine host did not start within {wait_s:.0f} s; see {engine_wire.log_file(home, host_identity)}")
 
 
 @dataclass(frozen=True)
@@ -69,6 +110,7 @@ class Attachment:
     owner: dict
     heartbeat_s: float = HEARTBEAT_S
     spawn: object = spawn_host
+    plugin_root: Path = PLUGIN_ROOT
 
 
 class RemoteEngine:
@@ -163,7 +205,7 @@ def take_lease(attachment: Attachment, voice: str | None) -> tuple[Link, dict]:
     message = {"op": "attach", "kind": attachment.kind, "name": attachment.name, "settings": attachment.settings,
                "env": attachment.env, "owner": attachment.owner, "voice": voice}
     for _ in range(HOST_START_TRIES):
-        link = open_link(attachment.home, attachment.spawn)
+        link = open_link(attachment.home, attachment.plugin_root, attachment.spawn)
         try:
             reply = link.request(message, ATTACH_TIMEOUT_S)
         except WireError as e:
@@ -175,17 +217,17 @@ def take_lease(attachment: Attachment, voice: str | None) -> tuple[Link, dict]:
             link.close()
             raise EngineError(reply["error"])
         return link, reply["loaded"]
-    raise EngineError(f"the engine host kept shutting down; see {engine_wire.log_file(attachment.home)}")
+    raise EngineError(f"the engine host kept shutting down; see {engine_wire.log_file(attachment.home, engine_wire.identity(attachment.plugin_root))}")
 
 
-def launcher(owner: dict, heartbeat_s: float = HEARTBEAT_S, spawn=spawn_host):
+def launcher(owner: dict, heartbeat_s: float = HEARTBEAT_S, spawn=spawn_host, plugin_root: Path = PLUGIN_ROOT):
     """A stand-in for engines.start that attaches to the shared engine instead of starting one."""
 
     def launch(kind: str, settings: dict, home: Path, env=os.environ) -> RemoteEngine:
         manifest = resolve(kind, settings, home, env)
         name = settings["engine"]
         attachment = Attachment(Path(home), kind, name, manifest, load_settings(kind, settings),
-                                {var: env[var] for var in manifest.env}, owner, heartbeat_s, spawn)
+                                {var: env[var] for var in manifest.env}, owner, heartbeat_s, spawn, plugin_root)
         link, loaded = take_lease(attachment, None)
         return RemoteEngine(attachment, link, loaded, None)
 
@@ -196,14 +238,15 @@ class HostDown(Exception):
     pass
 
 
-def running_engines(home: Path) -> list[dict] | None:
-    """What the engine host is running, or None when no host is. A host recorded alive that does not answer raises HostDown."""
-    record = engine_wire.read_record(home)
+def running_engines(home: Path, plugin_root: Path = PLUGIN_ROOT) -> list[dict] | None:
+    """What this plugin copy's engine host is running, or None when no host is. A host recorded alive that does not answer raises HostDown."""
+    host_identity = engine_wire.identity(plugin_root)
+    record = engine_wire.read_record(home, host_identity)
     if record is None or not pid_alive(record.pid):
         return None
-    link = reach_host(home)
+    link = reach_host(home, host_identity)
     if link is None:
-        raise HostDown(f"the engine host (pid {record.pid}) is recorded but does not answer; see {engine_wire.log_file(home)}")
+        raise HostDown(f"the engine host (pid {record.pid}) is recorded but does not answer; see {engine_wire.log_file(home, host_identity)}")
     try:
         return link.request({"op": "list"}, HEARTBEAT_TIMEOUT_S)["engines"]
     except (WireError, KeyError) as e:
