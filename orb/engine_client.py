@@ -10,7 +10,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from orb import PLUGIN_ROOT, engine_wire
-from orb.engine_leases import HEARTBEAT_S
 from orb.engine_wire import Link, WireError
 from orb.state import pid_alive
 from orb.engines import CALL_TIMEOUT_S, LOAD_TIMEOUT_S, EngineError, Manifest, load_settings, resolve
@@ -18,7 +17,7 @@ from orb.engines import CALL_TIMEOUT_S, LOAD_TIMEOUT_S, EngineError, Manifest, l
 HOST_START_WAIT_S = 30.0
 HOST_START_TRIES = 3
 ATTACH_TIMEOUT_S = LOAD_TIMEOUT_S + 30.0
-HEARTBEAT_TIMEOUT_S = 10.0
+SHORT_TIMEOUT_S = 10.0
 START_LOCK_WAIT_S = 15.0
 HOST_STOP_WAIT_S = 10.0
 
@@ -52,7 +51,7 @@ def stop_host(home: Path, host_identity: str, record: engine_wire.HostRecord) ->
     """Asks the recorded host to stop and returns once it has released its lifetime lock, which it does as it exits."""
     try:
         link = engine_wire.connect(record)
-        link.request({"op": "stop"}, HEARTBEAT_TIMEOUT_S)
+        link.request({"op": "stop"}, SHORT_TIMEOUT_S)
         link.close()
     except WireError:
         pass
@@ -108,20 +107,17 @@ class Attachment:
     settings: dict
     env: dict
     owner: dict
-    heartbeat_s: float = HEARTBEAT_S
     spawn: object = spawn_host
     plugin_root: Path = PLUGIN_ROOT
 
 
 class RemoteEngine:
-    """An attachment to a shared engine: a connection holding one lease, kept alive by a heartbeat thread."""
+    """An attachment to a shared engine: it lasts as long as the connection stays open."""
 
-    def __init__(self, attachment: Attachment, link: Link, loaded: dict, voice: str | None):
-        self.attachment, self.link, self.loaded, self.voice = attachment, link, loaded, voice
+    def __init__(self, attachment: Attachment, link: Link, loaded: dict):
+        self.attachment, self.link, self.loaded = attachment, link, loaded
         self.manifest = attachment.manifest
         self.lock = threading.Lock()
-        self.stopped = threading.Event()
-        threading.Thread(target=self._heartbeats, daemon=True).start()
 
     @property
     def label(self) -> str:
@@ -131,33 +127,12 @@ class RemoteEngine:
     def alive(self) -> bool:
         return self.link is not None
 
-    def _heartbeats(self) -> None:
-        while not self.stopped.wait(self.attachment.heartbeat_s):
-            if not self.lock.acquire(blocking=False):
-                continue
-            try:
-                if self.link is None:
-                    return
-                try:
-                    reply = self.link.request({"op": "heartbeat"}, HEARTBEAT_TIMEOUT_S)
-                except WireError:
-                    self._release()
-                    return
-                if reply.get("gone"):
-                    self._release()
-                    return
-            finally:
-                self.lock.release()
-
     def _release(self) -> None:
         link, self.link = self.link, None
-        self.stopped.set()
         if link is not None:
             link.close()
 
     def call(self, request: dict, timeout: float = CALL_TIMEOUT_S) -> dict:
-        if request["op"] == "voice":
-            return self._switch_voice(request["id"])
         with self.lock:
             if self.link is None:
                 raise EngineError(f"{self.label} is no longer attached to the engine host")
@@ -172,38 +147,13 @@ class RemoteEngine:
             raise EngineError(reply["error"])
         return reply["reply"]
 
-    def _switch_voice(self, voice: str) -> dict:
-        """The voice is part of which process this server uses, so the others sharing the old one keep theirs."""
-        link, _ = take_lease(self.attachment, voice)
-        with self.lock:
-            old = self.link
-            if old is not None:
-                self.link, self.voice = link, voice
-        if old is None:
-            link.close()
-            raise EngineError(f"{self.label} is no longer attached to the engine host")
-        detach(old)
-        return {"ok": True}
-
     def close(self) -> None:
-        with self.lock:
-            link, self.link = self.link, None
-            self.stopped.set()
-        if link is not None:
-            detach(link)
+        self._release()
 
 
-def detach(link: Link) -> None:
-    try:
-        link.request({"op": "detach"}, HEARTBEAT_TIMEOUT_S)
-    except WireError:
-        pass
-    link.close()
-
-
-def take_lease(attachment: Attachment, voice: str | None) -> tuple[Link, dict]:
+def attach(attachment: Attachment) -> tuple[Link, dict]:
     message = {"op": "attach", "kind": attachment.kind, "name": attachment.name, "settings": attachment.settings,
-               "env": attachment.env, "owner": attachment.owner, "voice": voice}
+               "env": attachment.env, "owner": attachment.owner}
     for _ in range(HOST_START_TRIES):
         link = open_link(attachment.home, attachment.plugin_root, attachment.spawn)
         try:
@@ -220,16 +170,16 @@ def take_lease(attachment: Attachment, voice: str | None) -> tuple[Link, dict]:
     raise EngineError(f"the engine host kept shutting down; see {engine_wire.log_file(attachment.home, engine_wire.identity(attachment.plugin_root))}")
 
 
-def launcher(owner: dict, heartbeat_s: float = HEARTBEAT_S, spawn=spawn_host, plugin_root: Path = PLUGIN_ROOT):
+def launcher(owner: dict, spawn=spawn_host, plugin_root: Path = PLUGIN_ROOT):
     """A stand-in for engines.start that attaches to the shared engine instead of starting one."""
 
     def launch(kind: str, settings: dict, home: Path, env=os.environ) -> RemoteEngine:
         manifest = resolve(kind, settings, home, env)
         name = settings["engine"]
         attachment = Attachment(Path(home), kind, name, manifest, load_settings(kind, settings),
-                                {var: env[var] for var in manifest.env}, owner, heartbeat_s, spawn, plugin_root)
-        link, loaded = take_lease(attachment, None)
-        return RemoteEngine(attachment, link, loaded, None)
+                                {var: env[var] for var in manifest.env}, owner, spawn, plugin_root)
+        link, loaded = attach(attachment)
+        return RemoteEngine(attachment, link, loaded)
 
     return launch
 
@@ -248,7 +198,7 @@ def running_engines(home: Path, plugin_root: Path = PLUGIN_ROOT) -> list[dict] |
     if link is None:
         raise HostDown(f"the engine host (pid {record.pid}) is recorded but does not answer; see {engine_wire.log_file(home, host_identity)}")
     try:
-        return link.request({"op": "list"}, HEARTBEAT_TIMEOUT_S)["engines"]
+        return link.request({"op": "list"}, SHORT_TIMEOUT_S)["engines"]
     except (WireError, KeyError) as e:
         raise HostDown(f"the engine host (pid {record.pid}) answered badly: {e}")
     finally:
@@ -257,15 +207,14 @@ def running_engines(home: Path, plugin_root: Path = PLUGIN_ROOT) -> list[dict] |
 
 def describe(running: list[dict]) -> list[str]:
     lines = []
-    for engine in sorted(running, key=lambda e: (e["kind"], e["name"], e["voice"] or "")):
-        voice = f", voice {engine['voice']}" if engine["voice"] else ""
+    for engine in sorted(running, key=lambda e: (e["kind"], e["name"])):
         owners = engine["owners"]
-        lines.append(f"{engine['kind']} {engine['name']}{voice}  engine pid {engine['pid']}  "
+        lines.append(f"{engine['kind']} {engine['name']}  engine pid {engine['pid']}  "
                      + (f"{len(owners)} server{'s' if len(owners) != 1 else ''}" if owners else f"no servers, closes in {engine['grace_left']:.0f} s"))
         lines += [f"  {o['agent']} in {o['repo']} (server pid {o['pid']})" for o in sorted(owners, key=lambda o: (o["repo"], o["agent"]))]
     return lines
 
 
-def unleased(running: list[dict]) -> list[dict]:
+def unowned(running: list[dict]) -> list[dict]:
     """Engines no server uses and no grace period explains."""
     return [e for e in running if not e["owners"] and e["grace_left"] is None]

@@ -1,7 +1,7 @@
 """The engine host: one per user, owning the speech engine processes every orb server on the machine shares. A server
-attaches with a lease for the engine it needs and keeps it alive by heartbeat; the host starts the engine for the first
-lease on a key, closes it GRACE_S after the last one goes, and exits once no engine remains. Run as
-`python -m orb.engine_host`; servers start it on demand (orb.engine_client)."""
+attaches over its connection for the engine it needs and is attached for as long as the connection is open; the host
+starts the engine for the first connection on a key, closes it GRACE_S after the last one ends, and exits once no engine
+remains. Run as `python -m orb.engine_host`; servers start it on demand (orb.engine_client)."""
 import argparse
 import hmac
 import json
@@ -16,19 +16,18 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from orb import PLUGIN_ROOT, engine_wire, engines, logs
-from orb.engine_leases import GRACE_S, HOST_IDLE_S, LEASE_TTL_S, Key, Registry, make_key
+from orb.engine_registry import GRACE_S, HOST_IDLE_S, Key, Registry, make_key
 from orb.engines import CALL_TIMEOUT_S, EngineError
 
 log = logging.getLogger("orb")
 SHARED_KINDS = ("stt", "tts")
 TICK_S = 1.0
 FIRST_MESSAGE_TIMEOUT_S = 5.0
-GONE = {"error": "this server's lease on the engine has lapsed", "gone": True}
 
 
-@dataclass
+@dataclass(eq=False)
 class Session:
-    lease: str | None = None
+    key: Key | None = None
 
 
 @dataclass(frozen=True)
@@ -37,20 +36,17 @@ class Attach:
     settings: dict
     env: dict
     owner: dict
-    voice: str | None
 
 
 def parse_attach(message: dict) -> Attach:
-    kind, name, settings, env, owner, voice = (message.get(k) for k in ("kind", "name", "settings", "env", "owner", "voice"))
+    kind, name, settings, env, owner = (message.get(k) for k in ("kind", "name", "settings", "env", "owner"))
     if kind not in SHARED_KINDS:
         raise ValueError(f"the engine host serves {' and '.join(SHARED_KINDS)} engines, not {kind!r}")
     if not isinstance(name, str) or not isinstance(settings, dict) or not isinstance(owner, dict):
         raise ValueError("attach needs a name, settings and an owner")
     if not isinstance(env, dict) or not all(isinstance(v, str) for v in env.values()):
         raise ValueError("attach env must map names to strings")
-    if voice is not None and not isinstance(voice, str):
-        raise ValueError("attach voice must be a string")
-    return Attach(make_key(kind, name, settings, env, voice), settings, env, owner, voice)
+    return Attach(make_key(kind, name, settings, env), settings, env, owner)
 
 
 class Host:
@@ -65,8 +61,7 @@ class Host:
 
     def handle(self, session: Session, message: dict) -> dict:
         op = message.get("op")
-        handler = {"attach": self.attach, "call": self.call, "heartbeat": self.heartbeat, "detach": self.detach,
-                   "list": self.listing, "ping": self.ping, "stop": self.stop}.get(op)
+        handler = {"attach": self.attach, "call": self.call, "list": self.listing, "ping": self.ping, "stop": self.stop}.get(op)
         if handler is None:
             return {"error": f"unknown op {op!r}"}
         try:
@@ -84,8 +79,8 @@ class Host:
         return {"ok": True}
 
     def attach(self, session: Session, message: dict) -> dict:
-        if session.lease is not None:
-            raise ValueError("this connection already holds a lease")
+        if session.key is not None:
+            raise ValueError("this connection is already attached")
         want = parse_attach(message)
         with self.lock:
             if self.closing:
@@ -104,7 +99,7 @@ class Host:
         with self.lock:
             process = self.processes.get(want.key)
             if process is not None and process.alive:
-                return self._lease(session, want, process)
+                return self._attach_session(session, want, process)
             stale = self.processes.pop(want.key, None)
         if stale is not None:
             stale.close()
@@ -114,72 +109,51 @@ class Host:
             return {"error": str(e)}
         with self.lock:
             self.processes[want.key] = process
-            return self._lease(session, want, process)
+            return self._attach_session(session, want, process)
 
     def _start(self, want: Attach) -> engines.EngineProcess:
         key = want.key
         process = self.start(key.kind, {"engine": key.name, **want.settings}, self.home, {**self.environ, **want.env})
-        if want.voice is not None:
-            try:
-                process.call({"op": "voice", "id": want.voice}, CALL_TIMEOUT_S)
-            except EngineError:
-                process.close()
-                raise
         log.info("started %s for pid %s", key.label, process.process.pid)
         return process
 
-    def _lease(self, session: Session, want: Attach, process: engines.EngineProcess) -> dict:
-        lease = secrets.token_hex(8)
-        self.registry.attach(lease, want.key, want.owner)
-        session.lease = lease
+    def _attach_session(self, session: Session, want: Attach, process: engines.EngineProcess) -> dict:
+        self.registry.attach(session, want.key, want.owner)
+        session.key = want.key
         log.info("%s attached to %s", want.owner, want.key.label)
-        return {"lease": lease, "loaded": process.loaded}
+        return {"loaded": process.loaded}
 
     def call(self, session: Session, message: dict) -> dict:
         request, timeout = message.get("request"), message.get("timeout", CALL_TIMEOUT_S)
         if not isinstance(request, dict) or not isinstance(timeout, (int, float)) or timeout <= 0:
             raise ValueError("call needs a request object and a positive timeout")
         with self.lock:
-            lease = self.registry.leases.get(session.lease) if session.lease else None
-            if lease is None or not self.registry.begin_call(session.lease):
-                return GONE
-            process = self.processes.get(lease.key)
+            if session.key is None:
+                return {"error": "this connection has not attached to an engine"}
+            process = self.processes.get(session.key)
         try:
             return {"reply": process.call(request, timeout)}
         except EngineError as e:
             return {"error": str(e), "gone": not process.alive}
-        finally:
-            with self.lock:
-                self.registry.end_call(session.lease)
-
-    def heartbeat(self, session: Session, message: dict) -> dict:
-        with self.lock:
-            return {"ok": True} if session.lease and self.registry.touch(session.lease) else GONE
-
-    def detach(self, session: Session, message: dict) -> dict:
-        self.drop(session)
-        return {"ok": True}
 
     def drop(self, session: Session) -> None:
         with self.lock:
-            if session.lease is not None:
-                self.registry.detach(session.lease)
-                log.info("lease %s released", session.lease)
-                session.lease = None
+            if session.key is not None:
+                self.registry.detach(session)
+                log.info("detached from %s", session.key.label)
+                session.key = None
 
     def listing(self, session: Session, message: dict) -> dict:
         with self.lock:
             return {"engines": [
-                {"kind": key.kind, "name": key.name, "voice": key.voice, "pid": process.process.pid, "alive": process.alive,
-                 "owners": [self.registry.leases[i].owner for i in self.registry.users(key)],
+                {"kind": key.kind, "name": key.name, "pid": process.process.pid, "alive": process.alive,
+                 "owners": [self.registry.owners[conn].owner for conn in self.registry.users(key)],
                  "grace_left": self.registry.grace_left(key)}
                 for key, process in self.processes.items()]}
 
     def sweep(self) -> bool:
-        """Drops lapsed leases and closes engines past their grace; True once the host has nothing left to serve."""
+        """Closes engines past their grace; True once the host has nothing left to serve."""
         with self.lock:
-            for lease in self.registry.expire():
-                log.warning("lease %s lapsed: its server stopped sending heartbeats", lease)
             due = [self.processes.pop(key) for key in self.registry.reap() if key in self.processes]
             done = self.registry.host_done() and not self.pending
             self.closing = self.closing or done
@@ -268,12 +242,11 @@ def main(argv=None) -> int:
     parser.add_argument("--identity", default=engine_wire.identity(PLUGIN_ROOT), help=argparse.SUPPRESS)
     parser.add_argument("--version", default=engine_wire.plugin_version(PLUGIN_ROOT), help=argparse.SUPPRESS)
     parser.add_argument("--grace", type=float, default=GRACE_S, help=argparse.SUPPRESS)
-    parser.add_argument("--lease-ttl", type=float, default=LEASE_TTL_S, help=argparse.SUPPRESS)
     parser.add_argument("--host-idle", type=float, default=HOST_IDLE_S, help=argparse.SUPPRESS)
     parser.add_argument("--tick", type=float, default=TICK_S, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
     logs.setup(engine_wire.log_file(args.home, args.identity))
-    return run(args.home, args.identity, args.version, Registry(time.monotonic, args.lease_ttl, args.grace, args.host_idle), args.tick)
+    return run(args.home, args.identity, args.version, Registry(time.monotonic, args.grace, args.host_idle), args.tick)
 
 
 if __name__ == "__main__":
