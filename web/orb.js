@@ -557,8 +557,8 @@
   let pressing = false;
   function micPress(ev) {
     ev.preventDefault();
-    pressing = true;
     if (orb.state === "idle" || orb.state === "thinking") {
+      pressing = true;
       if (ev.pointerId !== undefined) mic.setPointerCapture(ev.pointerId);
       ptt.hold();
     } else if (orb.state !== "listening") stopNow();
@@ -606,7 +606,7 @@
     ptt.keyDown = false;
     ptt.release();
   });
-  addEventListener("blur", () => { ptt.keyDown = false; ptt.release(); });
+  addEventListener("blur", () => { ptt.keyDown = false; pressing = false; ptt.release(); });
 
   // ---- panels ----
 
