@@ -14,12 +14,17 @@ def test_target_recognises_claude_images():
     assert not Target(1, r"C:\Windows\explorer.exe").looks_like_claude()
 
 
-def test_target_recognises_claude_renamed_by_its_windows_self_update():
-    assert Target(1, r"C:\Users\x\.local\bin\claude.exe.old.1794278772170.10880").looks_like_claude()
+@pytest.mark.parametrize("image", [r"C:\Users\x\.local\bin\claude.exe.old.1794278772170.10880",
+                                   r"C:\Users\x\.local\bin\CLAUDE.EXE.OLD.1794278772170.10880"])
+def test_target_recognises_claude_renamed_by_its_windows_self_update(image):
+    assert Target(1, image).looks_like_claude()
 
 
 @pytest.mark.parametrize("image", ["claude.exe.old", "claude.exe.old.1", "claude.exe.old.1.2.evil.exe",
-                                   "notclaude.exe.old.1.2", "claude.exe.bak", "node.exe.old.1.2"])
+                                   "notclaude.exe.old.1.2", "claude.exe.bak.1.2", "node.exe.old.1.2",
+                                   "claude.exe.old.a.b", "claude.exe.old.١.٢", "claudeXexe.old.1.2",
+                                   "claude.exeXold.1.2", "claude.exe.oldX1.2", "claude.exe.old.1X2",
+                                   "claude.exe.old..", "claude.exe.old.1."])
 def test_target_refuses_names_only_resembling_the_self_update_rename(image):
     assert not Target(1, image).looks_like_claude()
 

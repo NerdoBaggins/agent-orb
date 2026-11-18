@@ -12,7 +12,7 @@ from pathlib import Path
 from orb import PLUGIN_ROOT
 
 CLAUDE_IMAGE_NAMES = ("claude.exe", "claude", "node", "node.exe", "bun", "bun.exe")
-WINDOWS_UPDATER_RENAMED_CLAUDE = re.compile(r"claude\.exe\.old\.\d+\.\d+", re.IGNORECASE)
+WINDOWS_UPDATER_RENAMED_CLAUDE = re.compile(r"claude\.exe\.old\.[0-9]+\.[0-9]+", re.IGNORECASE)
 
 
 @dataclass
