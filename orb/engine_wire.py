@@ -21,6 +21,14 @@ class WireError(Exception):
     pass
 
 
+class WireTimeout(WireError):
+    pass
+
+
+class WireBroken(WireError):
+    pass
+
+
 class CopyKind(Enum):
     CLAUDE_CODE = "a Claude Code copy"
     COPILOT = "a Copilot copy"
@@ -109,24 +117,29 @@ class Link:
         self.reader = sock.makefile("rb")
 
     def request(self, message: dict, timeout: float | None) -> dict:
+        """The reply, within `timeout` seconds of sending; WireTimeout when none came, WireBroken when the connection
+        ended or the host said something that is not a reply."""
         try:
             self.sock.settimeout(timeout)
             self.sock.sendall((json.dumps(message) + "\n").encode("utf-8"))
             line = self.reader.readline()
+        except TimeoutError:
+            self.close()
+            raise WireTimeout(f"the engine host did not answer within {timeout:g} s")
         except (OSError, ValueError) as e:
             self.close()
-            raise WireError(f"the engine host did not answer: {e}")
+            raise WireBroken(f"the engine host did not answer: {e}")
         if not line:
             self.close()
-            raise WireError("the engine host closed the connection")
+            raise WireBroken("the engine host closed the connection")
         try:
             reply = json.loads(line)
         except json.JSONDecodeError:
             self.close()
-            raise WireError("the engine host answered with something that is not JSON")
+            raise WireBroken("the engine host answered with something that is not JSON")
         if not isinstance(reply, dict):
             self.close()
-            raise WireError("the engine host answered with something that is not an object")
+            raise WireBroken("the engine host answered with something that is not an object")
         return reply
 
     def close(self) -> None:

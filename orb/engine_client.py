@@ -11,9 +11,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from orb import PLUGIN_ROOT, engine_wire
-from orb.engine_wire import Link, WireError
+from orb.engine_wire import Link, WireBroken, WireError, WireTimeout
 from orb.state import kill_pid, pid_alive
-from orb.engines import CALL_TIMEOUT_S, LOAD_TIMEOUT_S, EngineError, Manifest, load_settings, resolve
+from orb.engines import CALL_TIMEOUT_S, LOAD_TIMEOUT_S, EngineError, EngineTimeout, Manifest, load_settings, resolve
 
 HOST_START_WAIT_S = 10.0
 HOST_ANSWER_S = 5.0
@@ -23,6 +23,7 @@ ATTACH_TIMEOUT_S = 5.0
 SHORT_TIMEOUT_S = 10.0
 START_LOCK_WAIT_S = 15.0
 HOST_STOP_WAIT_S = 10.0
+HOST_REPLY_MARGIN_S = 5.0
 
 
 def host_command(uv: str, home: Path, host_identity: str, version: str | None) -> list[str]:
@@ -164,16 +165,23 @@ class RemoteEngine:
             link.close()
 
     def call(self, request: dict, timeout: float = CALL_TIMEOUT_S) -> dict:
+        """The engine's reply. The host answers within `timeout`, so the caller waits that long and HOST_REPLY_MARGIN_S
+        more. A connection that breaks is attached again and the call made once more, with its own `timeout`."""
         with self.lock:
-            if self.link is None:
-                raise EngineError(f"{self.label} is no longer attached to the engine host")
-            try:
-                reply = self.link.request({"op": "call", "request": request, "timeout": timeout}, None)
-            except WireError as e:
-                self._release()
-                raise EngineError(f"{self.label}: {e}")
-            if reply.get("gone"):
-                self._release()
+            for repeat in (False, True):
+                if self.link is None:
+                    raise EngineError(f"{self.label} is no longer attached to the engine host")
+                try:
+                    reply = self.link.request({"op": "call", "request": request, "timeout": timeout}, timeout + HOST_REPLY_MARGIN_S)
+                    break
+                except WireTimeout as e:
+                    self._release()
+                    raise EngineTimeout(f"{self.label}: {e}")
+                except WireBroken as e:
+                    self._release()
+                    if repeat:
+                        raise EngineError(f"{self.label}: {e}")
+                    self.link, self.loaded = attach(self.attachment)
         if "error" in reply:
             raise EngineError(reply["error"])
         return reply["reply"]

@@ -7,12 +7,13 @@ import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 
 import numpy as np
 import pytest
 
-from orb import PLUGIN_ROOT, engine_client, engine_wire
+from orb import PLUGIN_ROOT, engine_client, engine_wire, engines
 from orb.engines import EngineError, Stt, Tts, decode_pcm, encode_pcm
 from orb.state import pid_alive, state_root
 from orb.test_engine_wire import make_copy
@@ -206,19 +207,15 @@ def test_kill_9_of_an_orb_removes_its_owner_within_2_s(home):
         doomed.wait()
 
 
-def test_an_engine_that_dies_is_reported_to_its_server_and_the_next_attach_starts_a_new_one(home):
+def test_an_engine_that_dies_during_a_call_is_replaced_and_the_call_answered_by_the_replacement(home):
     launch = launcher()
     dying = launch("stt", {"engine": "fake", "die_after": 1}, home)
     pcm = {"op": "transcribe", "pcm": encode_pcm(CLIP)}
     dying.call(pcm)
-    first_pid = running(home)[0]["pid"]
-    with pytest.raises(EngineError, match="exited with code 3"):
-        dying.call(pcm)
-    assert dying.alive is False
-    replacement = launch("stt", {"engine": "fake", "die_after": 1}, home)
-    assert replacement.call(pcm)["text"] == "fake transcript"
-    assert running(home)[0]["pid"] != first_pid
-    replacement.close()
+    first_pid = dying.loaded["pid"]
+    assert dying.call(pcm)["text"] == "fake transcript"
+    assert dying.alive and dying.loaded["pid"] != first_pid and eventually(lambda: not pid_alive(first_pid))
+    dying.close()
 
 
 def test_an_engine_that_fails_to_load_is_an_error_to_the_server_and_leaves_no_engine_running(home):
@@ -521,6 +518,21 @@ def test_an_orb_started_after_a_copilot_copy_changes_version_replaces_its_host(h
     before.close()
 
 
+def test_an_orb_left_on_a_host_stopped_for_a_new_copilot_version_speaks_its_next_sentence_on_the_new_host(home, tmp_path):
+    copy = make_copy(tmp_path / "installed" / "agent-orb", "1.0.0")
+    before = attach(home, copy, "x", 1)
+    old = host_of(home, copy)
+    update_copilot_copy(copy, "1.1.0")
+    after = attach(home, copy, "x", 2)
+    assert eventually(lambda: host_gone(old.pid))
+    assert before.transcribe(CLIP) == "x"
+    assert (before.failures_in_a_row, before.failure, before.fallback_reason) == (0, None, None)
+    new = host_of(home, copy)
+    assert new.pid != old.pid and owners_of(running(home, copy)[0]) == [1, 2]
+    before.close()
+    after.close()
+
+
 def test_an_orb_opened_before_a_copilot_update_attaching_again_leaves_the_new_host_alone(home, tmp_path):
     copy = make_copy(tmp_path / "installed" / "agent-orb", "1.0.0")
     opened_before = launcher({**OWNER, "pid": 1}, plugin_root=copy)
@@ -533,3 +545,135 @@ def test_an_orb_opened_before_a_copilot_update_attaching_again_leaves_the_new_ho
     assert owners_of(running(home, copy)[0]) == [1, 2]
     for engine in (first, updated, again):
         engine.close()
+
+
+SLOW_FLAGS = ["--grace=60", "--host-idle=60", "--tick=0.1"]
+
+
+def copy_fake(home, kind, name):
+    """The built-in fake of `kind` under another name, so a test can select it and still have the default answer apart."""
+    folder = home / ".config" / "voice-engines" / kind / name
+    shutil.copytree(PLUGIN_ROOT / "engines" / kind / "fake", folder, ignore=shutil.ignore_patterns("__pycache__", "test_*.py"))
+    manifest = json.loads((folder / "engine.json").read_text(encoding="utf-8"))
+    (folder / "engine.json").write_text(json.dumps({**manifest, "name": name}), encoding="utf-8")
+
+
+def twin_tts(home, launch, name, **load):
+    """A tts on the engine `name`, which falls back to the plain fake, loaded without `load`."""
+    return Tts(lambda chosen: {"engine": name, **load} if chosen in (None, name) else {"engine": chosen},
+               lambda chosen: {"speed": 1.0}, home, launch=launch)
+
+
+def say(tts_engine, timeout):
+    return tts_engine.call(lambda chosen: {"op": "render", "text": "hi", **tts_engine.call_for(chosen)}, timeout)
+
+
+def lines_of(path):
+    return path.read_text(encoding="utf-8").split()
+
+
+def test_a_call_queued_behind_a_stuck_one_fails_one_limit_after_the_orb_sent_it_not_after_the_engine_took_it(home):
+    load = {"engine": "fake", "delay_s": 3.0}
+    busy, queued = launcher({**OWNER, "pid": 1}, spawner(SLOW_FLAGS))("tts", load, home), launcher({**OWNER, "pid": 2})("tts", load, home)
+    request = {"op": "render", "text": "hi"}
+    answers = []
+    working = threading.Thread(target=lambda: answers.append(busy.call(request, 30)))
+    working.start()
+    time.sleep(0.5)
+    engine_pid = busy.loaded["pid"]
+    sent = time.monotonic()
+    with pytest.raises(EngineError, match=r"^tts engine 'fake' did not answer within 2 s$"):
+        queued.call(request, 2)
+    waited = time.monotonic() - sent
+    working.join(30)
+    assert 1.9 <= waited < 3.0
+    assert len(answers) == 1 and pid_alive(engine_pid)
+    assert owners_of(running(home)[0]) == [1, 2]
+    busy.close()
+    queued.close()
+
+
+def test_a_timed_out_call_gets_its_caller_an_error_counts_one_failure_in_that_orb_and_leaves_the_queued_orb_answered_by_exactly_one_replacement_with_no_stand_in_and_no_failure(home, tmp_path, monkeypatch):
+    copy_fake(home, "tts", "stuck")
+    monkeypatch.setitem(engines.DEFAULT, "tts", "fake")
+    loads = tmp_path / "loads.txt"
+    load = {"hang_once": str(tmp_path / "marker"), "log_loads": str(loads)}
+    caller = twin_tts(home, launcher({**OWNER, "pid": 1}, spawner(SLOW_FLAGS)), "stuck", **load)
+    queued = twin_tts(home, launcher({**OWNER, "pid": 2}, spawner(SLOW_FLAGS)), "stuck", **load)
+    stuck_pid = int(lines_of(loads)[0])
+    replies = {}
+    threads = [threading.Thread(target=lambda: replies.update(caller=say(caller, 2)))]
+    threads[0].start()
+    time.sleep(0.5)
+    threads.append(threading.Thread(target=lambda: replies.update(queued=say(queued, 4))))
+    threads[1].start()
+    for thread in threads:
+        thread.join(60)
+    assert set(replies) == {"caller", "queued"} and replies["queued"]["rate"] == 8000
+    assert (caller.failures_in_a_row, caller.failure) == (1, "tts engine 'stuck' did not answer within 2 s; fake answered this one")
+    assert (queued.failures_in_a_row, queued.failure, queued.fallback_reason) == (0, None, None)
+    assert len(lines_of(loads)) == 2 and int(lines_of(loads)[1]) != stuck_pid and eventually(lambda: not pid_alive(stuck_pid), seconds=10)
+    caller.close()
+    queued.close()
+
+
+def test_kill_9_of_the_host_leaves_no_engine_six_seconds_later_and_the_next_call_succeeds_without_a_notice(home, monkeypatch):
+    copy_fake(home, "tts", "twin")
+    monkeypatch.setitem(engines.DEFAULT, "tts", "fake")
+    orb = twin_tts(home, launcher(spawn=spawner(SLOW_FLAGS)), "twin")
+    say(orb, 30)
+    engine_pid, host = orb.process.loaded["pid"], host_of(home).pid
+    hard_kill(host)
+    assert eventually(lambda: not pid_alive(engine_pid), seconds=6.0)
+    assert say(orb, 30)["rate"] == 8000
+    assert (orb.failures_in_a_row, orb.failure, orb.fallback_reason) == (0, None, None) and host_of(home).pid != host
+    orb.close()
+
+
+def test_an_engine_that_dies_between_calls_is_replaced_once_for_every_orb_on_it(home, tmp_path, monkeypatch):
+    copy_fake(home, "tts", "twin")
+    monkeypatch.setitem(engines.DEFAULT, "tts", "fake")
+    loads = tmp_path / "loads.txt"
+    orbs = [twin_tts(home, launcher({**OWNER, "pid": pid}, spawner(SLOW_FLAGS)), "twin", log_loads=str(loads)) for pid in (1, 2)]
+    for orb in orbs:
+        say(orb, 30)
+    hard_kill(orbs[0].process.loaded["pid"])
+    assert eventually(lambda: running(home) == [])
+    for orb in orbs:
+        say(orb, 30)
+    assert len(lines_of(loads)) == 2 and len(set(lines_of(loads))) == 2
+    assert [(orb.failures_in_a_row, orb.failure, orb.fallback_reason) for orb in orbs] == [(0, None, None)] * 2
+    assert owners_of(running(home)[0]) == [1, 2]
+    for orb in orbs:
+        orb.close()
+
+
+MID_CALL_SERVER = """
+import sys
+from pathlib import Path
+
+import numpy as np
+
+from orb import engine_client
+from orb.engines import Stt
+
+launch = engine_client.launcher({"pid": 98, "repo": "/killed", "agent": "claude"})
+server = Stt(lambda name: {"engine": name or "fake", "delay_s": 20}, Path(sys.argv[1]), launch=launch)
+print("attached", flush=True)
+server.transcribe(np.zeros(1600, dtype=np.float32))
+"""
+
+
+def test_an_orb_killed_during_its_own_call_is_removed_within_2_s(home):
+    engine_client.open_link(home, PLUGIN_ROOT, spawner(SLOW_FLAGS)).close()
+    doomed = subprocess.Popen([sys.executable, "-c", MID_CALL_SERVER, str(home)], cwd=PLUGIN_ROOT, stdout=subprocess.PIPE, text=True)
+    try:
+        assert doomed.stdout.readline().strip() == "attached"
+        assert eventually(lambda: owners_of(running(home)[0]) == [98])
+        time.sleep(0.5)
+        hard_kill(doomed.pid)
+        doomed.wait()
+        assert eventually(lambda: running(home)[0]["owners"] == [], seconds=2.0)
+    finally:
+        doomed.kill()
+        doomed.wait()

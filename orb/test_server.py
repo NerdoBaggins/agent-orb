@@ -1550,7 +1550,7 @@ def test_after_the_follow_up_window_speech_alone_does_nothing(tmp_path):
 
 class DeadWakeEngine(FakeWakeEngine):
     def score(self, frame):
-        raise EngineError("wake engine 'fake' gave no answer to 'frame' within 5 s")
+        raise EngineError("wake engine 'fake' did not answer within 5 s")
 
 
 def test_a_wake_engine_that_dies_is_started_again_from_the_config_and_the_window_stays_connected(tmp_path):
@@ -1585,7 +1585,7 @@ def test_a_wake_engine_that_cannot_be_started_again_turns_the_wake_word_off_and_
             await ws.receive_json()
             await ws.send_bytes(QUIET)
             message = await ws.receive_json()
-            assert message["type"] == "wake" and "gave no answer" in message["wake"]["reason"]
+            assert message["type"] == "wake" and "did not answer within 5 s" in message["wake"]["reason"]
             assert server.waker is None
             await ws.send_json({"type": "ptt_start"})
             await ws.send_bytes(pcm(0.5))

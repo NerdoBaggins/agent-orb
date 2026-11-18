@@ -1,11 +1,12 @@
 import json
+import socket
 import threading
 import time
 
 import pytest
 
 from orb import engine_wire
-from orb.engine_wire import CopyKind, HostRecord
+from orb.engine_wire import CopyKind, HostRecord, Link, WireBroken, WireTimeout
 
 
 def make_copy(root, version="1.0.0", git=None):
@@ -161,3 +162,50 @@ def test_a_lock_released_during_the_wait_is_taken(tmp_path):
     taken = engine_wire.hold_lock(tmp_path / "l", wait_s=10)
     assert taken is not None
     taken.close()
+
+
+# ---- one request on a connection ----
+
+@pytest.fixture
+def linked():
+    ours, host = socket.socketpair()
+    link = Link(ours)
+    yield link, host
+    link.close()
+    host.close()
+
+
+def test_a_request_is_answered_with_the_line_the_host_sends_back(linked):
+    link, host = linked
+    host.sendall(b'{"ok": true}\n')
+    assert link.request({"op": "ping"}, 5) == {"ok": True}
+    assert json.loads(host.recv(1024)) == {"op": "ping"}
+
+
+def test_a_request_the_host_does_not_answer_in_time_raises_a_timeout_and_closes_the_link(linked):
+    link, _ = linked
+    started = time.monotonic()
+    with pytest.raises(WireTimeout, match="did not answer within 0.3 s"):
+        link.request({"op": "ping"}, 0.3)
+    assert 0.3 <= time.monotonic() - started < 3.0
+    with pytest.raises(WireBroken):
+        link.request({"op": "ping"}, 0.3)
+
+
+def test_a_request_the_host_hangs_up_on_raises_broken(linked):
+    link, host = linked
+    host.close()
+    with pytest.raises(WireBroken):
+        link.request({"op": "ping"}, 5)
+
+
+@pytest.mark.parametrize("sent", [b"not json\n", b"[1]\n"])
+def test_a_reply_that_is_not_an_object_raises_broken(linked, sent):
+    link, host = linked
+    host.sendall(sent)
+    with pytest.raises(WireBroken, match="something that is not"):
+        link.request({"op": "ping"}, 5)
+
+
+def test_a_timeout_is_a_kind_of_wire_error_and_so_is_a_broken_connection():
+    assert issubclass(WireTimeout, engine_wire.WireError) and issubclass(WireBroken, engine_wire.WireError)
