@@ -2,6 +2,7 @@
 host's shared process instead of spawning its own. A RemoteEngine answers like an EngineProcess does, so the fallback
 and sticky-failure behaviour in engines.Engine stays per server."""
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -11,10 +12,12 @@ from pathlib import Path
 
 from orb import PLUGIN_ROOT, engine_wire
 from orb.engine_wire import Link, WireError
-from orb.state import pid_alive
+from orb.state import kill_pid, pid_alive
 from orb.engines import CALL_TIMEOUT_S, LOAD_TIMEOUT_S, EngineError, Manifest, load_settings, resolve
 
-HOST_START_WAIT_S = 30.0
+HOST_START_WAIT_S = 10.0
+HOST_ANSWER_S = 5.0
+HOST_RECORD_GONE_WAIT_S = 5.0
 HOST_START_TRIES = 3
 ATTACH_TIMEOUT_S = LOAD_TIMEOUT_S + 30.0
 SHORT_TIMEOUT_S = 10.0
@@ -22,8 +25,8 @@ START_LOCK_WAIT_S = 15.0
 HOST_STOP_WAIT_S = 10.0
 
 
-def host_command(home: Path, host_identity: str, version: str | None) -> list[str]:
-    command = ["uv", "run", "--project", str(PLUGIN_ROOT), "python", "-m", "orb.engine_host", f"--home={home}",
+def host_command(uv: str, home: Path, host_identity: str, version: str | None) -> list[str]:
+    command = [uv, "run", "--project", str(PLUGIN_ROOT), "python", "-m", "orb.engine_host", f"--home={home}",
                f"--identity={host_identity}"]
     if version is not None:
         command.append(f"--version={version}")
@@ -31,20 +34,29 @@ def host_command(home: Path, host_identity: str, version: str | None) -> list[st
 
 
 def spawn_host(home: Path, host_identity: str, version: str | None) -> None:
+    uv = shutil.which("uv")
+    if uv is None:
+        raise EngineError("uv is not on PATH; the engine host cannot start")
     engine_wire.log_file(home, host_identity).parent.mkdir(parents=True, exist_ok=True)
     flags = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW} if sys.platform == "win32" else {"start_new_session": True}
-    subprocess.Popen(host_command(home, host_identity, version), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+    subprocess.Popen(host_command(uv, home, host_identity, version), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                      stderr=subprocess.DEVNULL, cwd=str(PLUGIN_ROOT), **flags)
+
+
+def answering_link(record: engine_wire.HostRecord) -> Link | None:
+    """A connection to the recorded host once it has answered a hello and a ping within HOST_ANSWER_S, else None."""
+    deadline = time.monotonic() + HOST_ANSWER_S
+    try:
+        link = engine_wire.connect(record, HOST_ANSWER_S)
+        link.request({"op": "ping"}, max(deadline - time.monotonic(), 0.01))
+    except WireError:
+        return None
+    return link
 
 
 def reach_host(home: Path, host_identity: str) -> Link | None:
     record = engine_wire.read_record(home, host_identity)
-    if record is None:
-        return None
-    try:
-        return engine_wire.connect(record)
-    except WireError:
-        return None
+    return None if record is None else answering_link(record)
 
 
 def stop_host(home: Path, host_identity: str, record: engine_wire.HostRecord) -> None:
@@ -62,39 +74,58 @@ def stop_host(home: Path, host_identity: str, record: engine_wire.HostRecord) ->
 
 
 def replace_outdated_host(home: Path, host_identity: str, version: str) -> None:
-    """Stops the host recorded for this identity when it was started from another version. The record is read again
-    under the start lock, so an orb that lost the race to replace it finds the new host and leaves it alone."""
+    """Stops the host recorded for this identity when it was started from another version. Called under the start lock,
+    so the record read is the one no other orb is about to replace."""
     record = engine_wire.read_record(home, host_identity)
-    if record is None or record.version == version:
-        return
-    start_lock = engine_wire.hold_lock(engine_wire.start_lock_file(home, host_identity), START_LOCK_WAIT_S)
-    if start_lock is None:
-        raise EngineError(f"the engine host is being started by another orb; see {engine_wire.log_file(home, host_identity)}")
-    try:
-        record = engine_wire.read_record(home, host_identity)
-        if record is not None and record.version != version:
-            stop_host(home, host_identity, record)
-    finally:
-        start_lock.close()
+    if record is not None and record.version != version:
+        stop_host(home, host_identity, record)
 
 
-def open_link(home: Path, plugin_root: Path, spawn=spawn_host, wait_s: float = HOST_START_WAIT_S) -> Link:
-    """A connection to the engine host of this plugin copy, started if none is running. A Copilot copy is updated in
-    place, so its host is replaced when it was started from another version than the one on disk now."""
-    host_identity, version = engine_wire.identity(plugin_root), engine_wire.plugin_version(plugin_root)
-    if engine_wire.copy_kind(plugin_root) is engine_wire.CopyKind.COPILOT:
+def clear_unanswering_host(home: Path, host_identity: str, record: engine_wire.HostRecord) -> None:
+    """Removes the record of a host that did not answer. A host whose lifetime lock is free is dead and nothing is
+    killed; one that still holds the lock is alive and hung, and is killed."""
+    lock_path = engine_wire.lock_file(home, host_identity)
+    free = engine_wire.hold_lock(lock_path)
+    if free is None:
+        kill_pid(record.pid)
+        free = engine_wire.hold_lock(lock_path, HOST_STOP_WAIT_S)
+        if free is None:
+            raise EngineError(f"the engine host did not stop; see {engine_wire.log_file(home, host_identity)}")
+    free.close()
+    engine_wire.remove_record(home, host_identity, record.pid)
+
+
+def reach_or_start(home: Path, host_identity: str, version: str | None, copy_kind: engine_wire.CopyKind, spawn) -> Link:
+    if copy_kind is engine_wire.CopyKind.COPILOT:
         replace_outdated_host(home, host_identity, version)
-    link = reach_host(home, host_identity)
-    if link is not None:
-        return link
+    record = engine_wire.read_record(home, host_identity)
+    if record is not None:
+        link = answering_link(record)
+        if link is not None:
+            return link
+        clear_unanswering_host(home, host_identity, record)
     spawn(home, host_identity, version)
-    deadline = time.monotonic() + wait_s
+    deadline = time.monotonic() + HOST_START_WAIT_S
     while time.monotonic() < deadline:
         link = reach_host(home, host_identity)
         if link is not None:
             return link
         time.sleep(0.05)
-    raise EngineError(f"the engine host did not start within {wait_s:.0f} s; see {engine_wire.log_file(home, host_identity)}")
+    raise EngineError(f"the engine host did not start within {HOST_START_WAIT_S:.0f} s; see {engine_wire.log_file(home, host_identity)}")
+
+
+def open_link(home: Path, plugin_root: Path, spawn=spawn_host) -> Link:
+    """A connection to the engine host of this plugin copy, started if none is running. Orbs open it one at a time, so
+    one that arrives while another is starting the host waits and then connects to it. A Copilot copy is updated in
+    place, so its host is replaced when it was started from another version than the one on disk now."""
+    host_identity, version = engine_wire.identity(plugin_root), engine_wire.plugin_version(plugin_root)
+    start_lock = engine_wire.hold_lock(engine_wire.start_lock_file(home, host_identity), START_LOCK_WAIT_S)
+    if start_lock is None:
+        raise EngineError(f"the engine host is being started by another orb; see {engine_wire.log_file(home, host_identity)}")
+    try:
+        return reach_or_start(home, host_identity, version, engine_wire.copy_kind(plugin_root), spawn)
+    finally:
+        start_lock.close()
 
 
 @dataclass(frozen=True)
@@ -151,6 +182,17 @@ class RemoteEngine:
         self._release()
 
 
+def wait_for_record_to_go(home: Path, host_identity: str) -> None:
+    """Returns once the recorded host is gone or replaced, or after HOST_RECORD_GONE_WAIT_S."""
+    closing = engine_wire.read_record(home, host_identity)
+    deadline = time.monotonic() + HOST_RECORD_GONE_WAIT_S
+    while closing is not None and time.monotonic() < deadline:
+        current = engine_wire.read_record(home, host_identity)
+        if current is None or current.pid != closing.pid:
+            return
+        time.sleep(0.05)
+
+
 def attach(attachment: Attachment) -> tuple[Link, dict]:
     message = {"op": "attach", "kind": attachment.kind, "name": attachment.name, "settings": attachment.settings,
                "env": attachment.env, "owner": attachment.owner}
@@ -162,6 +204,7 @@ def attach(attachment: Attachment) -> tuple[Link, dict]:
             raise EngineError(f"{attachment.kind} engine {attachment.name!r}: {e}")
         if reply.get("closing"):
             link.close()
+            wait_for_record_to_go(attachment.home, engine_wire.identity(attachment.plugin_root))
             continue
         if "error" in reply:
             link.close()

@@ -2,6 +2,7 @@ import json
 import os
 import socket
 import threading
+import time
 
 import pytest
 
@@ -360,3 +361,13 @@ def test_a_listening_host_records_the_version_it_started_from():
     listener, record = engine_host.listen("1.2.3")
     listener.close()
     assert record.version == "1.2.3"
+
+
+def test_a_host_started_while_the_lifetime_lock_is_held_waits_for_it_to_be_released(tmp_path, monkeypatch):
+    held = engine_wire.hold_lock(engine_wire.lock_file(tmp_path, "abc"))
+    written = []
+    monkeypatch.setattr(engine_wire, "write_record", lambda home, host_identity, record: written.append(record))
+    monkeypatch.setattr(engine_host.signal, "signal", lambda *args: None)
+    threading.Timer(0.5, held.close).start()
+    engine_host.run(tmp_path, "abc", None, Registry(time.monotonic, grace=0, host_idle=0), tick=0.05)
+    assert len(written) == 1

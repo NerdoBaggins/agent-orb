@@ -45,35 +45,75 @@ def test_a_speed_setting_an_stt_engine_has_stays_in_its_load_settings():
 
 # ---- reaching the host ----
 
-def test_a_host_that_never_comes_up_is_an_error_naming_its_log(tmp_path):
+class FakeClock:
+    def __init__(self):
+        self.now = 0.0
+
+    def monotonic(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.now += seconds
+
+
+def test_a_spawned_host_that_never_answers_fails_the_start_after_10_s_naming_the_log(tmp_path, monkeypatch):
+    clock = FakeClock()
+    monkeypatch.setattr(engine_client, "time", clock)
     root = make_copy(tmp_path / "checkout", "1.0.0", git="folder")
+    with pytest.raises(EngineError) as raised:
+        engine_client.open_link(tmp_path, root, spawn=lambda *args: None)
+    assert str(raised.value) == f"the engine host did not start within 10 s; see {engine_wire.log_file(tmp_path, engine_wire.identity(root))}"
+    assert 10.0 <= clock.now < 11.0
+
+
+def test_a_missing_uv_names_the_fix(tmp_path, monkeypatch):
+    monkeypatch.setattr(engine_client.shutil, "which", lambda name: None)
+    monkeypatch.setattr(engine_client.subprocess, "Popen", lambda *args, **kwargs: pytest.fail("started a process without uv"))
+    with pytest.raises(EngineError, match="uv is not on PATH; the engine host cannot start"):
+        engine_client.spawn_host(tmp_path, "0123456789ab", "1.0.0")
+
+
+def test_the_engine_host_is_started_with_the_uv_that_was_found(tmp_path, monkeypatch):
     started = []
-    with pytest.raises(EngineError, match=r"did not start within 0 s; see .*engine-host\.[0-9a-f]{12}\.log"):
-        engine_client.open_link(tmp_path, root, spawn=lambda *args: started.append(args), wait_s=0.05)
-    assert started == [(tmp_path, engine_wire.identity(root), "1.0.0")]
+    monkeypatch.setattr(engine_client.shutil, "which", lambda name: "/found/bin/uv")
+    monkeypatch.setattr(engine_client.subprocess, "Popen", lambda command, **kwargs: started.append(command))
+    engine_client.spawn_host(tmp_path, "0123456789ab", "1.0.0")
+    assert [command[0] for command in started] == ["/found/bin/uv"]
+
+
+def test_a_host_that_answers_a_hello_but_not_a_ping_is_not_reached(monkeypatch):
+    link = FakeLink(WireError("the engine host did not answer"))
+    monkeypatch.setattr(engine_client.engine_wire, "connect", lambda record, timeout: link)
+    assert engine_client.answering_link(HostRecord(1, "t", 2, None)) is None
+    assert link.sent == [{"op": "ping"}]
+
+
+def record_host(home, root, pid=None, version="1.0.0"):
+    engine_wire.write_record(home, engine_wire.identity(root), HostRecord(1, "t", pid or os.getpid(), version))
+
+
+def answering(monkeypatch, link=None):
+    monkeypatch.setattr(engine_client, "answering_link", lambda record: link if link is not None else FakeLink())
 
 
 def test_a_host_that_is_running_is_not_started_again(tmp_path, monkeypatch):
     link = FakeLink()
-    monkeypatch.setattr(engine_client, "reach_host", lambda home, host_identity: link)
+    answering(monkeypatch, link)
     root = make_copy(tmp_path / "checkout", "1.0.0", git="folder")
+    record_host(tmp_path, root)
     assert engine_client.open_link(tmp_path, root, spawn=lambda *args: pytest.fail("started a second host")) is link
-
-
-def record_with_version(home, root, version):
-    engine_wire.write_record(home, engine_wire.identity(root), HostRecord(1, "t", os.getpid(), version))
 
 
 def stopped_hosts(monkeypatch):
     stopped = []
     monkeypatch.setattr(engine_client, "stop_host", lambda home, host_identity, record: stopped.append(record))
-    monkeypatch.setattr(engine_client, "reach_host", lambda home, host_identity: FakeLink())
+    answering(monkeypatch)
     return stopped
 
 
 def test_a_copilot_copy_stops_a_host_recorded_with_another_version(tmp_path, monkeypatch):
     root = make_copy(tmp_path / "plugins" / "agent-orb", "2.0.0")
-    record_with_version(tmp_path, root, "1.0.0")
+    record_host(tmp_path, root, version="1.0.0")
     stopped = stopped_hosts(monkeypatch)
     engine_client.open_link(tmp_path, root)
     assert [record.version for record in stopped] == ["1.0.0"]
@@ -81,7 +121,7 @@ def test_a_copilot_copy_stops_a_host_recorded_with_another_version(tmp_path, mon
 
 def test_a_copilot_copy_leaves_a_host_recorded_with_its_own_version_alone(tmp_path, monkeypatch):
     root = make_copy(tmp_path / "plugins" / "agent-orb", "2.0.0")
-    record_with_version(tmp_path, root, "2.0.0")
+    record_host(tmp_path, root, version="2.0.0")
     stopped = stopped_hosts(monkeypatch)
     engine_client.open_link(tmp_path, root)
     assert stopped == []
@@ -90,7 +130,7 @@ def test_a_copilot_copy_leaves_a_host_recorded_with_its_own_version_alone(tmp_pa
 @pytest.mark.parametrize("copy", ["claude-code", "checkout"])
 def test_only_a_copilot_copy_replaces_a_host_recorded_with_another_version(tmp_path, monkeypatch, copy):
     root = make_copy(tmp_path / "agent-orb" / "2.0.0", "2.0.0") if copy == "claude-code" else make_copy(tmp_path / "checkout", "2.0.0", git="folder")
-    record_with_version(tmp_path, root, "1.0.0")
+    record_host(tmp_path, root, version="1.0.0")
     stopped = stopped_hosts(monkeypatch)
     engine_client.open_link(tmp_path, root)
     assert stopped == []
@@ -98,12 +138,12 @@ def test_only_a_copilot_copy_replaces_a_host_recorded_with_another_version(tmp_p
 
 def test_a_host_that_changed_version_while_the_start_lock_was_awaited_is_left_alone(tmp_path, monkeypatch):
     root = make_copy(tmp_path / "plugins" / "agent-orb", "2.0.0")
-    record_with_version(tmp_path, root, "1.0.0")
+    record_host(tmp_path, root, version="1.0.0")
     stopped = stopped_hosts(monkeypatch)
     hold_lock = engine_wire.hold_lock
 
     def lock_after_another_orb_replaced_the_host(path, wait_s=0.0):
-        record_with_version(tmp_path, root, "2.0.0")
+        record_host(tmp_path, root, version="2.0.0")
         return hold_lock(path, wait_s)
 
     monkeypatch.setattr(engine_wire, "hold_lock", lock_after_another_orb_replaced_the_host)
@@ -111,27 +151,30 @@ def test_a_host_that_changed_version_while_the_start_lock_was_awaited_is_left_al
     assert stopped == []
 
 
-def test_an_attach_to_a_host_of_its_own_version_does_not_wait_for_the_start_lock(tmp_path, monkeypatch):
-    root = make_copy(tmp_path / "plugins" / "agent-orb", "2.0.0")
-    record_with_version(tmp_path, root, "2.0.0")
-    stopped_hosts(monkeypatch)
-    monkeypatch.setattr(engine_client, "START_LOCK_WAIT_S", 0.1)
-    held = engine_wire.hold_lock(engine_wire.start_lock_file(tmp_path, engine_wire.identity(root)))
-    try:
-        assert engine_client.open_link(tmp_path, root) is not None
-    finally:
-        held.close()
+def test_an_orb_opening_a_link_holds_the_start_lock_until_it_has_one(tmp_path, monkeypatch):
+    root = make_copy(tmp_path / "checkout", "1.0.0", git="folder")
+    held_while_starting = []
+
+    def spawn(home, host_identity, version):
+        contender = engine_wire.hold_lock(engine_wire.start_lock_file(home, host_identity))
+        held_while_starting.append(contender is None)
+        if contender is not None:
+            contender.close()
+
+    monkeypatch.setattr(engine_client, "reach_host", lambda home, host_identity: FakeLink())
+    engine_client.open_link(tmp_path, root, spawn=spawn)
+    assert held_while_starting == [True]
 
 
-def test_a_start_lock_that_stays_held_is_an_error_not_a_second_stop(tmp_path, monkeypatch):
+def test_a_start_lock_that_stays_held_is_an_error_naming_the_log_and_stops_nothing(tmp_path, monkeypatch):
     root = make_copy(tmp_path / "plugins" / "agent-orb", "2.0.0")
-    record_with_version(tmp_path, root, "1.0.0")
+    record_host(tmp_path, root, version="1.0.0")
     stopped = stopped_hosts(monkeypatch)
     monkeypatch.setattr(engine_client, "START_LOCK_WAIT_S", 0.1)
     held = engine_wire.hold_lock(engine_wire.start_lock_file(tmp_path, engine_wire.identity(root)))
     try:
-        with pytest.raises(EngineError, match="being started by another orb"):
-            engine_client.open_link(tmp_path, root)
+        with pytest.raises(EngineError, match=r"being started by another orb; see .*engine-host\.[0-9a-f]{12}\.log"):
+            engine_client.open_link(tmp_path, root, spawn=lambda *args: pytest.fail("started a host without the start lock"))
     finally:
         held.close()
     assert stopped == []
@@ -139,7 +182,7 @@ def test_a_start_lock_that_stays_held_is_an_error_not_a_second_stop(tmp_path, mo
 
 def test_a_host_that_does_not_release_its_lock_after_stop_is_an_error_naming_its_log(tmp_path, monkeypatch):
     root = make_copy(tmp_path / "plugins" / "agent-orb", "2.0.0")
-    record_with_version(tmp_path, root, "1.0.0")
+    record_host(tmp_path, root, version="1.0.0")
     monkeypatch.setattr(engine_client, "HOST_STOP_WAIT_S", 0.1)
     held = engine_wire.hold_lock(engine_wire.lock_file(tmp_path, engine_wire.identity(root)))
     try:
@@ -156,10 +199,32 @@ def test_an_attach_to_a_host_that_is_exiting_goes_to_a_new_one(tmp_path, monkeyp
     assert (link, loaded, exiting.closed) == (fresh, {"ok": True}, True)
 
 
-def test_a_host_that_keeps_exiting_is_an_error_not_a_loop(tmp_path, monkeypatch):
-    links(monkeypatch, *(FakeLink({"closing": True}) for _ in range(engine_client.HOST_START_TRIES)))
-    with pytest.raises(EngineError, match="kept shutting down"):
+def test_a_host_that_keeps_closing_is_reported_after_three_attempts(tmp_path, monkeypatch):
+    opened = []
+    queue = [FakeLink({"closing": True}) for _ in range(engine_client.HOST_START_TRIES)]
+    monkeypatch.setattr(engine_client, "open_link", lambda home, plugin_root, spawn: opened.append(1) or queue.pop(0))
+    with pytest.raises(EngineError) as raised:
         attach(attachment(tmp_path))
+    log = engine_wire.log_file(tmp_path, engine_wire.identity(engine_client.PLUGIN_ROOT))
+    assert (len(opened), str(raised.value)) == (3, f"the engine host kept shutting down; see {log}")
+
+
+def test_an_attach_refused_by_a_closing_host_waits_for_its_record_to_go_before_trying_again(tmp_path, monkeypatch):
+    host_identity = engine_wire.identity(engine_client.PLUGIN_ROOT)
+    engine_wire.write_record(tmp_path, host_identity, HostRecord(1, "t", 111, None))
+
+    class ExitingHostClock(FakeClock):
+        def sleep(self, seconds):
+            super().sleep(seconds)
+            if self.now >= 0.5:
+                engine_wire.record_file(tmp_path, host_identity).unlink(missing_ok=True)
+
+    clock = ExitingHostClock()
+    monkeypatch.setattr(engine_client, "time", clock)
+    queue, opened_at = [FakeLink({"closing": True}), FakeLink({"loaded": {}})], []
+    monkeypatch.setattr(engine_client, "open_link", lambda home, plugin_root, spawn: opened_at.append(clock.now) or queue.pop(0))
+    attach(attachment(tmp_path))
+    assert opened_at[0] == 0.0 and 0.5 <= opened_at[1] < 1.0
 
 
 def test_the_hosts_reason_for_refusing_an_attach_reaches_the_caller_and_the_link_is_closed(tmp_path, monkeypatch):
@@ -259,3 +324,12 @@ def test_the_listing_is_of_the_hosts_of_the_copy_asked_about(tmp_path):
     there = make_copy(tmp_path / "there", "1.0.0", git="folder")
     engine_wire.write_record(tmp_path, engine_wire.identity(there), HostRecord(1, "t", os.getpid(), None))
     assert engine_client.running_engines(tmp_path, here) is None
+
+
+def test_a_stale_record_is_removed_even_when_the_new_host_does_not_come_up(tmp_path, monkeypatch):
+    root = make_copy(tmp_path / "checkout", "1.0.0", git="folder")
+    record_host(tmp_path, root)
+    monkeypatch.setattr(engine_client, "HOST_START_WAIT_S", 0.1)
+    with pytest.raises(EngineError, match="did not start"):
+        engine_client.open_link(tmp_path, root, spawn=lambda *args: None)
+    assert engine_wire.read_record(tmp_path, engine_wire.identity(root)) is None

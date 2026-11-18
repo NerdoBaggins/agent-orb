@@ -23,6 +23,7 @@ log = logging.getLogger("orb")
 SHARED_KINDS = ("stt", "tts")
 TICK_S = 1.0
 FIRST_MESSAGE_TIMEOUT_S = 5.0
+LOCK_WAIT_S = 3.0
 
 
 @dataclass(eq=False)
@@ -213,7 +214,7 @@ def listen(version: str | None) -> tuple[socket.socket, engine_wire.HostRecord]:
 
 
 def run(home: Path, host_identity: str, version: str | None, registry: Registry, tick: float = TICK_S) -> int:
-    lock = engine_wire.hold_lock(engine_wire.lock_file(home, host_identity))
+    lock = engine_wire.hold_lock(engine_wire.lock_file(home, host_identity), LOCK_WAIT_S)
     if lock is None:
         return 0
     host = Host(home, registry)
@@ -230,9 +231,9 @@ def run(home: Path, host_identity: str, version: str | None, registry: Registry,
     finally:
         engine_wire.remove_record(home, host_identity, record.pid)
         listener.close()
+        lock.close()
         host.close_all()
         log.info("engine host stopped")
-        lock.close()
     return 0
 
 
