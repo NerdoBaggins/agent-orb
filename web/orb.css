@@ -221,17 +221,31 @@ body.bar-on-orb #tabs { padding-right: 8px; } /* the pill sits on the orb's side
 }
 .panel-menu-row .panel-folder { margin-right: 12px; }
 #builtin-settings { padding: 22px 28px 40px; font-size: 14px; line-height: 1.45; color: var(--orb-fg); }
-#builtin-settings > * { max-width: 780px; }
+#builtin-settings > * { max-width: 1000px; }
 .settings-top { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
 .settings-title { margin: 0; color: var(--orb-accent); font-size: 18px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase; }
 .settings-toggle-all { font: inherit; font-size: 12px; color: var(--orb-dim); background: none; border: 0; padding: 4px 0; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
 .settings-toggle-all:hover, .settings-toggle-all:focus-visible { color: var(--orb-fg); }
-.settings-group-title { margin: 22px 0 4px; font-size: 12px; font-weight: 400; letter-spacing: 0.14em; text-transform: uppercase; color: var(--orb-dim); }
 .settings-error { display: block; color: var(--orb-err); }
-.look-row { display: flex; align-items: center; gap: 10px; margin: 8px 0; }
-.look-label { width: 90px; flex: none; color: var(--orb-dim); font-size: 13px; }
-.look-font, .look-font-other { font: inherit; font-size: 13px; color: var(--orb-fg); background: var(--orb-surface); border: 1px solid var(--orb-edge); border-radius: 4px; padding: 3px 6px; }
-.look-font-other { width: 240px; }
+.settings-layout { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 28px; margin-top: 18px; }
+.settings-nav { display: flex; flex-direction: column; align-items: stretch; gap: 2px; position: sticky; top: 0; align-self: start; padding-right: 14px; border-right: 1px solid var(--orb-line); }
+.settings-nav-cat, .settings-nav-sub { font: inherit; text-align: left; color: var(--orb-fg); background: none; border: 1px solid transparent; border-radius: 4px; padding: 4px 8px; cursor: pointer; }
+.settings-nav-cat::before { content: "\25B8"; display: inline-block; width: 14px; color: var(--orb-dim); font-size: 14px; transition: transform 0.15s; }
+.settings-nav-cat[aria-expanded="true"]::before { transform: rotate(90deg); }
+.settings-nav-cat.on { border-color: var(--orb-accent); }
+.settings-nav-sub { padding-left: 30px; font-size: 13px; color: var(--orb-dim); }
+.settings-nav-cat:hover, .settings-nav-sub:hover, .settings-nav-cat:focus-visible, .settings-nav-sub:focus-visible { color: var(--orb-fg); background: var(--orb-surface); }
+.settings-main { min-width: 0; max-width: 780px; }
+.settings-page[hidden] { display: none; }
+.settings-page-title { margin: 0 0 12px; font-family: var(--orb-display); font-size: 22px; font-weight: 600; color: var(--orb-fg); }
+.settings-block { margin: 0 0 22px; }
+.settings-block-title { margin: 0 0 10px; font-size: 12px; font-weight: 400; letter-spacing: 0.14em; text-transform: uppercase; color: var(--orb-dim); }
+.settings-item { margin: 0 0 18px; }
+.settings-item-name { font-weight: 600; color: var(--orb-fg); }
+.settings-item-desc { margin: 2px 0 6px; color: var(--orb-dim); font-size: 13px; }
+.settings-item-control { display: flex; align-items: center; gap: 10px; }
+.look-font, .look-font-other { font: inherit; font-size: 13px; color: var(--orb-fg); background: var(--orb-surface); border: 1px solid var(--orb-edge); border-radius: 4px; padding: 3px 6px; min-width: 220px; }
+.look-font-other { width: 260px; }
 .look-step { font: inherit; font-size: 13px; color: var(--orb-fg); background: none; border: 1px solid var(--orb-edge); border-radius: 4px; padding: 2px 10px; cursor: pointer; }
 .look-size { min-width: 56px; text-align: center; font-family: var(--orb-mono); font-size: 13px; }
 .settings-sec { border-top: 1px solid var(--orb-line); }

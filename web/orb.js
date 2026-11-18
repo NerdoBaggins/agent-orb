@@ -960,12 +960,17 @@
     ["Trebuchet MS", '"Trebuchet MS", Helvetica, sans-serif'],
     ["Verdana", "Verdana, Geneva, sans-serif"],
   ].sort(([a], [b]) => a.localeCompare(b, undefined, { sensitivity: "base" }));
-  const LOOK_FONT_ROLES = [["font", "Text"], ["display", "Headings"], ["mono", "Code"]];
+  const LOOK_FONT_ROLES = [
+    ["font", "Text font", "The font for ordinary text in the controls and in every panel."],
+    ["display", "Heading font", "The font for titles and headings. As shipped, it follows the text font."],
+    ["mono", "Code font", "The font for code, paths and numbers that line up."],
+  ];
   const TEXT_SIZE = { min: 0.8, max: 1.6, step: 0.1, normal: 1 };
   const SHIPPED = "", OTHER = "other";
 
   const lookUi = {
     state: null,
+    note: null,
     async load() { this.state = await orbCall("/settings/look"); },
     async change(look) {
       try { this.state = await orbCall("/settings/look", { look }); } catch (e) { this.note.textContent = String(e.message || e); }
@@ -975,12 +980,19 @@
       if (value === SHIPPED || value === TEXT_SIZE.normal) delete look[key]; else look[key] = value;
       return look;
     },
-    fontRow(key, label) {
+    item(name, description, ...controls) {
+      const item = settingsUi.element("div", "settings-item");
+      const row = settingsUi.element("div", "settings-item-control");
+      row.append(...controls);
+      item.append(settingsUi.element("div", "settings-item-name", name), settingsUi.element("div", "settings-item-desc", description), row);
+      return item;
+    },
+    fontItem(key, name, description) {
       const current = this.state.look[key] ?? SHIPPED;
       const known = LOOK_FONT_CHOICES.some(([, stack]) => stack === current);
-      const row = settingsUi.element("label", "look-row");
       const pick = settingsUi.element("select", "look-font");
-      pick.append(new Option("as shipped", SHIPPED), ...LOOK_FONT_CHOICES.map(([name, stack]) => new Option(name, stack)), new Option("other…", OTHER));
+      pick.setAttribute("aria-label", name);
+      pick.append(new Option("as shipped", SHIPPED), ...LOOK_FONT_CHOICES.map(([label, stack]) => new Option(label, stack)), new Option("other…", OTHER));
       pick.value = current === SHIPPED || known ? current : OTHER;
       const typed = settingsUi.element("input", "look-font-other");
       typed.placeholder = "a font name, as CSS writes it";
@@ -991,37 +1003,40 @@
         if (pick.value === OTHER) typed.focus(); else this.change(this.with(key, pick.value));
       });
       typed.addEventListener("change", () => this.change(this.with(key, typed.value.trim())));
-      row.append(settingsUi.element("span", "look-label", label), pick, typed);
-      return row;
+      return this.item(name, description, pick, typed);
     },
-    sizeRow() {
+    sizeItem() {
       const size = this.state.look.text_size ?? TEXT_SIZE.normal;
       const step = (by) => this.change(this.with("text_size", Math.round(Math.min(TEXT_SIZE.max, Math.max(TEXT_SIZE.min, size + by)) * 10) / 10));
-      const row = settingsUi.element("div", "look-row");
-      row.append(settingsUi.element("span", "look-label", "Text size"),
-        uiButton("look-step", "A−", "Smaller text in panels, widgets and the transcript", () => step(-TEXT_SIZE.step)),
+      return this.item("Text size", "Scales the text in panels, widgets and the transcript. The orb itself has its own size control in the bar.",
+        uiButton("look-step", "A−", "Smaller text", () => step(-TEXT_SIZE.step)),
         settingsUi.element("span", "look-size", size === TEXT_SIZE.normal ? "normal" : `${Math.round(size * 100)}%`),
-        uiButton("look-step", "A+", "Larger text in panels, widgets and the transcript", () => step(TEXT_SIZE.step)));
-      return row;
+        uiButton("look-step", "A+", "Larger text", () => step(TEXT_SIZE.step)));
     },
-    group() {
-      const group = settingsUi.element("section", "settings-group");
-      group.append(settingsUi.element("h2", "settings-group-title", "Look"));
-      if (!this.state) return group;
-      const masked = this.state.theme_fonts.map((key) => LOOK_FONT_ROLES.find(([k]) => k === key)[1].toLowerCase());
-      if (masked.length) group.append(settingsUi.element("p", "settings-sec-purpose",
-        `The ${this.state.theme} theme sets its own fonts for ${masked.join(", ")}, so a font chosen here shows only under a theme that doesn't.`));
-      for (const [key, label] of LOOK_FONT_ROLES) group.append(this.fontRow(key, label));
-      group.append(this.sizeRow());
+    page() {
+      const page = settingsUi.element("section", "settings-page");
+      page.append(settingsUi.element("h2", "settings-page-title", "Look"));
+      if (!this.state) return page;
+      const fonts = settingsUi.element("div", "settings-block");
+      fonts.dataset.sub = "fonts";
+      fonts.append(settingsUi.element("h3", "settings-block-title", "Fonts"));
+      const masked = LOOK_FONT_ROLES.filter(([key]) => this.state.theme_fonts.includes(key)).map(([, name]) => name.toLowerCase());
+      if (masked.length) fonts.append(settingsUi.element("p", "settings-sec-purpose",
+        `The ${this.state.theme} theme sets its own ${masked.join(", ")}, so a font chosen here shows only under a theme that doesn't.`));
+      for (const [key, name, description] of LOOK_FONT_ROLES) fonts.append(this.fontItem(key, name, description));
+      const size = settingsUi.element("div", "settings-block");
+      size.dataset.sub = "text-size";
+      size.append(settingsUi.element("h3", "settings-block-title", "Text size"), this.sizeItem());
       this.note = settingsUi.element("p", "settings-error");
       const reset = uiButton("panel-folder", "reset to shipped", "Put back the fonts and text size the orb ships with", () => this.change({}));
       reset.disabled = !Object.keys(this.state.look).length;
-      group.append(reset, this.note);
-      return group;
+      page.append(fonts, size, reset, this.note);
+      return page;
     },
   };
 
   const SETTINGS_OPEN_KEY = "orb-settings-open";
+  const SETTINGS_PAGE_KEY = "orb-settings-page";
   const settingsUi = {
     states: null,
     error: "",
@@ -1069,17 +1084,61 @@
       this.messages = {};
       this.removed = {};
       this.open = initiallyOpen(this.stored(), this.states);
-      const top = this.element("div", "settings-top");
       const all = this.element("button", "settings-toggle-all");
       all.type = "button";
       all.addEventListener("click", () => this.toggleAll());
       this.all = all;
-      top.append(this.element("h1", "settings-title", "Settings"), all);
-      const group = this.element("section", "settings-group");
-      group.append(this.element("h2", "settings-group-title", "Folders"), this.defaultsBlock());
-      for (const def of FOLDER_SECTIONS) group.append(this.buildSection(def));
-      box.replaceChildren(top, lookUi.group(), group);
+      const folders = this.element("section", "settings-page");
+      const head = this.element("div", "settings-top");
+      head.append(this.element("h2", "settings-page-title", "Folders"), all);
+      const defaults = this.defaultsBlock();
+      defaults.dataset.sub = "defaults";
+      folders.append(head, defaults);
+      for (const def of FOLDER_SECTIONS) folders.append(this.buildSection(def));
+      this.pages = { folders, look: lookUi.page() };
+      this.nav = this.element("nav", "settings-nav");
+      this.nav.setAttribute("aria-label", "Settings sections");
+      const layout = this.element("div", "settings-layout");
+      const main = this.element("div", "settings-main");
+      main.append(...Object.values(this.pages));
+      layout.append(this.nav, main);
+      box.replaceChildren(this.element("h1", "settings-title", "Settings"), layout);
       for (const def of FOLDER_SECTIONS) this.setOpen(def.kind, this.open.has(def.kind), false);
+      this.showPage(this.storedPage());
+    },
+    navTree() {
+      return [
+        { page: "folders", name: "Folders", subs: [["defaults", "Default folders", () => null], ...FOLDER_SECTIONS.map((def) => [def.kind, def.name, () => this.setOpen(def.kind, true, true)])] },
+        { page: "look", name: "Look", subs: [["fonts", "Fonts", () => null], ["text-size", "Text size", () => null]] },
+      ].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+    },
+    storedPage() {
+      try { return localStorage.getItem(SETTINGS_PAGE_KEY); } catch (e) { return null; }
+    },
+    rememberPage(page) {
+      try { localStorage.setItem(SETTINGS_PAGE_KEY, page); } catch (e) { return; }
+    },
+    showPage(name) {
+      const tree = this.navTree();
+      const chosen = tree.find((c) => c.page === name) || tree[0];
+      for (const [page, node] of Object.entries(this.pages)) node.hidden = page !== chosen.page;
+      this.rememberPage(chosen.page);
+      const nodes = [];
+      for (const c of tree) {
+        const cat = uiButton("settings-nav-cat", c.name, `Show the ${c.name} settings`, () => this.showPage(c.page));
+        cat.classList.toggle("on", c === chosen);
+        cat.setAttribute("aria-expanded", String(c === chosen));
+        nodes.push(cat);
+        if (c !== chosen) continue;
+        for (const [sub, label, before] of c.subs) {
+          nodes.push(uiButton("settings-nav-sub", label, `Go to ${label}`, () => {
+            before();
+            const target = this.pages[c.page].querySelector(`[data-sub="${sub}"], [data-kind="${sub}"]`);
+            if (target) target.scrollIntoView({ block: "start", behavior: "smooth" });
+          }));
+        }
+      }
+      this.nav.replaceChildren(...nodes);
     },
     defaultsBlock() {
       const box = this.element("div", "settings-defaults");
