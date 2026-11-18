@@ -25,7 +25,8 @@ def test_target_recognises_claude_renamed_by_its_windows_self_update(image):
                                    "claude.exe.old.a.2", "claude.exe.old.1.a", "claude.exe.old.١.٢", "claudeXexe.old.1.2",
                                    "claude.exeXold.1.2", "claude.exe.oldX1.2", "claude.exe.old.1X2",
                                    "claude.exe.old..1", "claude.exe.old.1.",
-                                   "claude.foo.old.1.2", "claude.old.1.2"])
+                                   "claude.foo.old.1.2", "claude.old.1.2",
+                                   "claude.exe.old.١.2", "claude.exe.old.1.٢", "claude.exe.old.1.2."])
 def test_target_refuses_names_only_resembling_the_self_update_rename(image):
     assert not Target(1, image).looks_like_claude()
 
