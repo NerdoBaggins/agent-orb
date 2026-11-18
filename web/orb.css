@@ -115,7 +115,6 @@ body.typing iframe { pointer-events: none; }
 }
 #mic:disabled { opacity: 0.2; cursor: default; }
 #mic:not(:disabled):hover, #mic.active { opacity: 1; }
-#mic:not(:disabled):hover { border-color: var(--orb-accent); color: var(--orb-accent); box-shadow: 0 0 16px color-mix(in srgb, var(--orb-accent) 50%, transparent); }
 #mic.stop { border-color: var(--orb-err); color: var(--orb-err); opacity: 0.85; }
 #mic svg, #stop svg { width: 18px; height: 18px; display: block; }
 #caption { color: var(--orb-fg); font-size: 11px; letter-spacing: 0.04em; min-height: 1.2em; opacity: 0.8; }

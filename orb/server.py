@@ -1446,7 +1446,7 @@ class OrbServer:
         self.recording = None
         log.info("push-to-talk released: %.1fs, loudest %.3f", samples.size / SAMPLE_RATE, float(np.abs(samples).max(initial=0.0)))
         if (held if captured else samples.size / SAMPLE_RATE) < TAP_S:
-            await self.notify("info", "heard nothing; hold the button while you talk, or tap it once to start and again to send")
+            await self.notify("info", "heard nothing; hold the button while you talk")
             await self.set_state(self.resume_state())
             return
         if self.enrolling is not None:

@@ -107,24 +107,10 @@ def test_a_release_before_the_mic_opens_starts_no_recording(tmp_path):
 
 
 @pytest.mark.timeout(60)
-def test_a_tap_on_the_mic_button_keeps_the_mic_recording_until_the_next_tap(tmp_path):
+def test_a_tap_on_the_mic_button_on_the_first_use_does_not_leave_the_mic_recording(tmp_path):
     async def tap(page):
         await page.locator("#mic").hover()
         await page.mouse.down()
         await page.mouse.up()
 
-    assert state_after(tmp_path, tap, listening) == RECORDING
-
-
-@pytest.mark.timeout(60)
-def test_a_second_tap_on_the_mic_button_ends_the_recording(tmp_path):
-    async def tap_twice(page):
-        await page.locator("#mic").hover()
-        await page.mouse.down()
-        await page.mouse.up()
-        await page.wait_for_function("document.getElementById('mic').title === 'tap to send'", timeout=MIC_OPENS_S * 1000)
-        await page.mouse.down()
-        await page.mouse.up()
-
-    seen = state_after(tmp_path, tap_twice, lambda server: server.state != "listening")
-    assert seen["recording"] is False and seen["starts"] == 1
+    assert state_after(tmp_path, tap) == NOT_RECORDING
