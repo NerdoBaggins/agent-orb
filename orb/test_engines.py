@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import sys
+import threading
 import time
 
 import numpy as np
@@ -9,7 +10,7 @@ import pytest
 
 from orb import engines
 from orb.audio import SAMPLE_RATE
-from orb.engines import (BUILTIN_DIR, EngineError, EngineLoadError, available, EngineProcess, Manifest, Stt, Tts, cache_dir, check, find,
+from orb.engines import (BUILTIN_DIR, EngineError, EngineExited, EngineLoadError, EngineQueueTimeout, EngineTimeout, available, EngineProcess, Manifest, Stt, Tts, cache_dir, check, find,
                          load_settings, missing_env, read_manifest, split_at_quiet_points, start, Wake)
 from orb.state import kill_pid, pid_alive
 
@@ -21,6 +22,15 @@ def write_engine(root, kind, name, script, manifest=None):
     (folder / "engine.json").write_text(json.dumps(manifest or {"name": name, "version": "0.1", "kind": kind, "protocol": 2, "run": ["uv", "run", "--script", "engine.py"]}), encoding="utf-8")
     (folder / "engine.py").write_text(script, encoding="utf-8")
     return folder
+
+
+def eventually(condition, seconds=10.0):
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if condition():
+            return True
+        time.sleep(0.02)
+    return False
 
 
 def settings(**kw):
@@ -270,7 +280,7 @@ def test_an_error_reply_is_an_engine_error(tmp_path):
 def test_a_process_that_exits_is_reported_with_its_code(tmp_path):
     process = start("tts", {"engine": "fake", "die_after": 1}, tmp_path)
     process.call({"op": "render", "text": "one"})
-    with pytest.raises(EngineError, match="tts engine 'fake' exited with code 3"):
+    with pytest.raises(EngineExited, match="tts engine 'fake' exited with code 3"):
         process.call({"op": "render", "text": "two"})
 
 
@@ -288,9 +298,101 @@ def test_a_silent_engine_times_out_and_is_closed(tmp_path):
     write_engine(tmp_path / ".config" / "voice-engines", "tts", "mute", "import time\ntime.sleep(60)\n")
     manifest = read_manifest(find("tts", "mute", tmp_path), "tts")
     process = EngineProcess(manifest, tmp_path / "cache")
-    with pytest.raises(EngineError, match="gave no answer to 'load' within 1 s"):
+    with pytest.raises(EngineTimeout, match=r"^tts engine 'mute' did not answer within 1 s$"):
         process.call({"op": "load", "settings": {}}, timeout=1)
-    assert process.process.poll() is not None
+    assert not process.alive and eventually(lambda: process.process.poll() is not None, seconds=15)
+
+
+SLOW_ENGINE = """
+import json, os, sys, time
+for line in sys.stdin:
+    request = json.loads(line)
+    time.sleep(request.get("sleep", 0))
+    print(json.dumps({"ok": True, "pid": os.getpid()}), flush=True)
+"""
+
+
+def slow_engine(tmp_path):
+    write_engine(tmp_path / ".config" / "voice-engines", "tts", "slow", SLOW_ENGINE,
+                 {"name": "slow", "version": "1", "kind": "tts", "protocol": 2, "run": [sys.executable, "engine.py"]})
+    return EngineProcess(read_manifest(find("tts", "slow", tmp_path), "tts"), tmp_path / "cache")
+
+
+def call_in_thread(process, request, timeout):
+    answers = []
+    thread = threading.Thread(target=lambda: answers.append(process.call(request, timeout)), daemon=True)
+    thread.start()
+    return thread, answers
+
+
+def test_a_call_that_runs_out_of_time_queued_counts_the_wait_fails_and_leaves_the_engine_running(tmp_path):
+    process = slow_engine(tmp_path)
+    try:
+        busy, answers = call_in_thread(process, {"op": "work", "sleep": 3}, 30)
+        assert eventually(lambda: process.lock.locked())
+        started = time.monotonic()
+        with pytest.raises(EngineQueueTimeout, match=r"^tts engine 'slow' did not answer within 1 s$"):
+            process.call({"op": "work"}, 1)
+        assert time.monotonic() - started < 2.0 and process.alive
+        busy.join(10)
+        assert answers[0]["ok"] is True
+    finally:
+        process.close()
+
+
+def test_a_call_that_waited_in_the_queue_has_only_the_rest_of_its_limit_for_the_reply(tmp_path):
+    process = slow_engine(tmp_path)
+    busy, _ = call_in_thread(process, {"op": "work", "sleep": 1.5}, 30)
+    assert eventually(lambda: process.lock.locked())
+    with pytest.raises(EngineTimeout) as raised:
+        process.call({"op": "work", "sleep": 1.5}, 2)
+    assert not isinstance(raised.value, EngineQueueTimeout)
+    busy.join(10)
+
+
+def test_a_call_that_runs_out_of_time_waiting_for_its_reply_is_not_a_queue_timeout_and_the_engine_is_closed(tmp_path):
+    process = slow_engine(tmp_path)
+    with pytest.raises(EngineTimeout) as raised:
+        process.call({"op": "work", "sleep": 30}, 1)
+    assert not isinstance(raised.value, EngineQueueTimeout) and not process.alive
+    assert eventually(lambda: process.process.poll() is not None, seconds=15)
+
+
+def test_a_call_on_an_engine_marked_unusable_finds_it_gone_without_asking_it(tmp_path):
+    process = slow_engine(tmp_path)
+    try:
+        process.condemned = True
+        with pytest.raises(EngineExited, match="closed after a call went unanswered"):
+            process.call({"op": "work"}, 5)
+    finally:
+        process.close()
+
+
+def test_a_call_queued_behind_one_that_timed_out_on_its_reply_finds_the_engine_gone_not_a_queue_timeout(tmp_path):
+    process = slow_engine(tmp_path)
+    outcomes = []
+
+    def queued():
+        try:
+            process.call({"op": "work"}, 20)
+        except EngineError as e:
+            outcomes.append(e)
+
+    stuck = threading.Thread(target=lambda: pytest.raises(EngineTimeout, process.call, {"op": "work", "sleep": 30}, 1))
+    stuck.start()
+    assert eventually(lambda: process.lock.locked())
+    waiting = threading.Thread(target=queued)
+    waiting.start()
+    stuck.join(10)
+    waiting.join(10)
+    assert [type(e) for e in outcomes] == [EngineExited]
+
+
+def test_a_call_that_finds_the_engine_gone_raises_an_exit(tmp_path):
+    process = start("tts", {"engine": "fake", "die_after": 1}, tmp_path)
+    process.call({"op": "render", "text": "one"})
+    with pytest.raises(EngineExited, match="exited with code 3"):
+        process.call({"op": "render", "text": "two"})
 
 
 def test_check_says_where_the_engine_was_found(tmp_path):
@@ -551,7 +653,7 @@ def test_an_engine_that_never_answers_load_has_its_launcher_killed(tmp_path, mon
     closed = []
     real_close = EngineProcess.close
     monkeypatch.setattr(EngineProcess, "close", lambda self: (closed.append(self), real_close(self))[1])
-    with pytest.raises(EngineLoadError, match="gave no answer to 'load'"):
+    with pytest.raises(EngineLoadError, match="did not answer within 0.5 s"):
         start("tts", {"engine": "mute"}, tmp_path)
     process = closed[0]
     try:
@@ -574,5 +676,5 @@ def test_check_raises_for_the_holding_capture_fake_and_passes_every_other_fake(t
 def test_a_wake_frame_not_answered_in_5_s_fails_as_a_frame(tmp_path, monkeypatch):
     monkeypatch.setattr(engines, "FRAME_TIMEOUT_S", 0.5)
     wake = Wake(settings(engine="fake", delay_s=3), tmp_path)
-    with pytest.raises(EngineError, match="wake engine 'fake' gave no answer to 'frame'"):
+    with pytest.raises(EngineError, match="wake engine 'fake' did not answer within 0.5 s"):
         wake.score(np.zeros(1280, dtype=np.float32))

@@ -13,18 +13,20 @@ import signal
 import socket
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from orb import PLUGIN_ROOT, engine_wire, engines, logs
 from orb.engine_registry import GRACE_S, HOST_IDLE_S, Key, Registry, make_key
-from orb.engines import CALL_TIMEOUT_S, EngineError
+from orb.engines import CALL_TIMEOUT_S, EngineError, EngineExited, EngineQueueTimeout, EngineTimeout
 
 log = logging.getLogger("orb")
 SHARED_KINDS = ("stt", "tts")
 TICK_S = 1.0
 FIRST_MESSAGE_TIMEOUT_S = 5.0
 LOCK_WAIT_S = 3.0
+BLOCKING_OPS = ("ready", "call")
 
 
 _SESSION_NUMBERS = itertools.count(1)
@@ -36,13 +38,17 @@ class Slot:
     done: threading.Event = field(default_factory=threading.Event)
     process: engines.EngineProcess | None = None
     error: str | None = None
+    calls: int = 0
 
 
 @dataclass(eq=False)
 class Session:
+    """One connection: what it is attached to, how to answer it and how to end it."""
     key: Key | None = None
     slot: Slot | None = None
     number: int = field(default_factory=lambda: next(_SESSION_NUMBERS))
+    send: Callable[[dict], None] = lambda reply: None
+    hang_up: Callable[[], None] = lambda: None
 
 
 @dataclass(frozen=True)
@@ -73,7 +79,8 @@ class Host:
         self.closing = False
         self.stopping = threading.Event()
 
-    def handle(self, session: Session, message: dict) -> dict:
+    def handle(self, session: Session, message: dict) -> dict | None:
+        """The reply, or None when the connection was answered through `session.send` or is being ended instead."""
         op = message.get("op")
         handler = {"attach": self.attach, "ready": self.ready, "call": self.call, "list": self.listing, "ping": self.ping,
                    "stop": self.stop}.get(op)
@@ -159,21 +166,50 @@ class Host:
             return {"error": slot.error}
         return {"loaded": slot.process.loaded}
 
-    def call(self, session: Session, message: dict) -> dict:
+    def call(self, session: Session, message: dict) -> dict | None:
+        received = time.monotonic()
         request, timeout = message.get("request"), message.get("timeout", CALL_TIMEOUT_S)
         if not isinstance(request, dict) or not isinstance(timeout, (int, float)) or timeout <= 0:
             raise ValueError("call needs a request object and a positive timeout")
         with self.lock:
-            slot = session.slot if session.key is not None else None
+            key = session.key
+            slot = session.slot if key is not None else None
+            process = slot.process if slot is not None else None
+            if process is not None:
+                slot.calls += 1
         if slot is None:
             return {"error": "this connection has not attached to an engine"}
-        process = slot.process
         if process is None:
             return {"error": "the engine has not finished loading"}
         try:
-            return {"reply": process.call(request, timeout)}
+            return {"reply": process.call(request, timeout, received)}
+        except EngineExited:
+            self._retire(key, slot)
+            return None
+        except EngineQueueTimeout as e:
+            return {"error": str(e)}
+        except EngineTimeout as e:
+            session.send({"error": str(e)})
+            self._retire(key, slot)
+            return None
         except EngineError as e:
-            return {"error": str(e), "gone": not process.alive}
+            return {"error": str(e)}
+        finally:
+            with self.lock:
+                slot.calls -= 1
+
+    def _retire(self, key: Key, slot: Slot) -> None:
+        """Drops a dead engine and hangs up every connection that was attached to it, so each attaches again."""
+        with self.lock:
+            sessions = [s for s in self.registry.users(key) if s.slot is slot]
+            for session in sessions:
+                self.registry.forget(session)
+                session.key = None
+            self._forget_slot(key, slot)
+        for session in sessions:
+            session.hang_up()
+        if slot.process is not None:
+            slot.process.close()
 
     def drop(self, session: Session) -> None:
         with self.lock:
@@ -202,7 +238,7 @@ class Host:
                 for key, slot in self.slots.items() if slot.process is not None]}
 
     def sweep(self) -> bool:
-        """Closes engines past their grace; True once the host has nothing left to serve."""
+        """Closes engines past their grace and retires the dead; True once the host has nothing left to serve."""
         with self.lock:
             due = []
             for key in self.registry.reap():
@@ -210,11 +246,15 @@ class Host:
                 if slot is not None and slot.process is not None:
                     self._forget_slot(key, slot)
                     due.append(slot.process)
+            dead = [(key, slot) for key, slot in self.slots.items() if slot.process is not None and slot.calls == 0 and not slot.process.alive]
             done = self.registry.host_done() and not self._loading()
             self.closing = self.closing or done
         for process in due:
             log.info("closed %s: no server uses it", process.label)
             process.close()
+        for key, slot in dead:
+            log.warning("%s exited; its servers will attach again", slot.process.label)
+            self._retire(key, slot)
         return done
 
     def close_all(self) -> None:
@@ -229,6 +269,27 @@ class Host:
 def serve_connection(host: Host, conn: socket.socket, token: str) -> None:
     session = Session()
     reader = conn.makefile("rb")
+    sending = threading.Lock()
+
+    def send(reply: dict) -> None:
+        with sending:
+            try:
+                conn.sendall((json.dumps(reply) + "\n").encode("utf-8"))
+            except OSError:
+                pass
+
+    def hang_up() -> None:
+        try:
+            conn.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+
+    def answer(message: dict) -> None:
+        reply = host.handle(session, message)
+        if reply is not None:
+            send(reply)
+
+    session.send, session.hang_up = send, hang_up
     try:
         conn.settimeout(FIRST_MESSAGE_TIMEOUT_S)
         hello = json.loads(reader.readline() or "null")
@@ -236,11 +297,15 @@ def serve_connection(host: Host, conn: socket.socket, token: str) -> None:
         if not isinstance(sent, str) or not hmac.compare_digest(sent, token):
             return
         conn.settimeout(None)
-        conn.sendall(b'{"ok": true}\n')
+        send({"ok": True})
         for line in reader:
             message = json.loads(line)
-            reply = host.handle(session, message) if isinstance(message, dict) else {"error": "a request is an object"}
-            conn.sendall((json.dumps(reply) + "\n").encode("utf-8"))
+            if not isinstance(message, dict):
+                send({"error": "a request is an object"})
+            elif message.get("op") in BLOCKING_OPS:
+                threading.Thread(target=answer, args=(message,), daemon=True).start()
+            else:
+                answer(message)
     except (OSError, ValueError):
         pass
     finally:

@@ -5,8 +5,8 @@ import pytest
 
 from orb import engine_client, engine_wire, engines
 from orb.engine_client import Attachment, RemoteEngine, attach
-from orb.engine_wire import HostRecord, WireError
-from orb.engines import EngineError, Manifest, load_settings
+from orb.engine_wire import HostRecord, WireBroken, WireError, WireTimeout
+from orb.engines import EngineError, EngineTimeout, Manifest, load_settings
 from orb.test_engine_wire import make_copy
 
 OWNER = {"pid": 1, "repo": "/r", "agent": "claude"}
@@ -267,9 +267,45 @@ def test_a_host_lost_while_the_engine_loads_is_an_engine_error_naming_the_engine
 
 # ---- one attachment ----
 
-def test_a_lost_connection_is_an_engine_error_and_the_attachment_is_over(tmp_path):
-    engine = RemoteEngine(attachment(tmp_path), FakeLink(WireError("the engine host closed the connection")), {})
-    with pytest.raises(EngineError, match="closed the connection"):
+def test_a_call_waits_longer_than_the_limit_the_host_is_given_so_the_hosts_reply_comes_first(tmp_path):
+    link = FakeLink({"reply": {"ok": True}})
+    RemoteEngine(attachment(tmp_path), link, {}).call({"op": "transcribe"}, 7)
+    assert link.sent[0]["timeout"] == 7 and link.timeouts[0] > 7
+
+
+def test_a_call_the_host_did_not_answer_in_time_is_an_engine_timeout_and_the_attachment_is_over(tmp_path):
+    link = FakeLink(WireTimeout("the engine host did not answer within 125 s"))
+    engine = RemoteEngine(attachment(tmp_path), link, {})
+    with pytest.raises(EngineTimeout, match=r"^stt engine 'fake': the engine host did not answer within 125 s$"):
+        engine.call({"op": "transcribe"})
+    assert engine.alive is False and len(link.sent) == 1
+
+
+def test_a_connection_that_breaks_during_a_call_is_attached_again_and_the_call_made_once_more_with_its_own_limit(tmp_path, monkeypatch):
+    broken, mended = FakeLink(WireBroken("the engine host closed the connection")), FakeLink({"attached": True}, {"loaded": {"pid": 5}}, {"reply": {"text": "hi"}})
+    links(monkeypatch, mended)
+    engine = RemoteEngine(attachment(tmp_path), broken, {})
+    assert engine.call({"op": "transcribe"}, 9) == {"text": "hi"}
+    assert [m["op"] for m in mended.sent] == ["attach", "ready", "call"] and mended.sent[2]["timeout"] == 9
+    assert mended.timeouts[2] == 9 + engine_client.HOST_REPLY_MARGIN_S
+    assert engine.link is mended and engine.loaded == {"pid": 5} and engine.alive is True
+
+
+def test_a_second_broken_connection_is_an_error_not_a_loop(tmp_path, monkeypatch):
+    first = FakeLink(WireBroken("the engine host closed the connection"))
+    second = FakeLink({"attached": True}, {"loaded": {}}, WireBroken("the engine host closed the connection"))
+    links(monkeypatch, second)
+    engine = RemoteEngine(attachment(tmp_path), first, {})
+    with pytest.raises(EngineError, match="stt engine 'fake': the engine host closed the connection"):
+        engine.call({"op": "transcribe"})
+    assert engine.alive is False and [m["op"] for m in second.sent] == ["attach", "ready", "call"]
+
+
+def test_a_host_that_cannot_be_reached_again_after_a_break_is_an_engine_error(tmp_path, monkeypatch):
+    links(monkeypatch, FakeLink({"closing": True}), FakeLink({"closing": True}), FakeLink({"closing": True}))
+    monkeypatch.setattr(engine_client, "wait_for_record_to_go", lambda *args: None)
+    engine = RemoteEngine(attachment(tmp_path), FakeLink(WireBroken("the engine host closed the connection")), {})
+    with pytest.raises(EngineError, match="kept shutting down"):
         engine.call({"op": "transcribe"})
     assert engine.alive is False
 
@@ -281,16 +317,8 @@ def test_a_call_after_the_attachment_is_over_is_an_engine_error(tmp_path):
         engine.call({"op": "transcribe"})
 
 
-def test_a_reply_that_says_the_engine_is_gone_ends_the_attachment_with_the_hosts_words(tmp_path):
-    link = FakeLink({"error": "exited with code 3", "gone": True})
-    engine = RemoteEngine(attachment(tmp_path), link, {})
-    with pytest.raises(EngineError, match="exited with code 3"):
-        engine.call({"op": "transcribe"})
-    assert engine.alive is False and link.closed
-
-
-def test_an_engine_error_on_a_living_engine_leaves_the_attachment_open(tmp_path):
-    engine = RemoteEngine(attachment(tmp_path), FakeLink({"error": "bad clip", "gone": False}), {})
+def test_an_error_reply_leaves_the_attachment_open(tmp_path):
+    engine = RemoteEngine(attachment(tmp_path), FakeLink({"error": "bad clip"}), {})
     with pytest.raises(EngineError, match="bad clip"):
         engine.call({"op": "transcribe"})
     assert engine.alive is True

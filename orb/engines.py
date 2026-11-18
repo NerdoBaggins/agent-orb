@@ -12,6 +12,7 @@ import re
 import subprocess
 import sys
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -44,6 +45,18 @@ class EngineError(RuntimeError):
 
 
 class EngineLoadError(EngineError):
+    pass
+
+
+class EngineTimeout(EngineError):
+    """The engine did not answer a call in time; it is no longer usable."""
+
+
+class EngineQueueTimeout(EngineTimeout):
+    """The call ran out of time waiting behind another one; the engine was never asked and is left running."""
+
+
+class EngineExited(EngineError):
     pass
 
 
@@ -170,6 +183,7 @@ class EngineProcess:
         self.lines: queue.Queue = queue.Queue()
         self.lock = threading.Lock()
         self.loaded: dict = {}
+        self.condemned = False
         threading.Thread(target=self._pump, daemon=True).start()
         self._stderr_pump = threading.Thread(target=self._pump_stderr, daemon=True)
         self._stderr_pump.start()
@@ -180,7 +194,7 @@ class EngineProcess:
 
     @property
     def alive(self) -> bool:
-        return self.process.poll() is None
+        return self.process.poll() is None and not self.condemned
 
     def _pump(self) -> None:
         for line in self.process.stdout:
@@ -192,22 +206,31 @@ class EngineProcess:
             if text := log_text(line):
                 log.warning("%s: %s", self.label, text)
 
-    def call(self, request: dict, timeout: float = CALL_TIMEOUT_S) -> dict:
-        with self.lock:
-            if self.process.poll() is not None:
-                raise EngineError(f"{self.label} exited with code {self.process.returncode}")
+    def call(self, request: dict, timeout: float = CALL_TIMEOUT_S, sent_at: float | None = None) -> dict:
+        """The engine's reply. `timeout` counts from `sent_at` (now, by default), so time spent waiting behind another
+        call is part of it: a call that runs out of time queued leaves the engine running, one that runs out waiting
+        for the reply is marked unusable at once and closed in the background, after the lock is released and the caller told."""
+        deadline = (time.monotonic() if sent_at is None else sent_at) + timeout
+        if not self.lock.acquire(timeout=max(deadline - time.monotonic(), 0.0)):
+            raise EngineQueueTimeout(self._silence(timeout))
+        try:
+            if not self.alive:
+                raise EngineExited(self._gone())
             try:
                 self.process.stdin.write(json.dumps(request) + "\n")
                 self.process.stdin.flush()
             except (OSError, ValueError):
-                raise EngineError(f"{self.label} exited with code {self.process.wait()}")
+                raise EngineExited(f"{self.label} exited with code {self.process.wait()}")
             try:
-                line = self.lines.get(timeout=timeout)
+                line = self.lines.get(timeout=max(deadline - time.monotonic(), 0.0))
             except queue.Empty:
-                self.close()
-                raise EngineError(f"{self.label} gave no answer to {request['op']!r} within {timeout:.0f} s")
+                self.condemned = True
+                threading.Thread(target=self.close, daemon=True).start()
+                raise EngineTimeout(self._silence(timeout))
+        finally:
+            self.lock.release()
         if line is None:
-            raise EngineError(f"{self.label} exited with code {self.process.wait()}")
+            raise EngineExited(f"{self.label} exited with code {self.process.wait()}")
         try:
             reply = json.loads(line)
         except json.JSONDecodeError:
@@ -217,6 +240,13 @@ class EngineProcess:
         if "error" in reply:
             raise EngineError(f"{self.label}: {reply['error']}")
         return reply
+
+    def _gone(self) -> str:
+        code = self.process.poll()
+        return f"{self.label} exited with code {code}" if code is not None else f"{self.label} was closed after a call went unanswered"
+
+    def _silence(self, timeout: float) -> str:
+        return f"{self.label} did not answer within {timeout:g} s"
 
     def close(self) -> bool:
         """Closes the input and waits 5 s. True when the process left on its own; otherwise it and the engine pid

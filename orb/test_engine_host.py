@@ -9,7 +9,7 @@ import pytest
 from orb import engine_host, engine_registry, engine_wire, state
 from orb.engine_host import Host, Session, parse_attach
 from orb.engine_registry import Registry
-from orb.engines import EngineError
+from orb.engines import EngineError, EngineExited, EngineQueueTimeout, EngineTimeout
 from orb.test_engine_registry import Clock
 
 
@@ -19,10 +19,10 @@ class FakeProcess:
         self.loaded, self.alive, self.closed, self.calls, self.fail = {"ok": True}, True, False, [], None
         self.label = f"fake engine {pid}"
 
-    def call(self, request, timeout):
+    def call(self, request, timeout, sent_at=None):
         self.calls.append(request)
         if self.fail:
-            raise EngineError(self.fail)
+            raise self.fail if isinstance(self.fail, Exception) else EngineError(self.fail)
         return {"echo": request}
 
     def close(self):
@@ -88,13 +88,27 @@ def attach_message(kind="stt", name="fake", settings=None, env=None, pid=1):
             "owner": {"pid": pid, "repo": "/r", "agent": "claude"}}
 
 
-def join(host, **kw):
+def join(host, session=None, **kw):
     """Attaches, then waits for the load: the attach reply when the host refused it, else the ready reply."""
-    session = Session()
+    session = session or Session()
     reply = host.handle(session, attach_message(**kw))
     if reply == {"attached": True}:
         reply = host.handle(session, {"op": "ready"})
     return session, reply
+
+
+def eventually(condition, seconds=10.0):
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if condition():
+            return True
+        time.sleep(0.01)
+    return False
+
+
+def heard(events, name):
+    """A session that notes in `events` each reply sent to it and each time it is hung up on."""
+    return Session(send=lambda reply: events.append((name, "reply", reply)), hang_up=lambda: events.append((name, "hung up")))
 
 
 def handle_in_thread(host, session, message):
@@ -231,13 +245,15 @@ def test_waiters_on_a_failed_load_all_get_its_error_and_the_next_attach_tries_af
     assert join(host)[1] == {"loaded": {"ok": True}} and gated.attempts == 2
 
 
-def test_a_call_after_another_orbs_reload_of_the_dead_engine_failed_is_an_error_reply_not_a_crash(host, starter):
-    first, _ = join(host)
+def test_a_call_after_another_orbs_reload_of_the_dead_engine_failed_ends_the_connection_and_drops_the_dead_engine(host, starter):
+    events = []
+    first, _ = join(host, heard(events, "first"))
     dead = processes(starter)[0]
-    dead.fail, dead.alive = "exited with code 3", False
+    dead.fail, dead.alive = EngineExited("exited with code 3"), False
     starter.fail = "the engine cannot start"
     assert join(host)[1] == {"error": "the engine cannot start"}
-    assert host.handle(first, {"op": "call", "request": {"op": "x"}, "timeout": 5}) == {"error": "exited with code 3", "gone": True}
+    assert host.handle(first, {"op": "call", "request": {"op": "x"}, "timeout": 5}) is None
+    assert events == [("first", "hung up")] and host.registry.owners == {}
 
 
 def test_a_call_before_the_engine_has_loaded_is_an_error_reply(host, gated):
@@ -291,14 +307,90 @@ def test_a_malformed_call_is_an_error(host, message):
 def test_an_engine_error_is_passed_on_and_the_attachment_stays_while_the_engine_lives(host, starter):
     session, _ = join(host)
     processes(starter)[0].fail = "bad clip"
-    assert host.handle(session, {"op": "call", "request": {"op": "x"}, "timeout": 5}) == {"error": "bad clip", "gone": False}
+    assert host.handle(session, {"op": "call", "request": {"op": "x"}, "timeout": 5}) == {"error": "bad clip"}
 
 
-def test_a_dead_engine_is_reported_gone_to_the_server_that_called_it(host, starter):
-    session, _ = join(host)
+CALL = {"op": "call", "request": {"op": "x"}, "timeout": 5}
+
+
+def test_a_timeout_on_the_reply_answers_the_caller_then_drops_the_engine_and_hangs_up_every_connection_on_it(host, starter):
+    events = []
+    caller, _ = join(host, heard(events, "caller"))
+    join(host, heard(events, "other"), pid=2)
     process = processes(starter)[0]
-    process.fail, process.alive = "exited with code 3", False
-    assert host.handle(session, {"op": "call", "request": {"op": "x"}, "timeout": 5})["gone"] is True
+    process.fail = EngineTimeout("fake engine 100 did not answer within 5 s")
+    assert host.handle(caller, CALL) is None
+    assert events[0] == ("caller", "reply", {"error": "fake engine 100 did not answer within 5 s"})
+    assert sorted(event for event in events[1:]) == [("caller", "hung up"), ("other", "hung up")]
+    assert host.slots == {} and host.registry.owners == {} and process.closed
+
+
+def test_a_timeout_while_queued_leaves_the_engine_and_every_connection_on_it_alone(host, starter):
+    events = []
+    caller, _ = join(host, heard(events, "caller"))
+    join(host, heard(events, "other"), pid=2)
+    processes(starter)[0].fail = EngineQueueTimeout("fake engine 100 did not answer within 5 s")
+    assert host.handle(caller, CALL) == {"error": "fake engine 100 did not answer within 5 s"}
+    assert events == [] and len(host.slots) == 1 and len(host.registry.owners) == 2 and not processes(starter)[0].closed
+
+
+def test_an_engine_found_dead_mid_call_is_dropped_and_every_connection_on_it_hung_up_with_no_reply(host, starter):
+    events = []
+    caller, _ = join(host, heard(events, "caller"))
+    join(host, heard(events, "other"), pid=2)
+    process = processes(starter)[0]
+    process.fail, process.alive = EngineExited("fake engine 100 exited with code 3"), False
+    assert host.handle(caller, CALL) is None
+    assert sorted(events) == [("caller", "hung up"), ("other", "hung up")]
+    assert host.slots == {} and host.registry.owners == {} and process.closed
+
+
+def test_the_sweep_drops_an_engine_found_dead_and_hangs_up_every_connection_on_it(host, starter):
+    events = []
+    join(host, heard(events, "one"))
+    join(host, heard(events, "two"), pid=2)
+    processes(starter)[0].alive = False
+    host.sweep()
+    assert sorted(events) == [("one", "hung up"), ("two", "hung up")] and host.slots == {} and host.registry.owners == {}
+
+
+class StuckProcess(FakeProcess):
+    """A call that does not return until `release` is set."""
+
+    def __init__(self, pid):
+        super().__init__(pid)
+        self.in_call, self.release = threading.Event(), threading.Event()
+
+    def call(self, request, timeout, sent_at=None):
+        self.in_call.set()
+        assert self.release.wait(10)
+        return super().call(request, timeout, sent_at)
+
+
+def test_the_sweep_leaves_a_dead_engine_to_the_call_in_flight_on_it_so_the_caller_is_answered_before_any_hang_up(host, starter):
+    host.start = lambda kind, settings, home, env: StuckProcess(7)
+    events = []
+    caller, _ = join(host, heard(events, "caller"))
+    process = host.slots[caller.key].process
+    thread, _ = handle_in_thread(host, caller, CALL)
+    assert process.in_call.wait(10)
+    process.alive = False
+    host.sweep()
+    assert events == []
+    process.fail = EngineTimeout("did not answer within 5 s")
+    process.release.set()
+    thread.join(10)
+    assert [e[:2] for e in events] == [("caller", "reply"), ("caller", "hung up")]
+
+
+def test_a_calls_limit_counts_from_the_moment_the_host_received_it(host, starter, monkeypatch):
+    ticks = iter([10.0, 10.5])
+    monkeypatch.setattr(engine_host, "time", type("Clock", (), {"monotonic": staticmethod(lambda: next(ticks))}))
+    session, _ = join(host)
+    seen = []
+    processes(starter)[0].call = lambda request, timeout, sent_at: seen.append((timeout, sent_at)) or {}
+    host.handle(session, CALL)
+    assert seen == [(5, 10.0)]
 
 
 def test_the_next_attach_to_a_dead_engine_starts_a_new_one_and_closes_the_dead(host, starter):
@@ -437,6 +529,16 @@ class Wire:
     def closes_without_reply(self):
         return self.client.recv(1024) == b""
 
+    def lines_until_closed(self):
+        data = b""
+        while chunk := self.client.recv(1024):
+            data += chunk
+        return [json.loads(line) for line in data.splitlines()]
+
+    def greet(self):
+        self.send({"op": "hello", "token": TOKEN})
+        assert self.client.recv(1024) == b'{"ok": true}\n'
+
 
 @pytest.fixture
 def wire(host):
@@ -468,6 +570,55 @@ def test_a_connection_that_gave_the_secret_may_then_stay_silent_past_the_first_m
     trusted.send({"op": "ping"})
     assert json.loads(trusted.client.recv(1024))["ok"] is True
     trusted.client.close()
+
+
+def test_a_connection_that_ends_while_its_call_runs_drops_its_owner_before_the_call_returns(host, wire):
+    process = StuckProcess(7)
+    host.start = lambda kind, settings, home, env: process
+    wire.greet()
+    wire.send(attach_message())
+    assert json.loads(wire.client.recv(1024)) == {"attached": True}
+    wire.send({"op": "ready"})
+    assert "loaded" in json.loads(wire.client.recv(1024))
+    wire.send(CALL)
+    assert process.in_call.wait(10)
+    wire.client.close()
+    assert eventually(lambda: host.registry.owners == {})
+    process.release.set()
+
+
+def test_a_connection_that_ends_while_its_ready_waits_for_the_load_drops_its_owner_before_the_load_ends(host, wire, gated):
+    wire.greet()
+    wire.send(attach_message())
+    assert json.loads(wire.client.recv(1024)) == {"attached": True}
+    wire.send({"op": "ready"})
+    assert gated.loading.wait(10)
+    wire.client.close()
+    assert eventually(lambda: host.registry.owners == {})
+
+
+def test_a_call_whose_reply_timed_out_is_answered_on_the_wire_and_the_connection_then_closed(host, starter, wire):
+    wire.greet()
+    wire.send(attach_message())
+    assert json.loads(wire.client.recv(1024)) == {"attached": True}
+    wire.send({"op": "ready"})
+    assert "loaded" in json.loads(wire.client.recv(1024))
+    process = processes(starter)[0]
+    process.fail = EngineTimeout("fake engine 100 did not answer within 5 s")
+    wire.send(CALL)
+    assert wire.lines_until_closed() == [{"error": "fake engine 100 did not answer within 5 s"}]
+
+
+def test_a_call_that_found_the_engine_dead_closes_the_connection_with_no_reply(host, starter, wire):
+    wire.greet()
+    wire.send(attach_message())
+    assert json.loads(wire.client.recv(1024)) == {"attached": True}
+    wire.send({"op": "ready"})
+    assert "loaded" in json.loads(wire.client.recv(1024))
+    process = processes(starter)[0]
+    process.fail, process.alive = EngineExited("fake engine 100 exited with code 3"), False
+    wire.send(CALL)
+    assert wire.lines_until_closed() == []
 
 
 def test_the_host_never_reads_an_orbs_pid(host, wire, monkeypatch):
