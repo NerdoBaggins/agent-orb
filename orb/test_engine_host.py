@@ -31,14 +31,28 @@ class FakeProcess:
 
 class Starter:
     def __init__(self):
-        self.started, self.fail = [], None
+        self.started, self.attempts, self.fail = [], 0, None
 
     def __call__(self, kind, settings, home, env):
+        self.attempts += 1
         if self.fail:
             raise EngineError(self.fail)
         process = FakeProcess(len(self.started) + 100)
         self.started.append((kind, settings, env, process))
         return process
+
+
+class GatedStarter(Starter):
+    """Loads nothing until `release` is set, and says when a load has begun."""
+
+    def __init__(self):
+        super().__init__()
+        self.loading, self.release = threading.Event(), threading.Event()
+
+    def __call__(self, kind, settings, home, env):
+        self.loading.set()
+        assert self.release.wait(10)
+        return super().__call__(kind, settings, home, env)
 
 
 @pytest.fixture
@@ -56,15 +70,38 @@ def host(tmp_path, clock, starter):
     return Host(tmp_path, Registry(clock, grace=120, host_idle=10), starter, {"PATH": "/bin"})
 
 
+@pytest.fixture
+def gated(host):
+    host.start = GatedStarter()
+    yield host.start
+    host.start.release.set()
+
+
+def write_engine(home, kind, name, **manifest):
+    folder = home / ".config" / "voice-engines" / kind / name
+    folder.mkdir(parents=True)
+    (folder / "engine.json").write_text(json.dumps({"name": name, "version": "1", "kind": kind, "protocol": 2, "run": ["x"], **manifest}), encoding="utf-8")
+
+
 def attach_message(kind="stt", name="fake", settings=None, env=None, pid=1):
     return {"op": "attach", "kind": kind, "name": name, "settings": settings or {}, "env": env or {},
             "owner": {"pid": pid, "repo": "/r", "agent": "claude"}}
 
 
 def join(host, **kw):
+    """Attaches, then waits for the load: the attach reply when the host refused it, else the ready reply."""
     session = Session()
     reply = host.handle(session, attach_message(**kw))
+    if reply == {"attached": True}:
+        reply = host.handle(session, {"op": "ready"})
     return session, reply
+
+
+def handle_in_thread(host, session, message):
+    answers = []
+    thread = threading.Thread(target=lambda: answers.append(host.handle(session, message)), daemon=True)
+    thread.start()
+    return thread, answers
 
 
 def processes(starter):
@@ -85,15 +122,32 @@ def test_servers_whose_load_settings_differ_get_separate_processes(host, starter
     assert len(starter.started) == 2
 
 
-def test_the_engine_gets_the_servers_credentials_on_top_of_the_hosts_environment(host, starter):
-    join(host, env={"API_KEY": "k"})
+def test_the_engine_gets_the_variables_its_manifest_declares_on_top_of_the_hosts_environment_and_no_others(host, starter, tmp_path):
+    write_engine(tmp_path, "stt", "keyed", env=["API_KEY"])
+    join(host, name="keyed", env={"API_KEY": "k", "UNDECLARED": "x"})
     assert starter.started[0][2] == {"PATH": "/bin", "API_KEY": "k"}
 
 
-def test_servers_with_different_credentials_get_separate_processes(host, starter):
-    join(host, env={"API_KEY": "one"})
-    join(host, env={"API_KEY": "two"})
+def test_servers_with_different_values_of_a_declared_variable_get_separate_processes(host, starter, tmp_path):
+    write_engine(tmp_path, "stt", "keyed", env=["API_KEY"])
+    join(host, name="keyed", env={"API_KEY": "one"})
+    join(host, name="keyed", env={"API_KEY": "two"})
     assert len(starter.started) == 2
+
+
+def test_a_variable_the_manifest_does_not_declare_does_not_split_a_key_even_when_the_server_sent_it(host, starter, tmp_path):
+    write_engine(tmp_path, "stt", "keyed", env=["API_KEY"])
+    join(host, name="keyed", env={"API_KEY": "k", "UNDECLARED": "one"})
+    join(host, name="keyed", env={"API_KEY": "k", "UNDECLARED": "two"})
+    assert len(starter.started) == 1
+
+
+def test_the_engine_sees_the_host_path_unless_the_manifest_names_it(host, starter, tmp_path):
+    write_engine(tmp_path, "stt", "plain")
+    write_engine(tmp_path, "stt", "tooled", env=["PATH"])
+    join(host, name="plain", env={"PATH": "/orb"})
+    join(host, name="tooled", env={"PATH": "/orb"})
+    assert [process_env["PATH"] for _, _, process_env, _ in starter.started] == ["/bin", "/orb"]
 
 
 def test_the_engine_is_started_with_its_name_and_load_settings(host, starter):
@@ -113,6 +167,17 @@ def test_a_malformed_attach_is_an_error_not_a_crash(host, change):
     assert "error" in reply
 
 
+@pytest.mark.parametrize("manifest, offered, refusal", [
+    ({"protocol": 1}, {}, "protocol"),
+    ({"env": ["API_KEY"]}, {}, "needs API_KEY"),
+], ids=["a manifest of another protocol", "a declared variable the orb did not send"])
+def test_an_attach_the_manifest_refuses_is_an_error_reply_and_registers_nothing(host, starter, tmp_path, manifest, offered, refusal):
+    write_engine(tmp_path, "stt", "refused", **manifest)
+    session = Session()
+    reply = host.handle(session, attach_message(name="refused", env=offered))
+    assert refusal in reply["error"] and session.key is None and host.registry.owners == {} and starter.attempts == 0
+
+
 def test_a_second_attach_on_one_connection_is_refused_before_it_starts_an_engine(host, starter):
     session, _ = join(host)
     assert "already attached" in host.handle(session, attach_message(name="other"))["error"]
@@ -125,7 +190,84 @@ def test_an_unknown_op_is_an_error(host):
 
 def test_parse_attach_keeps_what_the_key_is_made_of():
     want = parse_attach(attach_message(settings={"a": 1}))
-    assert (want.key.kind, want.key.name, want.settings) == ("stt", "fake", {"a": 1})
+    assert (want.kind, want.name, want.settings) == ("stt", "fake", {"a": 1})
+
+
+# ---- sharing, waiting and loading ----
+
+def test_an_attach_to_a_key_still_loading_waits_and_shares_it_and_one_load_is_counted(host, gated):
+    first = Session()
+    assert host.handle(first, attach_message(pid=1)) == {"attached": True}
+    assert gated.loading.wait(10)
+    second = Session()
+    assert host.handle(second, attach_message(pid=2)) == {"attached": True}
+    thread, answers = handle_in_thread(host, second, {"op": "ready"})
+    thread.join(0.3)
+    assert answers == []
+    gated.release.set()
+    thread.join(10)
+    assert answers == [{"loaded": {"ok": True}}] and host.handle(first, {"op": "ready"}) == {"loaded": {"ok": True}}
+    assert gated.attempts == 1 and len(host.listing(first, {})["engines"][0]["owners"]) == 2
+
+
+def test_the_host_answers_an_attach_while_the_engine_is_still_loading(host, gated):
+    thread, answers = handle_in_thread(host, Session(), attach_message())
+    thread.join(5)
+    assert answers == [{"attached": True}]
+
+
+def test_waiters_on_a_failed_load_all_get_its_error_and_the_next_attach_tries_afresh(host, gated):
+    gated.fail = "the model is missing"
+    waiters = [Session(), Session()]
+    for pid, session in enumerate(waiters, 1):
+        assert host.handle(session, attach_message(pid=pid)) == {"attached": True}
+    threads = [handle_in_thread(host, session, {"op": "ready"}) for session in waiters]
+    gated.release.set()
+    for thread, _ in threads:
+        thread.join(10)
+    assert [answers for _, answers in threads] == [[{"error": "the model is missing"}]] * 2
+    assert [s.key for s in waiters] == [None, None] and host.registry.owners == {} and host.slots == {}
+    gated.fail = None
+    assert join(host)[1] == {"loaded": {"ok": True}} and gated.attempts == 2
+
+
+def test_a_call_after_another_orbs_reload_of_the_dead_engine_failed_is_an_error_reply_not_a_crash(host, starter):
+    first, _ = join(host)
+    dead = processes(starter)[0]
+    dead.fail, dead.alive = "exited with code 3", False
+    starter.fail = "the engine cannot start"
+    assert join(host)[1] == {"error": "the engine cannot start"}
+    assert host.handle(first, {"op": "call", "request": {"op": "x"}, "timeout": 5}) == {"error": "exited with code 3", "gone": True}
+
+
+def test_a_call_before_the_engine_has_loaded_is_an_error_reply(host, gated):
+    session = Session()
+    host.handle(session, attach_message())
+    assert gated.loading.wait(10)
+    assert host.handle(session, {"op": "call", "request": {"op": "x"}, "timeout": 5}) == {"error": "the engine has not finished loading"}
+
+
+def test_the_listing_leaves_out_an_engine_still_loading(host, gated):
+    session = Session()
+    host.handle(session, attach_message())
+    assert gated.loading.wait(10)
+    assert host.listing(session, {})["engines"] == []
+
+
+def test_a_ready_on_a_connection_that_has_not_attached_is_an_error(host):
+    assert "has not attached" in host.handle(Session(), {"op": "ready"})["error"]
+
+
+# ---- an engine that is not shared ----
+
+def test_a_share_false_engine_gets_one_process_per_connection_and_closes_with_its_connection_with_no_grace(host, starter, tmp_path):
+    write_engine(tmp_path, "stt", "solo", share=False)
+    first, _ = join(host, name="solo", pid=1)
+    second, _ = join(host, name="solo", pid=2)
+    host.drop(first)
+    assert len(starter.started) == 2 and processes(starter)[0].closed and not processes(starter)[1].closed
+    assert host.registry.idle_since == {}
+    assert [e["pid"] for e in host.listing(second, {})["engines"]] == [101]
 
 
 # ---- connections, calls and grace ----
@@ -165,12 +307,6 @@ def test_the_next_attach_to_a_dead_engine_starts_a_new_one_and_closes_the_dead(h
     dead.alive = False
     join(host)
     assert len(starter.started) == 2 and dead.closed
-
-
-def test_a_failed_start_is_an_error_and_leaves_nothing_behind(host, starter):
-    starter.fail = "fake stt was told to fail"
-    session, reply = join(host)
-    assert reply == {"error": "fake stt was told to fail"} and session.key is None and host.listing(session, {})["engines"] == []
 
 
 def test_closing_the_last_connection_stops_the_engine_after_the_grace(host, starter, clock):
@@ -220,45 +356,47 @@ def test_an_attach_after_the_host_decided_to_exit_is_told_to_retry(host, clock):
     assert join(host)[1] == {"closing": True}
 
 
-def test_the_host_does_not_exit_while_an_engine_is_still_loading(host, starter, clock):
-    release, loading = threading.Event(), threading.Event()
-    original = starter.__call__
-
-    def slow(kind, settings, home, env):
-        loading.set()
-        release.wait(10)
-        return original(kind, settings, home, env)
-
-    host.start = slow
-    attaching = threading.Thread(target=join, args=(host,))
-    attaching.start()
-    assert loading.wait(10)
-    clock.advance(1000)
-    done = host.sweep()
-    release.set()
-    attaching.join(10)
-    assert done is False and len(starter.started) == 1
+def test_the_host_does_not_exit_while_an_engine_is_still_loading_for_an_orb_that_has_gone(host, gated, tmp_path, clock):
+    write_engine(tmp_path, "stt", "solo", share=False)
+    session = Session()
+    host.handle(session, attach_message(name="solo"))
+    assert gated.loading.wait(10)
+    host.drop(session)
+    clock.advance(10)
+    assert host.sweep() is False and host.sweep() is False
 
 
-def test_two_servers_attaching_while_the_engine_loads_start_it_once(host, starter):
-    release, loading = threading.Event(), threading.Event()
-    original = starter.__call__
+def test_a_share_false_orb_that_disconnects_mid_load_has_its_process_closed_when_the_load_finishes(host, gated, tmp_path):
+    write_engine(tmp_path, "stt", "solo", share=False)
+    session = Session()
+    host.handle(session, attach_message(name="solo"))
+    assert gated.loading.wait(10)
+    host.drop(session)
+    gated.release.set()
+    host.handle(session, {"op": "ready"})
+    assert processes(gated)[0].closed and host.slots == {}
 
-    def slow(kind, settings, home, env):
-        loading.set()
-        release.wait(10)
-        return original(kind, settings, home, env)
 
-    host.start = slow
-    first = threading.Thread(target=join, args=(host,))
-    first.start()
-    assert loading.wait(10)
-    second = threading.Thread(target=join, args=(host,))
-    second.start()
-    release.set()
-    first.join(10)
-    second.join(10)
-    assert len(starter.started) == 1 and len(host.listing(Session(), {})["engines"][0]["owners"]) == 2
+def test_an_engine_whose_grace_ran_out_while_it_loaded_is_closed_when_it_finishes(host, gated, clock):
+    session = Session()
+    host.handle(session, attach_message())
+    assert gated.loading.wait(10)
+    host.drop(session)
+    clock.advance(120)
+    host.sweep()
+    gated.release.set()
+    host.handle(session, {"op": "ready"})
+    assert processes(gated)[0].closed and host.slots == {}
+
+
+def test_an_engine_that_finishes_loading_after_the_host_began_closing_is_closed(host, gated):
+    session = Session()
+    host.handle(session, attach_message())
+    assert gated.loading.wait(10)
+    host.close_all()
+    gated.release.set()
+    reply = host.handle(session, {"op": "ready"})
+    assert "closed before it finished loading" in reply["error"] and processes(gated)[0].closed
 
 
 def test_close_all_closes_every_engine(host, starter):
@@ -340,6 +478,8 @@ def test_the_host_never_reads_an_orbs_pid(host, wire, monkeypatch):
     wire.send({"op": "hello", "token": TOKEN})
     assert wire.client.recv(1024) == b'{"ok": true}\n'
     wire.send(attach_message(pid=4242))
+    assert json.loads(wire.client.recv(1024)) == {"attached": True}
+    wire.send({"op": "ready"})
     assert "loaded" in json.loads(wire.client.recv(1024))
     wire.client.close()
     wire.thread.join(5)

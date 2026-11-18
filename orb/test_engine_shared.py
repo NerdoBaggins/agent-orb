@@ -1,5 +1,6 @@
 """The engine host as real processes: a host daemon, the fake engines under engines/*/fake/, and servers attaching
 through engine_client. HOME and every config folder sit under tmp_path."""
+import json
 import os
 import shutil
 import signal
@@ -12,7 +13,7 @@ import numpy as np
 import pytest
 
 from orb import PLUGIN_ROOT, engine_client, engine_wire
-from orb.engines import EngineError, Stt, Tts, encode_pcm
+from orb.engines import EngineError, Stt, Tts, decode_pcm, encode_pcm
 from orb.state import pid_alive, state_root
 from orb.test_engine_wire import make_copy
 
@@ -118,22 +119,23 @@ def test_two_servers_with_the_same_settings_share_one_engine_process_and_both_ar
     second.close()
 
 
-def test_servers_whose_load_settings_differ_get_separate_processes_each_with_its_own_settings(home):
-    one = stt(home, launcher({**OWNER, "pid": 1}), text="one")
-    two = stt(home, launcher({**OWNER, "pid": 2}), text="two")
-    assert (one.transcribe(CLIP), two.transcribe(CLIP)) == ("one", "two")
-    pids = {e["pid"] for e in running(home)}
-    assert len(running(home)) == 2 and len(pids) == 2
-    one.close()
-    two.close()
+def test_changing_a_load_setting_starts_a_second_process(home):
+    quick = launcher({**OWNER, "pid": 1})("tts", {"engine": "fake", "seconds_per_word": 0.05}, home)
+    slow = launcher({**OWNER, "pid": 2})("tts", {"engine": "fake", "seconds_per_word": 0.1}, home)
+    request = {"op": "render", "text": "hi"}
+    assert (len(decode_pcm(quick.call(request)["pcm"])), len(decode_pcm(slow.call(request)["pcm"]))) == (400, 800)
+    assert len(running(home)) == 2 and len({e["pid"] for e in running(home)}) == 2
+    quick.close()
+    slow.close()
 
 
-def test_servers_that_differ_only_in_their_tts_voice_share_one_process_and_each_render_carries_its_own_voice(home):
+def test_two_orbs_on_the_fake_tts_with_different_voices_run_one_process_and_each_reply_echoes_its_own(home):
     first = tts(home, launcher({**OWNER, "pid": 1}), voice="ann")
     second = tts(home, launcher({**OWNER, "pid": 2}), voice="bob")
     sent = [first.call(lambda name: {"op": "render", "text": "hi", **first.call_for(name)})["voice"],
             second.call(lambda name: {"op": "render", "text": "hi", **second.call_for(name)})["voice"]]
-    assert sent == ["ann", "bob"] and len(running(home)) == 1
+    [engine] = running(home)
+    assert sent == ["ann", "bob"] and owners_of(engine) == [1, 2] and pid_alive(engine["pid"])
     first.close()
     second.close()
 
@@ -234,15 +236,69 @@ def test_a_missing_credential_is_refused_before_the_host_is_asked(home, tmp_path
     assert host_of(home) is None
 
 
-def test_servers_with_different_credentials_do_not_share_a_process_and_the_engine_sees_each_servers_own(home):
-    folder = home / ".config" / "voice-engines" / "stt" / "keyed"
-    shutil.copytree(PLUGIN_ROOT / "engines" / "stt" / "fake", folder, ignore=shutil.ignore_patterns("__pycache__"))
-    (folder / "engine.json").write_text('{"name": "keyed", "version": "1", "kind": "stt", "protocol": 2, "run": ["uv", "run", "--script", "engine.py"], "env": ["ORB_TEST_KEY"]}', encoding="utf-8")
-    one = launcher({**OWNER, "pid": 1})("stt", {"engine": "keyed"}, home, {**os.environ, "ORB_TEST_KEY": "one"})
-    two = launcher({**OWNER, "pid": 2})("stt", {"engine": "keyed"}, home, {**os.environ, "ORB_TEST_KEY": "two"})
-    assert len(running(home)) == 2
-    one.close()
-    two.close()
+PROBE_ENGINE = """
+import json
+import os
+import sys
+
+for line in sys.stdin:
+    request = json.loads(line)
+    if request["op"] == "load":
+        reply = {"ok": True, "pid": os.getpid()}
+    else:
+        reply = {"text": os.environ.get("ORB_TEST_KEY", ""), "pid": os.getpid()}
+    print(json.dumps(reply), flush=True)
+"""
+
+
+def write_probe(home, name, **manifest):
+    """An engine that answers every request after the load with the ORB_TEST_KEY it sees and its own pid."""
+    folder = home / ".config" / "voice-engines" / "stt" / name
+    folder.mkdir(parents=True)
+    (folder / "engine.py").write_text(PROBE_ENGINE, encoding="utf-8")
+    (folder / "engine.json").write_text(json.dumps({"name": name, "version": "1", "kind": "stt", "protocol": 2,
+                                                    "run": [sys.executable, "engine.py"], **manifest}), encoding="utf-8")
+
+
+PCM = {"op": "transcribe", "pcm": encode_pcm(CLIP)}
+
+
+def test_orbs_with_different_values_of_a_declared_variable_run_two_processes_each_seeing_its_own_and_the_same_value_one(home):
+    write_probe(home, "keyed", env=["ORB_TEST_KEY"])
+
+    def attach_with(value, pid):
+        return launcher({**OWNER, "pid": pid})("stt", {"engine": "keyed"}, home, {**os.environ, "ORB_TEST_KEY": value})
+
+    one, two = attach_with("one", 1), attach_with("two", 2)
+    answers = {"one": one.call(PCM), "two": two.call(PCM)}
+    again = attach_with("one", 3)
+    assert (answers["one"]["text"], answers["two"]["text"]) == ("one", "two") and answers["one"]["pid"] != answers["two"]["pid"]
+    assert len(running(home)) == 2 and again.call(PCM)["pid"] == answers["one"]["pid"]
+    for engine in (one, two, again):
+        engine.close()
+
+
+def test_a_share_false_engine_runs_one_process_per_orb_and_closes_at_once_when_its_orb_lets_go(home):
+    write_probe(home, "solo", share=False)
+    launch = launcher(spawn=spawner(["--grace=60", "--host-idle=60", "--tick=0.1"]))
+    first, second = launch("stt", {"engine": "solo"}, home), launch("stt", {"engine": "solo"}, home)
+    pids = [first.call(PCM)["pid"], second.call(PCM)["pid"]]
+    assert pids[0] != pids[1] and sorted(e["pid"] for e in running(home)) == sorted(pids)
+    assert [len(e["owners"]) for e in running(home)] == [1, 1]
+    first.close()
+    assert eventually(lambda: not pid_alive(pids[0]), seconds=3.0)
+    assert [e["pid"] for e in running(home)] == [pids[1]] and running(home)[0]["grace_left"] is None
+    assert second.call(PCM)["pid"] == pids[1]
+    second.close()
+
+
+def test_the_orb_is_attached_within_5_s_of_the_host_answering_while_the_engine_is_still_loading(home, monkeypatch):
+    assert engine_client.ATTACH_TIMEOUT_S == 5.0
+    monkeypatch.setattr(engine_client, "ATTACH_TIMEOUT_S", 1.0)
+    started = time.monotonic()
+    engine = launcher()("stt", {"engine": "fake", "load_delay_s": 3.0}, home)
+    assert time.monotonic() - started >= 3.0 and engine.call(PCM)["text"] == "fake transcript"
+    engine.close()
 
 
 def test_a_host_that_refuses_the_token_is_not_reached(home):

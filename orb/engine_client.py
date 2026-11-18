@@ -19,7 +19,7 @@ HOST_START_WAIT_S = 10.0
 HOST_ANSWER_S = 5.0
 HOST_RECORD_GONE_WAIT_S = 5.0
 HOST_START_TRIES = 3
-ATTACH_TIMEOUT_S = LOAD_TIMEOUT_S + 30.0
+ATTACH_TIMEOUT_S = 5.0
 SHORT_TIMEOUT_S = 10.0
 START_LOCK_WAIT_S = 15.0
 HOST_STOP_WAIT_S = 10.0
@@ -193,19 +193,26 @@ def wait_for_record_to_go(home: Path, host_identity: str) -> None:
         time.sleep(0.05)
 
 
+def ask(link: Link, attachment: Attachment, message: dict, timeout: float) -> dict:
+    try:
+        return link.request(message, timeout)
+    except WireError as e:
+        raise EngineError(f"{attachment.kind} engine {attachment.name!r}: {e}")
+
+
 def attach(attachment: Attachment) -> tuple[Link, dict]:
+    """Attaches to the engine and waits for it to load: the host answers the attach at once and the load separately."""
     message = {"op": "attach", "kind": attachment.kind, "name": attachment.name, "settings": attachment.settings,
                "env": attachment.env, "owner": attachment.owner}
     for _ in range(HOST_START_TRIES):
         link = open_link(attachment.home, attachment.plugin_root, attachment.spawn)
-        try:
-            reply = link.request(message, ATTACH_TIMEOUT_S)
-        except WireError as e:
-            raise EngineError(f"{attachment.kind} engine {attachment.name!r}: {e}")
+        reply = ask(link, attachment, message, ATTACH_TIMEOUT_S)
         if reply.get("closing"):
             link.close()
             wait_for_record_to_go(attachment.home, engine_wire.identity(attachment.plugin_root))
             continue
+        if "error" not in reply:
+            reply = ask(link, attachment, {"op": "ready"}, LOAD_TIMEOUT_S)
         if "error" in reply:
             link.close()
             raise EngineError(reply["error"])

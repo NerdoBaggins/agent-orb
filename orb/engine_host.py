@@ -4,6 +4,7 @@ starts the engine for the first connection on a key, closes it GRACE_S after the
 remains. Run as `python -m orb.engine_host`; servers start it on demand (orb.engine_client)."""
 import argparse
 import hmac
+import itertools
 import json
 import logging
 import os
@@ -12,7 +13,7 @@ import signal
 import socket
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from orb import PLUGIN_ROOT, engine_wire, engines, logs
@@ -26,14 +27,28 @@ FIRST_MESSAGE_TIMEOUT_S = 5.0
 LOCK_WAIT_S = 3.0
 
 
+_SESSION_NUMBERS = itertools.count(1)
+
+
+@dataclass(eq=False)
+class Slot:
+    """The engine process one key runs, from the moment its first attach asks for it until it is closed."""
+    done: threading.Event = field(default_factory=threading.Event)
+    process: engines.EngineProcess | None = None
+    error: str | None = None
+
+
 @dataclass(eq=False)
 class Session:
     key: Key | None = None
+    slot: Slot | None = None
+    number: int = field(default_factory=lambda: next(_SESSION_NUMBERS))
 
 
 @dataclass(frozen=True)
 class Attach:
-    key: Key
+    kind: str
+    name: str
     settings: dict
     env: dict
     owner: dict
@@ -47,27 +62,26 @@ def parse_attach(message: dict) -> Attach:
         raise ValueError("attach needs a name, settings and an owner")
     if not isinstance(env, dict) or not all(isinstance(v, str) for v in env.values()):
         raise ValueError("attach env must map names to strings")
-    return Attach(make_key(kind, name, settings, env), settings, env, owner)
+    return Attach(kind, name, settings, env, owner)
 
 
 class Host:
     def __init__(self, home: Path, registry: Registry, start=engines.start, environ=os.environ):
         self.home, self.registry, self.start, self.environ = home, registry, start, environ
         self.lock = threading.Lock()
-        self.processes: dict[Key, engines.EngineProcess] = {}
-        self.key_locks: dict[Key, threading.Lock] = {}
-        self.pending = 0
+        self.slots: dict[Key, Slot] = {}
         self.closing = False
         self.stopping = threading.Event()
 
     def handle(self, session: Session, message: dict) -> dict:
         op = message.get("op")
-        handler = {"attach": self.attach, "call": self.call, "list": self.listing, "ping": self.ping, "stop": self.stop}.get(op)
+        handler = {"attach": self.attach, "ready": self.ready, "call": self.call, "list": self.listing, "ping": self.ping,
+                   "stop": self.stop}.get(op)
         if handler is None:
             return {"error": f"unknown op {op!r}"}
         try:
             return handler(session, message)
-        except ValueError as e:
+        except (ValueError, EngineError) as e:
             return {"error": str(e)}
 
     def ping(self, session: Session, message: dict) -> dict:
@@ -83,55 +97,79 @@ class Host:
         if session.key is not None:
             raise ValueError("this connection is already attached")
         want = parse_attach(message)
+        offered = {**self.environ, **want.env}
+        manifest = engines.resolve(want.kind, {"engine": want.name, **want.settings}, self.home, offered)
+        declared = {var: offered[var] for var in manifest.env}
+        key = make_key(want.kind, want.name, want.settings, declared, None if manifest.share else session.number)
         with self.lock:
             if self.closing:
                 return {"closing": True}
-            self.pending += 1
-            key_lock = self.key_locks.setdefault(want.key, threading.Lock())
-        try:
-            with key_lock:
-                return self._attach_under_key(session, want)
-        finally:
-            with self.lock:
-                self.pending -= 1
-                self.registry.note_activity()
-
-    def _attach_under_key(self, session: Session, want: Attach) -> dict:
-        with self.lock:
-            process = self.processes.get(want.key)
-            if process is not None and process.alive:
-                return self._attach_session(session, want, process)
-            stale = self.processes.pop(want.key, None)
+            slot = self.slots.get(key)
+            stale = slot.process if slot is not None and slot.process is not None and not slot.process.alive else None
+            if slot is None or stale is not None:
+                slot = self.slots[key] = Slot()
+                threading.Thread(target=self._load, args=(key, slot, want, declared), daemon=True).start()
+            self.registry.attach(session, key, want.owner)
+            session.key, session.slot = key, slot
         if stale is not None:
             stale.close()
+        log.info("%s attached to %s", want.owner, key.label)
+        return {"attached": True}
+
+    def _load(self, key: Key, slot: Slot, want: Attach, declared: dict) -> None:
         try:
-            process = self._start(want)
+            process = self.start(key.kind, {"engine": key.name, **want.settings}, self.home, {**self.environ, **declared})
         except EngineError as e:
-            return {"error": str(e)}
-        with self.lock:
-            self.processes[want.key] = process
-            return self._attach_session(session, want, process)
-
-    def _start(self, want: Attach) -> engines.EngineProcess:
-        key = want.key
-        process = self.start(key.kind, {"engine": key.name, **want.settings}, self.home, {**self.environ, **want.env})
+            self._load_failed(key, slot, str(e))
+            return
         log.info("started %s for pid %s", key.label, process.process.pid)
-        return process
+        with self.lock:
+            wanted = not self.closing and key in self.registry.keys()
+            if wanted:
+                slot.process = process
+            else:
+                slot.error = f"{process.label} was closed before it finished loading"
+                self._forget_slot(key, slot)
+        if not wanted:
+            process.close()
+        slot.done.set()
 
-    def _attach_session(self, session: Session, want: Attach, process: engines.EngineProcess) -> dict:
-        self.registry.attach(session, want.key, want.owner)
-        session.key = want.key
-        log.info("%s attached to %s", want.owner, want.key.label)
-        return {"loaded": process.loaded}
+    def _load_failed(self, key: Key, slot: Slot, error: str) -> None:
+        with self.lock:
+            slot.error = error
+            self._forget_slot(key, slot)
+            for session in [s for s in self.registry.users(key) if s.slot is slot]:
+                self.registry.forget(session)
+                session.key = None
+        slot.done.set()
+
+    def _loading(self) -> bool:
+        return any(slot.process is None for slot in self.slots.values())
+
+    def _forget_slot(self, key: Key, slot: Slot) -> None:
+        if self.slots.get(key) is slot:
+            del self.slots[key]
+
+    def ready(self, session: Session, message: dict) -> dict:
+        slot = session.slot
+        if slot is None:
+            return {"error": "this connection has not attached to an engine"}
+        slot.done.wait()
+        if slot.error is not None:
+            return {"error": slot.error}
+        return {"loaded": slot.process.loaded}
 
     def call(self, session: Session, message: dict) -> dict:
         request, timeout = message.get("request"), message.get("timeout", CALL_TIMEOUT_S)
         if not isinstance(request, dict) or not isinstance(timeout, (int, float)) or timeout <= 0:
             raise ValueError("call needs a request object and a positive timeout")
         with self.lock:
-            if session.key is None:
-                return {"error": "this connection has not attached to an engine"}
-            process = self.processes.get(session.key)
+            slot = session.slot if session.key is not None else None
+        if slot is None:
+            return {"error": "this connection has not attached to an engine"}
+        process = slot.process
+        if process is None:
+            return {"error": "the engine has not finished loading"}
         try:
             return {"reply": process.call(request, timeout)}
         except EngineError as e:
@@ -139,24 +177,40 @@ class Host:
 
     def drop(self, session: Session) -> None:
         with self.lock:
-            if session.key is not None:
+            key, slot = session.key, session.slot
+            if key is None:
+                return
+            session.key = None
+            doomed = None
+            if key.connection is None:
                 self.registry.detach(session)
-                log.info("detached from %s", session.key.label)
-                session.key = None
+            else:
+                self.registry.forget(session)
+                if slot.process is not None:
+                    self._forget_slot(key, slot)
+                    doomed = slot.process
+            log.info("detached from %s", key.label)
+        if doomed is not None:
+            doomed.close()
 
     def listing(self, session: Session, message: dict) -> dict:
         with self.lock:
             return {"engines": [
-                {"kind": key.kind, "name": key.name, "pid": process.process.pid, "alive": process.alive,
+                {"kind": key.kind, "name": key.name, "pid": slot.process.process.pid, "alive": slot.process.alive,
                  "owners": [self.registry.owners[conn].owner for conn in self.registry.users(key)],
                  "grace_left": self.registry.grace_left(key)}
-                for key, process in self.processes.items()]}
+                for key, slot in self.slots.items() if slot.process is not None]}
 
     def sweep(self) -> bool:
         """Closes engines past their grace; True once the host has nothing left to serve."""
         with self.lock:
-            due = [self.processes.pop(key) for key in self.registry.reap() if key in self.processes]
-            done = self.registry.host_done() and not self.pending
+            due = []
+            for key in self.registry.reap():
+                slot = self.slots.get(key)
+                if slot is not None and slot.process is not None:
+                    self._forget_slot(key, slot)
+                    due.append(slot.process)
+            done = self.registry.host_done() and not self._loading()
             self.closing = self.closing or done
         for process in due:
             log.info("closed %s: no server uses it", process.label)
@@ -166,7 +220,8 @@ class Host:
     def close_all(self) -> None:
         with self.lock:
             self.closing = True
-            remaining, self.processes = list(self.processes.values()), {}
+            remaining = [slot.process for slot in self.slots.values() if slot.process is not None]
+            self.slots = {key: slot for key, slot in self.slots.items() if slot.process is None}
         for process in remaining:
             process.close()
 
