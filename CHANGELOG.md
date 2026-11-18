@@ -22,6 +22,8 @@ that has one adds it under Unreleased.
 
 ### Fixed
 
+- The mic button starts on a mouse press even when Chrome sends no pointer event for it, which had left every click
+  ignored while the talk key still worked ([#249](https://github.com/NerdoBaggins/agent-orb/issues/249)).
 - The transcript shows the newest turns when you come back to it from another panel's tab or the orb-only view,
   instead of staying where it was until the next turn arrives; if you had scrolled up, it stays where you left it
   ([#240](https://github.com/NerdoBaggins/agent-orb/issues/240)).
