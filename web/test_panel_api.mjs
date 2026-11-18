@@ -4,10 +4,19 @@ import { createRequire } from "node:module";
 const createOrbApi = createRequire(import.meta.url)("./panel.js");
 
 function harness({ active = true } = {}) {
-  const posted = [];
+  const posted = [], restyled = [];
   let deliver, key;
-  const api = createOrbApi({ post: (m) => posted.push(m), isActive: () => active, listen: (fn) => { deliver = fn; }, onKey: (fn) => { key = fn; } });
-  return { api, posted, deliver: (m) => deliver(m), key: (ev) => key(ev) };
+  const api = createOrbApi({ post: (m) => posted.push(m), isActive: () => active, listen: (fn) => { deliver = fn; }, onKey: (fn) => { key = fn; },
+                             restyle: (css) => restyled.push(css) });
+  return { api, posted, restyled, deliver: (m) => deliver(m), key: (ev) => key(ev) };
+}
+
+// a new look from the orb restyles the page in place and posts nothing back
+{
+  const h = harness();
+  h.deliver({ orb: "look", css: ":root { --orb-font: Georgia; }" });
+  assert.deepEqual(h.restyled, [":root { --orb-font: Georgia; }"]);
+  assert.equal(h.posted.length, 0);
 }
 
 // rejected without user activation

@@ -412,7 +412,7 @@ class OrbServer:
         return web.json_response(self.look_state())
 
     async def settings_look_change(self, request: web.Request) -> web.Response:
-        """Replaces the whole look; an empty one is the reset. Every page reloads, since the look loads with it."""
+        """Replaces the whole look; an empty one is the reset. Open pages restyle in place from the broadcast."""
         look = (await request.json()).get("look")
         if not isinstance(look, dict):
             raise web.HTTPBadRequest(text="send a look, an object of font, display, mono and text_size")
@@ -422,7 +422,7 @@ class OrbServer:
             raise web.HTTPBadRequest(text=str(e))
         self.look = look
         await asyncio.to_thread(save_look, self.home, self.repo_root, look)
-        await self.broadcast({"type": "look"})
+        await self.broadcast({"type": "look", "css": themes.look_css(look)})
         return web.json_response(self.look_state())
 
     async def reload_picker_dirs(self) -> None:
@@ -900,9 +900,10 @@ class OrbServer:
 
     def theme_tags(self, href: str, sheet: str) -> str:
         """After a page's default stylesheet: the theme's tokens, then its own sheet for that page, so both win over
-        the default and anything the page itself styles later wins over them."""
+        the default and anything the page itself styles later wins over them. The look's tag is always there, so
+        a change to the look can be written into it without a reload."""
         base, css = themes.look_css(self.look), themes.token_css(self.theme)
-        tags = (f'<style id="orb-look">{base}</style>' if base else "") + (f'<style id="orb-theme">{css}</style>' if css else "")
+        tags = f'<style id="orb-look">{base}</style>' + (f'<style id="orb-theme">{css}</style>' if css else "")
         if sheet in self.theme.sheets:
             tags += f'<link rel="stylesheet" href="{href}">'
         return tags

@@ -27,9 +27,10 @@ if (typeof window !== "undefined") {
     isActive: () => !!(root.navigator && root.navigator.userActivation && root.navigator.userActivation.isActive),
     listen: (fn) => root.addEventListener("message", (ev) => { if (ev.source === root.parent) fn(ev.data || {}); }),
     onKey: (fn) => root.addEventListener("keydown", fn),
+    restyle: (css) => { const look = root.document.getElementById("orb-look"); if (look) look.textContent = css; },
   });
 })(typeof window !== "undefined" ? window : globalThis, function () {
-  return function createOrbApi({ post, isActive, listen, onKey }) {
+  return function createOrbApi({ post, isActive, listen, onKey, restyle }) {
     const pending = new Map();
     const listeners = { state: new Set(), data: new Set() };
     let state = "idle";
@@ -45,6 +46,8 @@ if (typeof window !== "undefined") {
         data = m.data;
         dataAt = m.at;
         for (const fn of listeners.data) fn(data, dataAt);
+      } else if (m.orb === "look" && restyle) {
+        restyle(m.css);
       } else if (m.orb === "reply" && pending.has(m.id)) {
         pending.get(m.id).resolve(m.text);
         pending.delete(m.id);

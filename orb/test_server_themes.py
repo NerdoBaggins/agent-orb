@@ -555,7 +555,7 @@ def test_an_empty_look_resets_the_page_to_what_ships(tmp_path):
         async with await client_for(server) as c:
             await look_call(c, {"mono": "Menlo"})
             assert (await (await look_call(c, {})).json())["look"] == {}
-            assert "orb-look" not in await (await c.get("/", params={"token": TOKEN})).text()
+            assert '<style id="orb-look"></style>' in await (await c.get("/", params={"token": TOKEN})).text()
     run(go())
 
 
@@ -576,4 +576,19 @@ def test_the_look_names_the_fonts_the_active_theme_sets_itself(tmp_path):
         server = make(tmp_path)
         async with await client_for(server) as c:
             assert (await (await look_call(c)).json())["theme_fonts"] == ["display"]
+    run(go())
+
+
+def test_a_look_change_tells_every_open_window_the_new_tokens(tmp_path):
+    async def go():
+        server = make(tmp_path)
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            await look_call(c, {"mono": "Menlo"})
+            seen = await ws.receive_json()
+            while seen.get("type") != "look":
+                seen = await ws.receive_json()
+            assert seen["css"] == ":root { --orb-mono: Menlo; }"
+            await ws.close()
     run(go())

@@ -298,7 +298,9 @@
         if (m.name !== themePicker.current) location.reload();  // the theme's stylesheets load with the page
         break;
       case "look":
-        location.reload();  // the look's tokens load with the page and with every panel
+        $("orb-look").textContent = m.css;
+        panelsBridge.broadcastLook(m.css);
+        lookUi.refresh();
         break;
       case "skin_option":
         skinOptions.apply(m.option, m.value);
@@ -657,6 +659,11 @@
       this.pending.delete(ref);
       p.source.postMessage({ orb: "reject", id: p.id, error }, "*");
     },
+    broadcastLook(css) {
+      for (const pages of [orb.panels, orb.widgets]) {
+        for (const p of pages.values()) if (p.iframe) p.iframe.contentWindow.postMessage({ orb: "look", css }, "*");
+      }
+    },
     broadcastState(state) {
       for (const pages of [orb.panels, orb.widgets]) {
         for (const p of pages.values()) if (p.iframe) p.iframe.contentWindow.postMessage({ orb: "state", state }, "*");
@@ -972,6 +979,15 @@
     state: null,
     note: null,
     async load() { this.state = await orbCall("/settings/look"); },
+    async refresh() {
+      await this.load();
+      const pages = settingsUi.pages;
+      if (!pages) return;
+      const fresh = this.page();
+      fresh.hidden = pages.look.hidden;
+      pages.look.replaceWith(fresh);
+      pages.look = fresh;
+    },
     async change(look) {
       try { this.state = await orbCall("/settings/look", { look }); } catch (e) { this.note.textContent = String(e.message || e); }
     },
