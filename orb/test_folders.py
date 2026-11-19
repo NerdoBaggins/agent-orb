@@ -95,14 +95,14 @@ def test_a_folder_dialog_that_answers_bytes_that_are_not_utf8_still_chooses_a_fo
     assert browse_folder("darwin", answered(b"/Users/a/caf\xe9\n")) == "/Users/a/caf�"
 
 
-def test_the_folder_dialog_is_run_with_a_time_limit():
+def test_the_folder_dialog_is_given_a_time_limit_long_enough_for_a_person_to_choose():
     seen = {}
 
     def spy(command, **kwargs):
         seen.update(kwargs)
         return SimpleNamespace(stdout=b"", returncode=1)
     browse_folder("darwin", spy)
-    assert seen["timeout"] > 0
+    assert seen["timeout"] >= 60
 
 
 @pytest.mark.parametrize("kind", [["panel"], {"panel": 1}])
