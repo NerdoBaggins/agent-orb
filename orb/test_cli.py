@@ -1,10 +1,11 @@
 import json
+import subprocess
 import sys
 from types import SimpleNamespace
 
 import pytest
 
-from orb import cli, pages, panels
+from orb import cli, logs, pages, panels
 from orb.engines import EngineError
 
 
@@ -551,3 +552,10 @@ def test_orb_engines_fails_loudly_when_a_recorded_host_does_not_answer(tmp_path,
 def test_a_last_port_no_socket_can_use_is_replaced_by_a_free_one(monkeypatch, port):
     monkeypatch.setattr(cli, "free_port", lambda: 4321)
     assert cli.stable_port({"port": port}) == 4321
+
+
+def test_a_server_that_exits_before_answering_names_its_log_and_its_crash_output(tmp_path):
+    exited = subprocess.Popen([sys.executable, "-c", "raise SystemExit(3)"])
+    exited.wait()
+    with pytest.raises(SystemExit, match=r"exited with 3; see .*server\.claude\.log and .*server\.claude\.out"):
+        cli.wait_healthy(1, "t", exited, logs.log_path(tmp_path, "claude"), logs.crash_output_path(tmp_path, "claude"))
