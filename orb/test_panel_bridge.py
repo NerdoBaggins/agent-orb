@@ -210,7 +210,7 @@ WIDGET_SENDER = """<!doctype html><body><button id="go" style="width:120px;heigh
 
 
 @pytest.mark.timeout(60)
-def test_a_click_in_a_widget_sends_its_request_marked_as_the_widgets_with_its_reply_to_be_read_aloud(tmp_path):
+def test_a_click_in_a_widget_sends_a_request_with_the_widgets_mark_and_asks_for_its_reply_aloud(tmp_path):
     server = make(tmp_path, voice=True)
     installed_widget(server, html=WIDGET_SENDER, size={"width": 160, "height": 60})
 
