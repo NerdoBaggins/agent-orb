@@ -122,8 +122,6 @@ def processes(starter):
     return [p for *_, p in starter.started]
 
 
-# ---- keying ----
-
 def test_servers_with_the_same_settings_share_one_engine_process(host, starter):
     join(host, pid=1)
     join(host, pid=2)
@@ -207,8 +205,6 @@ def test_parse_attach_keeps_what_the_key_is_made_of():
     assert (want.kind, want.name, want.settings) == ("stt", "fake", {"a": 1})
 
 
-# ---- sharing, waiting and loading ----
-
 def test_an_attach_to_a_key_still_loading_waits_and_shares_it_and_one_load_is_counted(host, gated):
     first = Session()
     assert host.handle(first, attach_message(pid=1)) == {"attached": True}
@@ -274,8 +270,6 @@ def test_a_ready_on_a_connection_that_has_not_attached_is_an_error(host):
     assert "has not attached" in host.handle(Session(), {"op": "ready"})["error"]
 
 
-# ---- an engine that is not shared ----
-
 def test_a_share_false_engine_gets_one_process_per_connection_and_closes_with_its_connection_with_no_grace(host, starter, tmp_path):
     write_engine(tmp_path, "stt", "solo", share=False)
     first, _ = join(host, name="solo", pid=1)
@@ -285,8 +279,6 @@ def test_a_share_false_engine_gets_one_process_per_connection_and_closes_with_it
     assert host.registry.idle_since == {}
     assert [e["pid"] for e in host.listing(second, {})["engines"]] == [101]
 
-
-# ---- connections, calls and grace ----
 
 def test_a_call_runs_on_the_engine_the_connection_is_attached_to(host, starter):
     session, _ = join(host)
@@ -435,8 +427,6 @@ def test_the_listing_shows_the_grace_left_for_an_engine_nobody_uses(host, clock)
     assert host.listing(Session(), {})["engines"][0]["grace_left"] == 110
 
 
-# ---- the host's own life ----
-
 def test_the_host_is_done_once_no_engine_remains_and_nobody_has_come(host, clock):
     clock.advance(10)
     assert host.sweep() is True
@@ -498,8 +488,6 @@ def test_close_all_closes_every_engine(host, starter):
     assert all(p.closed for p in processes(starter))
 
 
-# ---- stopping on request ----
-
 def test_a_stop_is_answered_and_the_host_is_told_to_exit(host):
     assert host.handle(Session(), {"op": "stop"}) == {"ok": True} and host.stopping.is_set()
 
@@ -508,8 +496,6 @@ def test_an_attach_after_a_stop_is_told_to_retry(host):
     host.handle(Session(), {"op": "stop"})
     assert join(host)[1] == {"closing": True}
 
-
-# ---- who may talk to the host ----
 
 TOKEN = "the-secret"
 

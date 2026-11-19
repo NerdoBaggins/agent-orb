@@ -20,8 +20,6 @@ def make_copy(root, version="1.0.0", git=None):
     return root
 
 
-# ---- which kind of copy a folder is ----
-
 def test_an_installed_folder_named_for_its_version_is_a_claude_code_copy(tmp_path):
     assert engine_wire.copy_kind(make_copy(tmp_path / "agent-orb" / "1.4.0", "1.4.0")) is CopyKind.CLAUDE_CODE
 
@@ -45,8 +43,6 @@ def test_a_plugin_file_that_gives_no_version_text_is_a_checkout(tmp_path, text):
     (root / ".claude-plugin" / "plugin.json").write_text(text, encoding="utf-8")
     assert engine_wire.copy_kind(root) is CopyKind.CHECKOUT
 
-
-# ---- what a copy's host is keyed by ----
 
 def test_two_claude_code_copies_of_one_version_have_one_identity_wherever_they_sit(tmp_path):
     one, two = make_copy(tmp_path / "a" / "1.4.0", "1.4.0"), make_copy(tmp_path / "b" / "1.4.0", "1.4.0")
@@ -96,8 +92,6 @@ def test_every_file_of_a_host_is_named_for_its_identity_in_the_state_folder(tmp_
     assert {f.parent for f in files} == {tmp_path / ".config" / "orb" / "state"}
 
 
-# ---- the record ----
-
 def test_a_record_holds_port_token_pid_and_version_only(tmp_path):
     engine_wire.write_record(tmp_path, "abc123", HostRecord(4000, "secret", 7, "1.4.0"))
     assert json.loads(engine_wire.record_file(tmp_path, "abc123").read_text(encoding="utf-8")) == {
@@ -136,8 +130,6 @@ def test_a_record_is_removed_only_by_the_pid_it_names(tmp_path):
     assert engine_wire.read_record(tmp_path, "abc123") is None
 
 
-# ---- locks ----
-
 def test_a_lock_held_elsewhere_is_not_taken_when_there_is_no_wait(tmp_path):
     held = engine_wire.hold_lock(tmp_path / "l")
     try:
@@ -163,8 +155,6 @@ def test_a_lock_released_during_the_wait_is_taken(tmp_path):
     assert taken is not None
     taken.close()
 
-
-# ---- one request on a connection ----
 
 @pytest.fixture
 def linked():
