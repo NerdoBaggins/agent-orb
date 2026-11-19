@@ -676,6 +676,37 @@ def test_an_engine_that_dies_between_calls_is_replaced_once_for_every_orb_on_it(
         orb.close()
 
 
+def test_two_orbs_whose_engines_fail_share_one_default_process(home, tmp_path, monkeypatch):
+    copy_fake(home, "tts", "twin")
+    monkeypatch.setitem(engines.DEFAULT, "tts", "fake")
+    loads = tmp_path / "loads.txt"
+    orbs = [Tts(lambda chosen: {"engine": "fake", "log_loads": str(loads)} if chosen == "fake" else {"engine": "twin", "fail": True},
+                lambda chosen: {"speed": 1.0}, home, launch=launcher({**OWNER, "pid": pid}, spawner(SLOW_FLAGS))) for pid in (1, 2)]
+    assert [orb.name for orb in orbs] == ["fake", "fake"]
+    assert len(lines_of(loads)) == 1
+    assert [engine["name"] for engine in running(home)] == ["fake"] and owners_of(running(home)[0]) == [1, 2]
+    for orb in orbs:
+        orb.close()
+
+
+def test_three_failures_in_a_row_make_the_default_sticky_and_leave_another_orb_alone(home, monkeypatch):
+    copy_fake(home, "tts", "twin")
+    monkeypatch.setitem(engines.DEFAULT, "tts", "fake")
+    in_a_row = engines.STICKY_AFTER_FAILURES
+    broken_run, run = list(range(1, in_a_row)), list(range(in_a_row + 1, 2 * in_a_row + 1))
+    load = {"seconds_per_word": 0.1, "fail_renders": broken_run + run}
+    failing, other = (twin_tts(home, launcher({**OWNER, "pid": pid}, spawner(SLOW_FLAGS)), "twin", **load) for pid in (1, 2))
+    default_word, twin_word = 400, 800
+    sizes = [decode_pcm(say(failing, 30)["pcm"]).size for _ in range(2 * in_a_row - 1)]
+    assert failing.name == "twin"
+    sizes.append(decode_pcm(say(failing, 30)["pcm"]).size)
+    assert sizes == [default_word] * (in_a_row - 1) + [twin_word] + [default_word] * in_a_row and failing.name == "fake"
+    assert decode_pcm(say(other, 30)["pcm"]).size == twin_word
+    assert (other.name, other.failures_in_a_row, other.failure, other.fallback_reason) == ("twin", 0, None, None)
+    failing.close()
+    other.close()
+
+
 MID_CALL_SERVER = """
 import sys
 from pathlib import Path

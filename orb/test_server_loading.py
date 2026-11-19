@@ -267,6 +267,38 @@ def test_a_speech_loader_passes_what_its_engine_says_to_the_report_it_is_given(t
     assert said == ["stt is moonshine", "tts is kokoro"]
 
 
+class RecordingProcess:
+    alive = True
+
+    def __init__(self, error=None):
+        self.error, self.requests = error, []
+
+    def call(self, request, timeout=None):
+        self.requests.append(request)
+        if self.error:
+            raise EngineError(self.error)
+        return {"pcm": "", "rate": 8000}
+
+    def close(self):
+        pass
+
+
+def test_a_failing_hosted_tts_is_answered_by_the_default_built_with_the_defaults_own_voice_and_speed(tmp_path):
+    from orb.config import DEFAULTS
+    processes = {"frail": RecordingProcess("frail was told to fail"), "kokoro": RecordingProcess()}
+    attached = []
+
+    def launch(kind, settings, home, env, report):
+        attached.append(settings["engine"])
+        return processes[settings["engine"]]
+
+    section = {**DEFAULTS["tts"], "engine": "frail", "speed": 1.5, "frail": {"voice": "frail-voice"}, "kokoro": {"voice": "kokoro-voice"}}
+    tts = speech_loaders({**DEFAULTS, "tts": section}, tmp_path, "claude", launch=launch)["tts"](lambda text: None)
+    tts.call(lambda name: {"op": "render", "text": "hi", **tts.call_for(name)})
+    assert attached == ["frail", "kokoro"]
+    assert processes["kokoro"].requests == [{"op": "render", "text": "hi", "speed": 1.5, "voice": "kokoro-voice"}]
+
+
 def test_the_speech_loaders_wake_loader_passes_the_report_to_the_wake_engines(tmp_path, monkeypatch):
     from orb.config import DEFAULTS
     built = []

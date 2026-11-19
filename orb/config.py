@@ -24,7 +24,6 @@ DEFAULTS = {
     "theme": "default",
     "stt": {"engine": "moonshine", "moonshine": {}},
     "tts": {"engine": "kokoro", "speed": 1.18, "kokoro": {"voice": "default", "lang": "en-gb"}},
-    "engines": {"shared": True},
     "wake": None,
     "capture": None,
     "panel_dirs": [],
@@ -34,14 +33,14 @@ DEFAULTS = {
     "widgets": {},
     "commands": ["compact", "context"],
 }
-TYPES = {"ptt_key": str, "skin": str, "skin_options": dict, "skin_sizes": dict, "speak": bool, "mute_key": str, "skin_key": str, "panels_key": str, "theme": str, "stt": dict, "tts": dict, "engines": dict,
+TYPES = {"ptt_key": str, "skin": str, "skin_options": dict, "skin_sizes": dict, "speak": bool, "mute_key": str, "skin_key": str, "panels_key": str, "theme": str, "stt": dict, "tts": dict,
          "wake": dict, "capture": dict, "panel_dirs": list,
          "theme_dirs": list, "skin_dirs": list, "widget_dirs": list, "widgets": dict, "commands": list}
 FOLDER_KEYS = ("panel_dirs", "theme_dirs", "skin_dirs", "widget_dirs")
 REPO_KEYS = ("ptt_key", "mute_key", "skin_key", "panels_key", "speak")
 # How far a layer's value overlays the one beneath: a section merges per key, its blocks (one per engine, skin
 # or widget) merge per key, and anything inside a block replaces. A voice blend is one value, not a merge.
-MERGE_DEPTH = {"stt": 2, "tts": 2, "skin_options": 2, "skin_sizes": 1, "wake": 1, "capture": 1, "widgets": 2, "engines": 1}
+MERGE_DEPTH = {"stt": 2, "tts": 2, "skin_options": 2, "skin_sizes": 1, "wake": 1, "capture": 1, "widgets": 2}
 WIDGET_PLACE_KEYS = ("x", "y", "width", "height")
 WIDGET_PANE_KEYS = ("pane_width", "pane_height")  # the orb pane's size when the widget was placed; its size scales from it
 
@@ -55,7 +54,6 @@ class WidgetEntry(TypedDict, total=False):
     pane_width: float
     pane_height: float
 ENGINE_SECTIONS = ("stt", "tts")
-ENGINES_KEYS = ("shared",)
 SECTION_KEYS = {"stt": ("engine",), "tts": ("engine", "speed")}
 LEGACY_TTS_KEYS = ("voice", "lang")  # the flat shape from before engine blocks: Kokoro's settings at the top
 # `ptt_key` and `voice` are not credentials; a name has to carry one of these words as a whole segment.
@@ -140,11 +138,6 @@ def validate_types(data: dict, label: str) -> None:
                 raise ConfigError(f"{label} config: tts.speed must be a number or a table per agent")
             elif name not in SECTION_KEYS[section] and not isinstance(value, dict):
                 raise ConfigError(f"{label} config: {section}.{name} must be an engine's settings block (an object)")
-    for name, value in data.get("engines", {}).items():
-        if name not in ENGINES_KEYS:
-            raise ConfigError(f"{label} config: engines.{name} is not a setting; engines holds {', '.join(ENGINES_KEYS)}")
-        if not isinstance(value, bool):
-            raise ConfigError(f"{label} config: engines.{name} must be true or false")
     for key in FOLDER_KEYS:
         for folder in data.get(key, []):
             if not isinstance(folder, str) or not (folder.startswith("~/") or Path(folder).is_absolute()):
