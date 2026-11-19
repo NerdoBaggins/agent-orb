@@ -25,11 +25,16 @@ function releaseRows(releases) {
 const TEXT_SIZES = { min: 12, max: 28, step: 2, start: 16 };
 
 function clampTextSize(size) {
-  return Number.isFinite(size) && size > 0 ? Math.min(TEXT_SIZES.max, Math.max(TEXT_SIZES.min, size)) : TEXT_SIZES.start;
+  return Math.min(TEXT_SIZES.max, Math.max(TEXT_SIZES.min, size));
+}
+
+function storedTextSize(stored) {
+  const size = Number(stored);
+  return Number.isFinite(size) && size > 0 ? clampTextSize(size) : TEXT_SIZES.start;
 }
 
 function nextTextSize(size, direction) {
   return clampTextSize(size + direction * TEXT_SIZES.step);
 }
 
-if (typeof module !== "undefined") module.exports = { explainChange, explainRelease, releaseRows, TEXT_SIZES, clampTextSize, nextTextSize };
+if (typeof module !== "undefined") module.exports = { explainChange, explainRelease, releaseRows, TEXT_SIZES, clampTextSize, nextTextSize, storedTextSize };
