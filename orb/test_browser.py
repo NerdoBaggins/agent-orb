@@ -52,7 +52,7 @@ def test_the_window_reads_and_writes_nothing_of_the_orbs_own(tmp_path, monkeypat
 
 
 @pytest.mark.parametrize("platform, flags", [("win32", DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP), ("linux", None), ("darwin", None)])
-def test_on_windows_the_window_is_detached_from_the_orbs_console(tmp_path, monkeypatch, platform, flags):
+def test_the_window_is_detached_from_the_orbs_console_on_windows_only(tmp_path, monkeypatch, platform, flags):
     _, kw, _ = opened(tmp_path, monkeypatch, platform)
     assert kw.get("creationflags") == flags
 
