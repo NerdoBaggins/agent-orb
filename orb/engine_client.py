@@ -1,6 +1,7 @@
 """The orb server's side of the engine host: `launcher` gives engines.Engine a way to start an engine that attaches to the
 host's shared process instead of spawning its own. A RemoteEngine answers like an EngineProcess does, so the fallback
 and sticky-failure behaviour in engines.Engine stays per server."""
+import json
 import os
 import shutil
 import subprocess
@@ -21,8 +22,8 @@ HOST_RECORD_GONE_WAIT_S = 5.0
 HOST_START_TRIES = 3
 ATTACH_TIMEOUT_S = 5.0
 SHORT_TIMEOUT_S = 10.0
-START_LOCK_WAIT_S = 15.0
 HOST_STOP_WAIT_S = 10.0
+START_LOCK_WAIT_S = HOST_ANSWER_S + HOST_STOP_WAIT_S + HOST_START_WAIT_S
 HOST_REPLY_MARGIN_S = 5.0
 
 
@@ -61,22 +62,33 @@ def reach_host(home: Path, host_identity: str) -> Link | None:
 
 
 def stop_host(home: Path, host_identity: str, record: engine_wire.HostRecord) -> None:
-    """Asks the recorded host to stop and returns once it has released its lifetime lock, which it does as it exits."""
+    """Asks the recorded host to stop and returns once it has replied, which it does after every engine process is gone,
+    and released its lifetime lock, within HOST_STOP_WAIT_S of the call. Where nothing accepts the connection there is
+    nothing to ask, and only the lifetime lock is waited for."""
+    deadline = time.monotonic() + HOST_STOP_WAIT_S
+    failure = EngineError(f"the engine host did not stop; see {engine_wire.log_file(home, host_identity)}")
     try:
         link = engine_wire.connect(record)
-        link.request({"op": "stop"}, SHORT_TIMEOUT_S)
-        link.close()
     except WireError:
-        pass
-    gone = engine_wire.hold_lock(engine_wire.lock_file(home, host_identity), HOST_STOP_WAIT_S)
+        link = None
+    if link is not None:
+        try:
+            reply = link.request({"op": "stop"}, max(deadline - time.monotonic(), 0.01))
+        except WireError:
+            raise failure
+        finally:
+            link.close()
+        if "error" in reply:
+            raise failure
+    gone = engine_wire.hold_lock(engine_wire.lock_file(home, host_identity), max(deadline - time.monotonic(), 0.01))
     if gone is None:
-        raise EngineError(f"the engine host did not stop; see {engine_wire.log_file(home, host_identity)}")
+        raise failure
     gone.close()
 
 
 def replace_outdated_host(home: Path, host_identity: str, version: str) -> None:
-    """Stops the host recorded for this identity when it was started from another version. Called under the start lock,
-    so the record read is the one no other orb is about to replace."""
+    """Stops the host recorded for this identity when it was started from another version. Called under
+    the start lock, so the record read is the one no other orb is about to replace."""
     record = engine_wire.read_record(home, host_identity)
     if record is not None and record.version != version:
         stop_host(home, host_identity, record)
@@ -274,16 +286,36 @@ def running_engines(home: Path, plugin_root: Path = PLUGIN_ROOT) -> list[dict] |
         link.close()
 
 
+def stop_engines(home: Path, plugin_root: Path = PLUGIN_ROOT) -> bool:
+    """Stops this plugin copy's engine host and every engine it runs; False when no host is recorded alive."""
+    host_identity = engine_wire.identity(plugin_root)
+    record = engine_wire.read_record(home, host_identity)
+    if record is None or not pid_alive(record.pid):
+        return False
+    stop_host(home, host_identity, record)
+    return True
+
+
 def describe(running: list[dict]) -> list[str]:
     lines = []
-    for engine in sorted(running, key=lambda e: (e["kind"], e["name"])):
+    for engine in sorted(running, key=lambda e: (e["kind"], e["name"], settings_text(e["settings"]))):
         owners = engine["owners"]
-        lines.append(f"{engine['kind']} {engine['name']}  engine pid {engine['pid']}  "
-                     + (f"{len(owners)} server{'s' if len(owners) != 1 else ''}" if owners else f"no servers, closes in {engine['grace_left']:.0f} s"))
-        lines += [f"  {o['agent']} in {o['repo']} (server pid {o['pid']})" for o in sorted(owners, key=lambda o: (o["repo"], o["agent"]))]
+        lines.append(f"{engine['kind']} {engine['name']} {settings_text(engine['settings'])}  engine pid {engine['pid']}  "
+                     + orbs_text(owners, engine["grace_left"]))
+        lines += [f"  {o['agent']} in {o['repo']} (orb pid {o['pid']})" for o in sorted(owners, key=lambda o: (o["repo"], o["agent"]))]
     return lines
 
 
-def unowned(running: list[dict]) -> list[dict]:
-    """Engines no server uses and no grace period explains."""
+def orbs_text(owners: list[dict], grace_left: float | None) -> str:
+    if owners:
+        return f"{len(owners)} orb{'s' if len(owners) != 1 else ''}"
+    return "no orbs, no grace running" if grace_left is None else f"no orbs, closes in {grace_left:.0f} s"
+
+
+def settings_text(settings: dict) -> str:
+    return json.dumps(settings, sort_keys=True)
+
+
+def leaked(running: list[dict]) -> list[dict]:
+    """Engines no orb uses and no grace period explains."""
     return [e for e in running if not e["owners"] and e["grace_left"] is None]

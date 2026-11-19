@@ -12,6 +12,7 @@ import queue
 import secrets
 import signal
 import socket
+import subprocess
 import threading
 import time
 from collections.abc import Callable
@@ -20,7 +21,7 @@ from pathlib import Path
 
 from orb import PLUGIN_ROOT, engine_wire, engines, logs
 from orb.engine_registry import GRACE_S, HOST_IDLE_S, Key, Registry, make_key
-from orb.engines import CALL_TIMEOUT_S, EngineError, EngineExited, EngineQueueTimeout, EngineTimeout
+from orb.engines import CALL_TIMEOUT_S, EXIT_WAIT_S, EngineError, EngineExited, EngineQueueTimeout, EngineTimeout
 
 log = logging.getLogger("orb")
 SHARED_KINDS = ("stt", "tts")
@@ -28,7 +29,9 @@ TICK_S = 1.0
 FIRST_MESSAGE_TIMEOUT_S = 5.0
 FIRST_MESSAGE_MAX_BYTES = 1024
 LOCK_WAIT_S = 3.0
-BLOCKING_OPS = ("ready", "call")
+BLOCKING_OPS = ("ready", "call", "stop")
+HOST_STOP_REPLY_S = EXIT_WAIT_S + 5.0
+STOP_REPLY_SENT_WAIT_S = 2.0
 
 
 _SESSION_NUMBERS = itertools.count(1)
@@ -39,6 +42,7 @@ class Slot:
     """The engine process one key runs, from the moment its first attach asks for it until it is closed."""
     done: threading.Event = field(default_factory=threading.Event)
     process: engines.EngineProcess | None = None
+    starting: engines.EngineProcess | None = None
     error: str | None = None
     doing: str | None = None
     calls: int = 0
@@ -83,6 +87,9 @@ class Host:
         self.lock = threading.Lock()
         self.slots: dict[Key, Slot] = {}
         self.closing = False
+        self.stop_asked = False
+        self.stopped = threading.Event()
+        self.replied = threading.Event()
         self.stop_requests: queue.SimpleQueue = queue.SimpleQueue()
 
     def handle(self, session: Session, message: dict) -> dict | None:
@@ -103,7 +110,10 @@ class Host:
     def stop(self, session: Session, message: dict) -> dict:
         with self.lock:
             self.closing = True
+            self.stop_asked = True
         self.request_stop()
+        if not self.stopped.wait(HOST_STOP_REPLY_S):
+            return {"error": "the engine host did not finish closing its engines"}
         return {"ok": True}
 
     def request_stop(self) -> None:
@@ -141,7 +151,8 @@ class Host:
 
     def _load(self, key: Key, slot: Slot, want: Attach, declared: dict) -> None:
         try:
-            process = self.start(key.kind, {"engine": key.name, **want.settings}, self.home, {**self.environ, **declared}, slot.say)
+            process = self.start(key.kind, {"engine": key.name, **want.settings}, self.home, {**self.environ, **declared}, slot.say,
+                                 started=lambda process: self._started(slot, process))
         except EngineError as e:
             self._load_failed(key, slot, str(e))
             return
@@ -160,6 +171,13 @@ class Host:
         if not wanted:
             process.close()
         slot.done.set()
+
+    def _started(self, slot: Slot, process: engines.EngineProcess) -> None:
+        with self.lock:
+            slot.starting = process
+            late = self.closing
+        if late:
+            close_together([process])
 
     def _load_failed(self, key: Key, slot: Slot, error: str) -> None:
         with self.lock:
@@ -253,7 +271,8 @@ class Host:
     def listing(self, session: Session, message: dict) -> dict:
         with self.lock:
             return {"engines": [
-                {"kind": key.kind, "name": key.name, "pid": slot.process.process.pid, "alive": slot.process.alive,
+                {"kind": key.kind, "name": key.name, "settings": json.loads(key.settings), "pid": slot.process.loaded["pid"],
+                 "alive": slot.process.alive,
                  "owners": [self.registry.owners[conn].owner for conn in self.registry.users(key)],
                  "grace_left": self.registry.grace_left(key)}
                 for key, slot in self.slots.items() if slot.process is not None]}
@@ -272,7 +291,7 @@ class Host:
             self.closing = self.closing or done
         for process in due:
             log.info("closed %s: no server uses it", process.label)
-            process.close()
+        close_together(due)
         for key, slot in dead:
             log.warning("%s exited; its servers will attach again", slot.process.label)
             self._retire(key, slot)
@@ -281,10 +300,23 @@ class Host:
     def close_all(self) -> None:
         with self.lock:
             self.closing = True
-            remaining = [slot.process for slot in self.slots.values() if slot.process is not None]
+            remaining = [slot.process or slot.starting for slot in self.slots.values()]
             self.slots.clear()
-        for process in remaining:
-            process.close()
+        close_together([process for process in remaining if process is not None])
+
+
+def close_together(processes: list[engines.EngineProcess]) -> None:
+    """Closes every engine's input at once and gives all of them one EXIT_WAIT_S between them, then kills the survivors."""
+    running = [process for process in processes if process.process.poll() is None]
+    for process in running:
+        process.close_input()
+    deadline = time.monotonic() + EXIT_WAIT_S
+    for process in running:
+        try:
+            process.process.wait(timeout=max(deadline - time.monotonic(), 0.0))
+        except subprocess.TimeoutExpired:
+            process.kill()
+            log.warning("%s did not exit within %.0f s of its input closing and was killed", process.label, EXIT_WAIT_S)
 
 
 def first_line(conn: socket.socket, reader, within_s: float, max_bytes: int) -> bytes:
@@ -326,6 +358,8 @@ def serve_connection(host: Host, conn: socket.socket, token: str) -> None:
         reply = host.handle(session, message)
         if reply is not None:
             send(reply)
+        if message.get("op") == "stop":
+            host.replied.set()
 
     session.send, session.hang_up = send, hang_up
     try:
@@ -390,6 +424,11 @@ def run(home: Path, host_identity: str, version: str | None, registry: Registry,
         listener.close()
         lock.close()
         host.close_all()
+        host.stopped.set()
+        with host.lock:
+            stop_asked = host.stop_asked
+        if stop_asked:
+            host.replied.wait(STOP_REPLY_SENT_WAIT_S)
         log.info("engine host stopped")
     return 0
 

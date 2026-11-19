@@ -13,7 +13,7 @@ import time
 import numpy as np
 import pytest
 
-from orb import PLUGIN_ROOT, engine_client, engine_wire, engines
+from orb import PLUGIN_ROOT, cli, engine_client, engine_wire, engines
 from orb.engines import EngineError, Stt, Tts, decode_pcm, encode_pcm
 from orb.state import pid_alive, state_root
 from orb.test_engine_wire import make_copy
@@ -47,6 +47,13 @@ def host_gone(pid):
         return os.waitpid(pid, os.WNOHANG)[0] == pid
     except ChildProcessError:
         return not pid_alive(pid)
+
+
+def process_name(pid):
+    """The command line of the process, or its image name on Windows."""
+    if sys.platform == "win32":
+        return subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"], capture_output=True, text=True, check=False).stdout.strip()
+    return subprocess.run(["ps", "-p", str(pid), "-o", "command="], capture_output=True, text=True, check=False).stdout.strip()
 
 
 def hard_kill(pid):
@@ -453,12 +460,11 @@ def test_a_stale_record_whose_lock_is_free_is_replaced_without_killing_anything(
         bystander.wait()
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="sends SIGTERM, which Windows does not have")
 def test_a_host_started_while_its_predecessor_is_exiting_waits_for_the_lock(home):
     slow_to_close = [stt(home, launcher(spawn=spawner(["--grace=60", "--host-idle=60", "--tick=0.1"])), text=text, hold=True) for text in ("a", "b")]
     predecessor = host_of(home)
-    link = engine_wire.connect(predecessor)
-    link.request({"op": "stop"}, 5.0)
-    link.close()
+    os.kill(predecessor.pid, signal.SIGTERM)
     assert eventually(lambda: host_of(home) is None, seconds=5.0)
     successor = engine_client.open_link(home, PLUGIN_ROOT, spawner(["--grace=60", "--host-idle=60", "--tick=0.1"]))
     assert host_of(home).pid != predecessor.pid and not host_gone(predecessor.pid)
@@ -472,7 +478,7 @@ def test_orb_engines_lists_each_engine_with_the_servers_attached(home, capsys):
     server = stt(home, launcher({**OWNER, "pid": 4242, "repo": "/some/repo"}), text="x")
     assert cli.main(["engines", f"--home={home}"]) == 0
     out = capsys.readouterr().out
-    assert "stt fake" in out and "claude in /some/repo (server pid 4242)" in out
+    assert 'stt fake {"text": "x"}  engine pid ' in out and "claude in /some/repo (orb pid 4242)" in out
     server.close()
 
 
@@ -718,3 +724,132 @@ def test_a_host_sent_sigterm_while_its_main_loop_is_between_waits_still_exits(ho
         for host in hosts:
             host.kill()
             host.wait()
+
+
+def stop_through_the_command_line(home):
+    began = time.monotonic()
+    assert cli.main(["engines", "stop", f"--home={home}"]) == 0
+    return time.monotonic() - began
+
+
+def hold_engines(home, texts, owners=OWNER):
+    return [stt(home, launcher({**owners, "pid": pid}, spawner(SLOW_FLAGS)), text=text, hold=True) for pid, text in enumerate(texts, 1)]
+
+
+def test_orb_engines_stop_returns_only_after_every_engine_pid_is_gone(home):
+    orbs = hold_engines(home, ("a", "b"))
+    pids = [engine["pid"] for engine in running(home)]
+    assert len(pids) == 2 and all(pid_alive(pid) for pid in pids)
+    took = stop_through_the_command_line(home)
+    assert [pid_alive(pid) for pid in pids] == [False, False]
+    assert took < engines.EXIT_WAIT_S + 3.0
+    for orb in orbs:
+        orb.close()
+
+
+def test_stop_closes_an_engine_still_loading(home, tmp_path):
+    started = tmp_path / "started.txt"
+    outcome = []
+
+    def attach_and_hold():
+        try:
+            launcher(spawn=spawner(SLOW_FLAGS))("stt", {"engine": "fake", "hold": True, "download_s": 60, "log_start": str(started)}, home)
+        except EngineError as e:
+            outcome.append(e)
+
+    attaching = threading.Thread(target=attach_and_hold, daemon=True)
+    attaching.start()
+    assert eventually(lambda: started.exists() and lines_of(started))
+    loading_pid = int(lines_of(started)[0])
+    assert pid_alive(loading_pid)
+    stop_through_the_command_line(home)
+    assert not pid_alive(loading_pid)
+    attaching.join(10)
+    assert not attaching.is_alive() and len(outcome) == 1
+
+
+def test_stop_closes_three_engines_in_one_wait(home):
+    orbs = hold_engines(home, ("a", "b", "c"))
+    pids = [engine["pid"] for engine in running(home)]
+    assert len(pids) == 3
+    assert stop_through_the_command_line(home) < 2 * engines.EXIT_WAIT_S
+    assert [pid_alive(pid) for pid in pids] == [False] * 3
+    for orb in orbs:
+        orb.close()
+
+
+def test_after_stop_the_next_sentence_succeeds_on_a_new_host_and_the_old_pids_are_gone(home):
+    orb = stt(home, launcher(spawn=spawner(SLOW_FLAGS)), text="again")
+    assert orb.transcribe(CLIP) == "again"
+    old_host, old_engine = host_of(home).pid, running(home)[0]["pid"]
+    stop_through_the_command_line(home)
+    assert orb.transcribe(CLIP) == "again"
+    assert (orb.failures_in_a_row, orb.failure, orb.fallback_reason) == (0, None, None)
+    assert host_of(home).pid != old_host and running(home)[0]["pid"] != old_engine
+    assert host_gone(old_host) and not pid_alive(old_engine)
+    orb.close()
+
+
+def test_an_engines_listed_pid_is_python_not_uv(home):
+    orb = stt(home, launcher(), text="x")
+    name = process_name(running(home)[0]["pid"])
+    assert "python" in name.lower() and not name.lower().lstrip('"').startswith("uv")
+    orb.close()
+
+
+def test_the_host_logs_a_warning_when_it_had_to_kill_an_engine(home):
+    orbs = hold_engines(home, ("a",))
+    stop_through_the_command_line(home)
+    log = engine_wire.log_file(home, engine_wire.identity(PLUGIN_ROOT)).read_text(encoding="utf-8")
+    assert "stt engine 'fake' did not exit within 5 s of its input closing and was killed" in log
+    orbs[0].close()
+
+
+def test_a_share_false_engine_has_one_listing_per_process(home):
+    copy_fake(home, "stt", "solo")
+    manifest = home / ".config" / "voice-engines" / "stt" / "solo" / "engine.json"
+    manifest.write_text(json.dumps({**json.loads(manifest.read_text(encoding="utf-8")), "share": False}), encoding="utf-8")
+    launch = launcher(spawn=spawner(SLOW_FLAGS))
+    orbs = [launch("stt", {"engine": "solo"}, home) for _ in range(2)]
+    listed = running(home)
+    assert [(e["name"], len(e["owners"])) for e in listed] == [("solo", 1), ("solo", 1)] and len({e["pid"] for e in listed}) == 2
+    for orb in orbs:
+        orb.close()
+
+
+SLOW_SPAWN_S = 11.0
+
+
+@pytest.mark.timeout(120)
+def test_a_second_orb_waits_out_a_hung_host_being_replaced_and_connects(home):
+    host_identity = engine_wire.identity(PLUGIN_ROOT)
+    hung = subprocess.Popen([sys.executable, "-c", UNANSWERING_HOST, str(home), host_identity], cwd=PLUGIN_ROOT, stdout=subprocess.PIPE, text=True)
+    spawn = spawner()
+
+    def slow_spawn(*args):
+        time.sleep(SLOW_SPAWN_S)
+        spawn(*args)
+
+    links, failures = [], []
+
+    def open_one():
+        try:
+            links.append(engine_client.open_link(home, PLUGIN_ROOT, slow_spawn))
+        except EngineError as e:
+            failures.append(e)
+
+    try:
+        assert hung.stdout.readline().strip() == "listening"
+        orbs = [threading.Thread(target=open_one) for _ in range(2)]
+        for orb in orbs:
+            orb.start()
+        for orb in orbs:
+            orb.join(90)
+        assert failures == [] and len(links) == 2
+        assert {link.request({"op": "ping"}, 5.0)["pid"] for link in links} == {host_of(home).pid}
+        assert host_of(home).pid != hung.pid
+    finally:
+        for link in links:
+            link.close()
+        hung.kill()
+        hung.wait()

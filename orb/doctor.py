@@ -110,7 +110,7 @@ def check_engine_host(home: Path) -> Check:
         return Check("engine host", False, str(e))
     if running is None:
         return Check("engine host", True, "not running; the first orb that needs a speech engine starts it")
-    orphans = engine_client.unowned(running)
+    orphans = engine_client.leaked(running)
     if orphans:
         names = ", ".join(f"{e['kind']} {e['name']} (pid {e['pid']})" for e in orphans)
         return Check("engine host", False, f"answers, but {names} has no server attached and no grace period running; "

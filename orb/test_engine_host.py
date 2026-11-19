@@ -1,22 +1,41 @@
 import json
 import os
+import signal
 import socket
+import subprocess
 import threading
 import time
 
 import pytest
 
-from orb import engine_host, engine_registry, engine_wire, state
+from orb import engine_host, engine_registry, engine_wire, engines, state
 from orb.engine_host import Host, Session, parse_attach
 from orb.engine_registry import Registry
-from orb.engines import EngineError, EngineExited, EngineQueueTimeout, EngineTimeout
+from orb.engines import EngineError, EngineExited, EngineLoadError, EngineQueueTimeout, EngineTimeout
 from orb.test_engine_registry import Clock
 
 
-class FakeProcess:
+class FakeLauncher:
     def __init__(self, pid):
-        self.process = type("P", (), {"pid": pid})()
-        self.loaded, self.alive, self.closed, self.calls, self.fail = {"ok": True}, True, False, [], None
+        self.pid, self.code = pid, None
+
+    def poll(self):
+        return self.code
+
+    def wait(self, timeout):
+        if self.code is None:
+            time.sleep(timeout)
+            raise subprocess.TimeoutExpired("fake", timeout)
+        return self.code
+
+
+class FakeProcess:
+    """An engine whose launcher leaves when its input closes, unless it is `stubborn`."""
+
+    def __init__(self, pid, stubborn=False):
+        self.process = FakeLauncher(pid)
+        self.loaded, self.alive, self.closed, self.calls, self.fail = {"ok": True, "pid": pid + 5000}, True, False, [], None
+        self.stubborn, self.killed = stubborn, False
         self.label = f"fake engine {pid}"
 
     def call(self, request, timeout, sent_at=None):
@@ -25,19 +44,30 @@ class FakeProcess:
             raise self.fail if isinstance(self.fail, Exception) else EngineError(self.fail)
         return {"echo": request}
 
+    def close_input(self):
+        self.closed = True
+        if not self.stubborn:
+            self.alive, self.process.code = False, 0
+
+    def kill(self):
+        self.killed, self.alive, self.process.code = True, False, -9
+
     def close(self):
-        self.closed, self.alive = True, False
+        self.close_input()
+        if self.stubborn:
+            self.kill()
 
 
 class Starter:
     def __init__(self):
         self.started, self.attempts, self.fail = [], 0, None
 
-    def __call__(self, kind, settings, home, env, report):
+    def __call__(self, kind, settings, home, env, report, started=engines.unannounced):
         self.attempts += 1
         if self.fail:
             raise self.fail if isinstance(self.fail, Exception) else EngineError(self.fail)
         process = FakeProcess(len(self.started) + 100)
+        started(process)
         self.started.append((kind, settings, env, process))
         return process
 
@@ -49,10 +79,30 @@ class GatedStarter(Starter):
         super().__init__()
         self.loading, self.release = threading.Event(), threading.Event()
 
-    def __call__(self, kind, settings, home, env, report):
+    def __call__(self, kind, settings, home, env, report, started=engines.unannounced):
         self.loading.set()
         assert self.release.wait(10)
-        return super().__call__(kind, settings, home, env, report)
+        return super().__call__(kind, settings, home, env, report, started)
+
+
+class AnnouncingStarter(Starter):
+    """Hands its process to `started` once `go` is set, then loads nothing until `release` is set, and says when it handed it over."""
+
+    def __init__(self, stubborn=False):
+        super().__init__()
+        self.stubborn, self.go, self.handed, self.release = stubborn, threading.Event(), threading.Event(), threading.Event()
+        self.go.set()
+
+    def __call__(self, kind, settings, home, env, report, started=engines.unannounced):
+        assert self.go.wait(10)
+        process = FakeProcess(100, self.stubborn)
+        self.started.append((kind, settings, env, process))
+        started(process)
+        self.handed.set()
+        assert self.release.wait(10)
+        if process.closed:
+            raise EngineLoadError("fake engine 100 exited with code -9")
+        return process
 
 
 @pytest.fixture
@@ -216,7 +266,7 @@ def test_an_attach_to_a_key_still_loading_waits_and_shares_it_and_one_load_is_co
     assert answers == []
     gated.release.set()
     thread.join(10)
-    assert answers == [{"loaded": {"ok": True}}] and host.handle(first, {"op": "ready"}) == {"loaded": {"ok": True}}
+    assert answers == [{"loaded": {"ok": True, "pid": 5100}}] and host.handle(first, {"op": "ready"}) == {"loaded": {"ok": True, "pid": 5100}}
     assert gated.attempts == 1 and len(host.listing(first, {})["engines"][0]["owners"]) == 2
 
 
@@ -238,7 +288,7 @@ def test_waiters_on_a_failed_load_all_get_its_error_and_the_next_attach_tries_af
     assert [answers for _, answers in threads] == [[{"error": "the model is missing"}]] * 2
     assert [s.key for s in waiters] == [None, None] and host.registry.owners == {} and host.slots == {}
     gated.fail = None
-    assert join(host)[1] == {"loaded": {"ok": True}} and gated.attempts == 2
+    assert join(host)[1] == {"loaded": {"ok": True, "pid": 5100}} and gated.attempts == 2
 
 
 def test_a_load_that_raises_something_other_than_an_engine_error_is_answered_and_leaves_no_slot_loading(host, starter):
@@ -265,7 +315,7 @@ def test_a_call_after_another_orbs_reload_of_the_dead_engine_failed_ends_the_con
 def reporting_until_released(words):
     release = threading.Event()
 
-    def start(kind, settings, home, env, report):
+    def start(kind, settings, home, env, report, started):
         report(words)
         assert release.wait(10)
         return FakeProcess(7)
@@ -282,7 +332,7 @@ def test_a_ready_on_a_load_still_running_is_answered_after_the_ready_wait_with_w
     waiting.join(5)
     release.set()
     assert answers == [{"loading": "downloading the model, 12 of 310 MB"}]
-    assert host.handle(session, {"op": "ready"}) == {"loaded": {"ok": True}}
+    assert host.handle(session, {"op": "ready"}) == {"loaded": {"ok": True, "pid": 5007}}
 
 
 def test_an_attach_to_a_key_still_loading_is_told_what_the_engine_last_said(host, monkeypatch):
@@ -322,7 +372,7 @@ def test_a_share_false_engine_gets_one_process_per_connection_and_closes_with_it
     host.drop(first)
     assert len(starter.started) == 2 and processes(starter)[0].closed and not processes(starter)[1].closed
     assert host.registry.idle_since == {}
-    assert [e["pid"] for e in host.listing(second, {})["engines"]] == [101]
+    assert [e["pid"] for e in host.listing(second, {})["engines"]] == [5101]
 
 
 def test_a_call_runs_on_the_engine_the_connection_is_attached_to(host, starter):
@@ -413,7 +463,7 @@ class StuckProcess(FakeProcess):
 
 
 def test_the_sweep_leaves_a_dead_engine_to_the_call_in_flight_on_it_so_the_caller_is_answered_before_any_hang_up(host, starter):
-    host.start = lambda kind, settings, home, env, report: StuckProcess(7)
+    host.start = lambda kind, settings, home, env, report, started: StuckProcess(7)
     events = []
     caller, _ = join(host, heard(events, "caller"))
     process = host.slots[caller.key].process
@@ -466,11 +516,12 @@ def test_the_engine_keeps_running_while_another_server_is_still_attached(host, s
     assert not processes(starter)[0].closed
 
 
-def test_the_listing_names_each_engine_and_the_servers_attached_to_it(host):
-    join(host, kind="tts", name="kokoro", pid=1)
-    join(host, kind="tts", name="kokoro", pid=2)
+def test_the_listing_names_each_engine_with_its_load_settings_its_own_pid_and_the_orbs_attached_to_it(host):
+    join(host, kind="tts", name="kokoro", settings={"speed": 2}, pid=1)
+    join(host, kind="tts", name="kokoro", settings={"speed": 2}, pid=2)
     [engine] = host.listing(Session(), {})["engines"]
-    assert (engine["kind"], engine["name"], [o["pid"] for o in engine["owners"]], engine["grace_left"]) == ("tts", "kokoro", [1, 2], None)
+    assert engine == {"kind": "tts", "name": "kokoro", "settings": {"speed": 2}, "pid": 5100, "alive": True,
+                      "owners": [{"pid": 1, "repo": "/r", "agent": "claude"}, {"pid": 2, "repo": "/r", "agent": "claude"}], "grace_left": None}
 
 
 def test_the_listing_shows_the_grace_left_for_an_engine_nobody_uses(host, clock):
@@ -541,13 +592,91 @@ def test_close_all_closes_every_engine(host, starter):
     assert all(p.closed for p in processes(starter))
 
 
-def test_a_stop_is_answered_and_the_host_is_told_to_exit(host):
-    assert host.handle(Session(), {"op": "stop"}) == {"ok": True} and host.wait_for_stop(0)
+@pytest.fixture
+def announcing(host):
+    host.start = AnnouncingStarter(stubborn=True)
+    yield host.start
+    host.start.release.set()
+
+
+def test_close_all_closes_the_process_of_an_engine_still_loading_which_the_host_has_no_loaded_process_for(host, announcing):
+    session = Session()
+    host.handle(session, attach_message())
+    assert announcing.handed.wait(10)
+    process = processes(announcing)[0]
+    assert host.slots[session.key].process is None
+    host.close_all()
+    assert process.killed
+
+
+def test_a_load_that_starts_its_process_after_close_all_ran_has_it_closed_as_it_starts(host, announcing):
+    announcing.go.clear()
+    host.handle(Session(), attach_message())
+    host.close_all()
+    announcing.go.set()
+    assert announcing.handed.wait(10)
+    assert processes(announcing)[0].killed
+
+
+def test_a_load_ended_by_close_all_is_a_failed_slot_and_logs_no_error(host, announcing, caplog):
+    session = Session()
+    host.handle(session, attach_message())
+    assert announcing.handed.wait(10)
+    with caplog.at_level("ERROR", logger="orb"):
+        host.close_all()
+        announcing.release.set()
+        reply = host.handle(session, {"op": "ready"})
+    assert "error" in reply and caplog.records == []
+
+
+def test_the_engines_closed_together_share_one_wait_and_each_survivor_is_killed_and_named(monkeypatch, caplog):
+    monkeypatch.setattr(engine_host, "EXIT_WAIT_S", 0.3)
+    stubborn = [FakeProcess(pid, stubborn=True) for pid in (1, 2, 3)]
+    began = time.monotonic()
+    with caplog.at_level("WARNING", logger="orb"):
+        engine_host.close_together(stubborn)
+    assert 0.3 <= time.monotonic() - began < 0.6
+    assert all(p.closed and p.killed for p in stubborn)
+    assert [r.getMessage() for r in caplog.records] == [f"fake engine {pid} did not exit within 0 s of its input closing and was killed" for pid in (1, 2, 3)]
+
+
+def test_an_engine_that_leaves_within_the_wait_is_not_killed_and_one_that_already_left_is_not_closed(monkeypatch):
+    monkeypatch.setattr(engine_host, "EXIT_WAIT_S", 0.2)
+    leaves, gone, stays = FakeProcess(1), FakeProcess(2), FakeProcess(3, stubborn=True)
+    gone.process.code = 0
+    engine_host.close_together([leaves, gone, stays])
+    assert (leaves.closed, leaves.killed, gone.closed, gone.killed, stays.killed) == (True, False, False, False, True)
+
+
+def test_a_stop_is_answered_once_the_host_has_closed_its_engines_and_told_to_exit(host):
+    thread, answers = handle_in_thread(host, Session(), {"op": "stop"})
+    assert host.wait_for_stop(10)
+    thread.join(0.3)
+    assert answers == []
+    host.stopped.set()
+    thread.join(10)
+    assert answers == [{"ok": True}]
+
+
+def test_a_stop_the_host_does_not_finish_in_time_is_an_error_reply(host, monkeypatch):
+    monkeypatch.setattr(engine_host, "HOST_STOP_REPLY_S", 0.1)
+    assert host.handle(Session(), {"op": "stop"}) == {"error": "the engine host did not finish closing its engines"}
 
 
 def test_an_attach_after_a_stop_is_told_to_retry(host):
+    host.stopped.set()
     host.handle(Session(), {"op": "stop"})
     assert join(host)[1] == {"closing": True}
+
+
+def test_a_stop_on_the_wire_leaves_the_connection_answering_other_ops_and_marks_its_reply_sent(host, wire):
+    wire.greet()
+    wire.send({"op": "stop"})
+    wire.send({"op": "ping"})
+    assert json.loads(wire.client.recv(1024))["ok"] is True and not host.replied.is_set()
+    host.stopped.set()
+    assert json.loads(wire.client.recv(1024)) == {"ok": True}
+    assert host.replied.wait(10)
 
 
 TOKEN = "the-secret"
@@ -656,7 +785,7 @@ def test_a_connection_that_gave_the_secret_may_then_stay_silent_past_the_first_m
 
 def test_a_connection_that_ends_while_its_call_runs_drops_its_owner_before_the_call_returns(host, wire):
     process = StuckProcess(7)
-    host.start = lambda kind, settings, home, env, report: process
+    host.start = lambda kind, settings, home, env, report, started: process
     wire.greet()
     wire.send(attach_message())
     assert json.loads(wire.client.recv(1024)) == {"attached": True}
@@ -744,3 +873,72 @@ def test_a_host_started_while_the_lifetime_lock_is_held_waits_for_it_to_be_relea
     threading.Timer(0.5, held.close).start()
     engine_host.run(tmp_path, "abc", None, Registry(time.monotonic, grace=0, host_idle=0), tick=0.05)
     assert len(written) == 1
+
+
+class SentNoting:
+    """A connection that notes each line sent over it once it has gone out."""
+
+    def __init__(self, conn, sent):
+        self.conn, self.sent = conn, sent
+
+    def sendall(self, data):
+        self.conn.sendall(data)
+        self.sent.append(data)
+
+    def __getattr__(self, name):
+        return getattr(self.conn, name)
+
+
+def test_a_host_stopped_over_the_wire_returns_only_after_its_reply_to_the_stop_has_gone_out(tmp_path, monkeypatch):
+    sent = []
+    real_serve, real_stop = engine_host.serve_connection, Host.stop
+    monkeypatch.setattr(engine_host, "serve_connection", lambda host, conn, token: real_serve(host, SentNoting(conn, sent), token))
+
+    def slow_stop(self, session, message):
+        reply = real_stop(self, session, message)
+        time.sleep(0.5)
+        return reply
+
+    monkeypatch.setattr(Host, "stop", slow_stop)
+
+    def ask_to_stop():
+        assert eventually(lambda: engine_wire.read_record(tmp_path, "abc") is not None)
+        link = engine_wire.connect(engine_wire.read_record(tmp_path, "abc"))
+        link.request({"op": "stop"}, 10)
+        link.close()
+
+    client = threading.Thread(target=ask_to_stop, daemon=True)
+    client.start()
+    handlers = {number: signal.getsignal(number) for number in (signal.SIGTERM, signal.SIGINT)}
+    try:
+        engine_host.run(tmp_path, "abc", None, Registry(time.monotonic, grace=0.1, host_idle=60), tick=0.05)
+        sent_before_return = len(sent)
+    finally:
+        for number, handler in handlers.items():
+            signal.signal(number, handler)
+    client.join(10)
+    assert sent_before_return == 2
+
+
+def waiting_close(process):
+    """What EngineProcess.close does: closes the input, waits EXIT_WAIT_S for the launcher, kills it if it stayed."""
+    process.close_input()
+    try:
+        process.process.wait(timeout=engine_host.EXIT_WAIT_S)
+    except subprocess.TimeoutExpired:
+        process.kill()
+
+
+def test_the_sweep_gives_every_engine_past_its_grace_one_wait_between_them_and_kills_each(host, starter, clock, monkeypatch):
+    monkeypatch.setattr(engine_host, "EXIT_WAIT_S", 0.3)
+    sessions = [join(host, settings={"text": text})[0] for text in "ab"]
+    for process in processes(starter):
+        process.stubborn = True
+        process.close = lambda process=process: waiting_close(process)
+    for session in sessions:
+        host.drop(session)
+    clock.advance(1000)
+    began = time.monotonic()
+    host.sweep()
+    assert time.monotonic() - began < 1.5 * 0.3
+    assert [p.killed for p in processes(starter)] == [True, True]

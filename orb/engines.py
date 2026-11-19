@@ -9,6 +9,7 @@ import logging
 import os
 import queue
 import re
+import signal
 import subprocess
 import sys
 import threading
@@ -177,8 +178,10 @@ class EngineProcess:
         self.manifest = manifest
         try:
             cache.mkdir(parents=True, exist_ok=True)
+            own_group = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if sys.platform == "win32" else {"start_new_session": True}
             self.process = subprocess.Popen(manifest.run, cwd=str(manifest.path), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                            stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", bufsize=1, env={**env, CACHE_ENV: str(cache)})
+                                            stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", bufsize=1, env={**env, CACHE_ENV: str(cache)},
+                                            **own_group)
         except OSError as e:
             raise EngineError(f"{self.label} could not start {manifest.run[0]!r}: {e}")
         self.lines: queue.Queue = queue.Queue()
@@ -276,26 +279,41 @@ class EngineProcess:
     def _silence(self, timeout: float) -> str:
         return f"{self.label} did not answer within {timeout:g} s"
 
-    def close(self) -> bool:
-        """Closes the input and waits 5 s. True when the process left on its own; otherwise it and the engine pid
-        its load reply named are killed, a warning is logged, and the result is False."""
-        if self.process.poll() is not None:
-            return True
+    def close_input(self) -> None:
         try:
             self.process.stdin.close()
         except OSError:
             pass
+
+    def kill(self) -> None:
+        """Ends the engine pid its load reply named, if any, and the launcher's whole process group, since a launcher
+        such as `uv run` leaves its child running when it is killed alone."""
+        pid = self.loaded.get("pid")
+        if killable(pid):
+            try:
+                kill_pid(pid)
+            except OSError as e:
+                log.warning("%s reported pid %s, which could not be killed: %s", self.label, pid, e)
+        if sys.platform == "win32":
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(self.process.pid)], capture_output=True, check=False)
+        else:
+            try:
+                os.killpg(self.process.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+        self.process.kill()
+        self.process.wait()
+
+    def close(self) -> bool:
+        """Closes the input and waits EXIT_WAIT_S. True when the process left on its own; otherwise it is killed, a
+        warning is logged, and the result is False."""
+        if self.process.poll() is not None:
+            return True
+        self.close_input()
         try:
             self.process.wait(timeout=EXIT_WAIT_S)
         except subprocess.TimeoutExpired:
-            pid = self.loaded.get("pid")
-            if type(pid) is int:
-                try:
-                    kill_pid(pid)
-                except OSError as e:
-                    log.warning("%s reported pid %s, which could not be killed: %s", self.label, pid, e)
-            self.process.kill()
-            self.process.wait()
+            self.kill()
             log.warning("%s did not exit within %.0f s of its input closing and was killed", self.label, EXIT_WAIT_S)
             return False
         return True
@@ -329,11 +347,18 @@ def unreported(progress: str) -> None:
     pass
 
 
-def start(kind: str, settings: dict, home: Path, env=os.environ, report: Callable[[str], None] = unreported) -> EngineProcess:
-    """Finds, checks, starts and loads the engine `settings["engine"]` names; `report` gets what it says it is doing."""
+def unannounced(process: EngineProcess) -> None:
+    pass
+
+
+def start(kind: str, settings: dict, home: Path, env=os.environ, report: Callable[[str], None] = unreported,
+          started: Callable[[EngineProcess], None] = unannounced) -> EngineProcess:
+    """Finds, checks, starts and loads the engine `settings["engine"]` names; `report` gets what it says it is doing and
+    `started` the process before its load begins."""
     manifest = resolve(kind, settings, home, env)
     name = settings["engine"]
     process = EngineProcess(manifest, cache_dir(home, kind, name), env)
+    started(process)
     try:
         loaded = process.load(load_settings(kind, settings), report)
     except EngineError as e:

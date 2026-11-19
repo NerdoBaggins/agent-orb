@@ -7,7 +7,8 @@
 exits after that many transcriptions. `delay_s` makes every request after the load take that long; `hold` ignores
 the hang-up; `hang_once`, a marker path, makes the first process to find none never answer its first request;
 `load_delay_s` makes the load take that long; `download_s` makes it first report a download of that many seconds, a line
-every `download_tick_s` (default 1); `log_loads`, a path, gets the pid on one line per load."""
+every `download_tick_s` (default 1); `log_loads`, a path, gets the pid on one line per load, once it ends; `log_start`, a path,
+gets it on one line per load as the load begins, before any download."""
 import base64
 import json
 import time
@@ -81,6 +82,9 @@ for line in requests():
             die_after = settings.get("die_after")
             delay_s = float(settings.get("delay_s", 0))
             hold = bool(settings.get("hold"))
+            if settings.get("log_start"):
+                with open(settings["log_start"], "a") as log:
+                    log.write(f"{os.getpid()}\n")
             if hold:
                 EXIT_BACKSTOP_S = 3600.0
             hang = claim(settings.get("hang_once"))

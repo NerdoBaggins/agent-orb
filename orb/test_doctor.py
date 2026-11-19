@@ -249,7 +249,7 @@ def test_the_capture_check_runs_only_when_capture_is_configured(tmp_path):
 
 
 def engine_row(owners=(), grace_left=None, name="parakeet", pid=4242):
-    return {"kind": "stt", "name": name, "voice": None, "pid": pid, "alive": True, "grace_left": grace_left,
+    return {"kind": "stt", "name": name, "settings": {}, "pid": pid, "alive": True, "grace_left": grace_left,
             "owners": [{"pid": p, "repo": "/r", "agent": "claude"} for p in owners]}
 
 

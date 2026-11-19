@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from orb import cli, pages, panels
+from orb.engines import EngineError
 
 
 def test_showing_a_saved_panel_sends_its_name_and_its_files(tmp_path, monkeypatch):
@@ -505,6 +506,26 @@ def test_orb_engines_says_so_when_the_host_runs_nothing(tmp_path, monkeypatch, c
     monkeypatch.setattr(cli.engine_client, "running_engines", lambda home: [])
     assert cli.main(["engines", "--home", str(tmp_path)]) == 0
     assert "the engine host is running no engines" in capsys.readouterr().out
+
+
+def test_orb_engines_stop_says_so_when_no_host_runs(tmp_path, capsys):
+    assert cli.main(["engines", "stop", "--home", str(tmp_path)]) == 0
+    assert capsys.readouterr().out == "no shared speech engines are running\n"
+
+
+def test_orb_engines_stop_says_it_stopped_the_host_when_one_ran(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(cli.engine_client, "stop_engines", lambda home: True)
+    assert cli.main(["engines", "stop", "--home", str(tmp_path)]) == 0
+    assert capsys.readouterr().out == "stopped the engine host and its engines\n"
+
+
+def test_orb_engines_stop_names_the_failure_on_stderr_and_exits_1(tmp_path, monkeypatch, capsys):
+    def refuses(home):
+        raise EngineError("the engine host did not stop; see /log")
+
+    monkeypatch.setattr(cli.engine_client, "stop_engines", refuses)
+    assert cli.main(["engines", "stop", "--home", str(tmp_path)]) == 1
+    assert capsys.readouterr().err == "orb: the engine host did not stop; see /log\n"
 
 
 def test_orb_engines_fails_loudly_when_a_recorded_host_does_not_answer(tmp_path, monkeypatch, capsys):
