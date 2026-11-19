@@ -282,7 +282,7 @@ class Host:
         with self.lock:
             self.closing = True
             remaining = [slot.process for slot in self.slots.values() if slot.process is not None]
-            self.slots = {key: slot for key, slot in self.slots.items() if slot.process is None}
+            self.slots.clear()
         for process in remaining:
             process.close()
 
