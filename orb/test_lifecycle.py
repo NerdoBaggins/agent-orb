@@ -13,6 +13,7 @@ import pytest
 from orb import browser, cli, state
 from orb.cli import main
 from orb.state import pid_alive, port_file, read_json, server_file, state_dir
+from orb.test_engine_shared import stop_hosts
 
 GRACE_S = 2
 
@@ -57,6 +58,7 @@ def orb_env(tmp_path, monkeypatch):
             except OSError:
                 pass
     channel.shutdown()
+    stop_hosts(home)
 
 
 def record_of(env):

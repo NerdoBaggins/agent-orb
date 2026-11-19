@@ -61,10 +61,15 @@ def recorded_hosts(home):
 
 
 def stop_hosts(home):
+    outlived = []
     for record in filter(None, recorded_hosts(home)):
         if pid_alive(record.pid):
             os.kill(record.pid, signal.SIGTERM)
-            eventually(lambda: host_gone(record.pid))
+            if not eventually(lambda: host_gone(record.pid), engine_client.HOST_STOP_WAIT_S):
+                hard_kill(record.pid)
+                eventually(lambda: host_gone(record.pid))
+                outlived.append(record.pid)
+    assert not outlived, f"engine hosts {outlived} were still running {engine_client.HOST_STOP_WAIT_S:g} s after SIGTERM and were killed"
 
 
 def spawner(flags=FAST):
@@ -412,6 +417,23 @@ def test_a_recorded_host_that_does_not_answer_a_ping_is_killed_and_replaced(home
     finally:
         hung.kill()
         hung.wait()
+
+
+DEAF_HOST = UNANSWERING_HOST.replace("import os\n", "import os\nimport signal\nsignal.signal(signal.SIGTERM, signal.SIG_IGN)\n", 1)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="SIGTERM cannot be ignored on Windows, where it ends the process outright")
+def test_a_host_that_outlives_its_sigterm_fails_the_test_that_left_it_and_is_killed(tmp_path, monkeypatch):
+    monkeypatch.setattr(engine_client, "HOST_STOP_WAIT_S", 0.5)
+    deaf = subprocess.Popen([sys.executable, "-c", DEAF_HOST, str(tmp_path), "deaf"], cwd=PLUGIN_ROOT, stdout=subprocess.PIPE, text=True)
+    try:
+        assert deaf.stdout.readline().strip() == "listening"
+        with pytest.raises(AssertionError, match=f"engine hosts \\[{deaf.pid}\\] were still running"):
+            stop_hosts(tmp_path)
+        assert deaf.poll() is not None
+    finally:
+        deaf.kill()
+        deaf.wait()
 
 
 def test_a_stale_record_whose_lock_is_free_is_replaced_without_killing_anything(home):
