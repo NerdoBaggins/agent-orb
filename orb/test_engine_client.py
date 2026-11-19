@@ -1,6 +1,7 @@
 import json
 import os
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -195,16 +196,96 @@ def test_a_start_lock_that_stays_held_is_an_error_naming_the_log_and_stops_nothi
     assert stopped == []
 
 
-def test_a_host_that_does_not_release_its_lock_after_stop_is_an_error_naming_its_log(tmp_path, monkeypatch):
+def stopping(tmp_path, monkeypatch, *replies):
     root = make_copy(tmp_path / "plugins" / "agent-orb", "2.0.0")
     record_host(tmp_path, root, version="1.0.0")
+    link = FakeLink(*replies)
+    monkeypatch.setattr(engine_wire, "connect", lambda record, timeout=2.0: link)
+    host_identity = engine_wire.identity(root)
+    return link, root, lambda: engine_client.stop_host(tmp_path, host_identity, engine_wire.read_record(tmp_path, host_identity))
+
+
+def test_a_host_that_does_not_release_its_lock_after_stop_is_an_error_naming_its_log(tmp_path, monkeypatch):
+    link, root, stop = stopping(tmp_path, monkeypatch, {"ok": True})
     monkeypatch.setattr(engine_client, "HOST_STOP_WAIT_S", 0.1)
     held = engine_wire.hold_lock(engine_wire.lock_file(tmp_path, engine_wire.identity(root)))
     try:
         with pytest.raises(EngineError, match=r"did not stop; see .*engine-host\.[0-9a-f]{12}\.log"):
-            engine_client.stop_host(tmp_path, engine_wire.identity(root), engine_wire.read_record(tmp_path, engine_wire.identity(root)))
+            stop()
     finally:
         held.close()
+
+
+def test_a_host_that_never_replies_to_stop_is_an_error_within_the_stop_limit(tmp_path, monkeypatch):
+    link, root, stop = stopping(tmp_path, monkeypatch, WireTimeout("the engine host did not answer within 0.3 s"))
+    monkeypatch.setattr(engine_client, "HOST_STOP_WAIT_S", 0.3)
+    with pytest.raises(EngineError, match=r"did not stop; see .*engine-host\.[0-9a-f]{12}\.log"):
+        stop()
+    assert link.timeouts[0] <= 0.3
+
+
+def test_an_error_reply_to_stop_is_an_error_even_when_the_lock_is_free(tmp_path, monkeypatch):
+    link, root, stop = stopping(tmp_path, monkeypatch, {"error": "the engine host did not finish closing its engines"})
+    with pytest.raises(EngineError, match="did not stop"):
+        stop()
+
+
+class FreeLock:
+    def close(self):
+        pass
+
+
+def test_a_stop_gives_its_reply_and_its_lock_one_limit_between_them(tmp_path, monkeypatch):
+    link, root, stop = stopping(tmp_path, monkeypatch, {"ok": True})
+    clock, waited = FakeClock(), []
+    monkeypatch.setattr(engine_client, "time", clock)
+    monkeypatch.setattr(engine_wire, "hold_lock", lambda path, wait_s=0.0: waited.append(wait_s) or FreeLock())
+    link.request = lambda message, timeout: clock.sleep(4.0) or {"ok": True}
+    stop()
+    assert waited == [pytest.approx(engine_client.HOST_STOP_WAIT_S - 4.0)]
+
+
+def test_a_stop_that_answers_ok_and_frees_the_lock_succeeds_and_sends_one_stop(tmp_path, monkeypatch):
+    link, root, stop = stopping(tmp_path, monkeypatch, {"ok": True})
+    stop()
+    assert link.sent == [{"op": "stop"}] and link.closed
+
+
+def test_a_host_recorded_with_another_version_whose_process_is_gone_is_replaced_without_an_error(tmp_path):
+    root = make_copy(tmp_path / "plugins" / "agent-orb", "2.0.0")
+    gone = subprocess.Popen([sys.executable, "-c", "pass"])
+    gone.wait()
+    record_host(tmp_path, root, pid=gone.pid, version="1.0.0")
+    engine_client.replace_outdated_host(tmp_path, engine_wire.identity(root), "2.0.0")
+
+
+def test_a_host_recorded_with_another_version_whose_pid_now_belongs_to_another_process_is_replaced_without_an_error(tmp_path):
+    root = make_copy(tmp_path / "plugins" / "agent-orb", "2.0.0")
+    record_host(tmp_path, root, pid=os.getpid(), version="1.0.0")
+    engine_client.replace_outdated_host(tmp_path, engine_wire.identity(root), "2.0.0")
+
+
+def test_stopping_engines_with_no_host_recorded_says_so_and_asks_nothing(tmp_path, monkeypatch):
+    monkeypatch.setattr(engine_client, "stop_host", lambda *args: pytest.fail("stopped a host that was not there"))
+    assert engine_client.stop_engines(tmp_path) is False
+
+
+def test_stopping_engines_whose_recorded_host_process_is_gone_says_there_is_none_and_asks_nothing(tmp_path, monkeypatch):
+    root = make_copy(tmp_path / "checkout", "1.0.0", git="folder")
+    gone = subprocess.Popen([sys.executable, "-c", "pass"])
+    gone.wait()
+    record_host(tmp_path, root, pid=gone.pid)
+    monkeypatch.setattr(engine_client, "stop_host", lambda *args: pytest.fail("stopped a host that was gone"))
+    assert engine_client.stop_engines(tmp_path, root) is False
+
+
+def test_stopping_engines_stops_the_recorded_host_of_this_plugin_copy(tmp_path, monkeypatch):
+    root = make_copy(tmp_path / "checkout", "1.0.0", git="folder")
+    record_host(tmp_path, root)
+    stopped = []
+    monkeypatch.setattr(engine_client, "stop_host", lambda home, host_identity, record: stopped.append((host_identity, record.pid)))
+    assert engine_client.stop_engines(tmp_path, root) is True
+    assert stopped == [(engine_wire.identity(root), os.getpid())]
 
 
 def test_an_attach_to_a_host_that_is_exiting_goes_to_a_new_one(tmp_path, monkeypatch):
@@ -422,24 +503,54 @@ def test_closing_closes_the_connection_and_sends_nothing(tmp_path):
     assert link.sent == [] and link.closed
 
 
-def row(kind="stt", name="parakeet", owners=(), grace_left=None, pid=9):
-    return {"kind": kind, "name": name, "pid": pid, "alive": True, "grace_left": grace_left,
+def row(kind="stt", name="moonshine", settings=None, owners=(), grace_left=None, pid=9):
+    return {"kind": kind, "name": name, "settings": settings or {}, "pid": pid, "alive": True, "grace_left": grace_left,
             "owners": [{"pid": p, "repo": f"/repo{p}", "agent": "claude"} for p in owners]}
 
 
-def test_the_description_lists_engines_by_kind_and_name_with_their_servers_under_each():
-    lines = engine_client.describe([row("tts", "voxtral", [3]), row(owners=[2, 1])])
-    assert lines == ["stt parakeet  engine pid 9  2 servers", "  claude in /repo1 (server pid 1)", "  claude in /repo2 (server pid 2)",
-                     "tts voxtral  engine pid 9  1 server", "  claude in /repo3 (server pid 3)"]
+def owner(pid, repo, agent):
+    return {"pid": pid, "repo": repo, "agent": agent}
 
 
-def test_an_engine_nobody_uses_is_described_with_the_time_before_it_closes():
-    assert engine_client.describe([row(grace_left=12.4)]) == ["stt parakeet  engine pid 9  no servers, closes in 12 s"]
+def test_describe_prints_the_specs_example_exactly():
+    listing = [
+        {**row("tts", "kokoro", grace_left=81.2, pid=4160)},
+        {**row("stt", "moonshine", {"model": "tiny"}, pid=4188), "owners": [owner(3122, "/home/a/proj/y", "claude")]},
+        {**row("stt", "moonshine", {"model": "base"}, pid=4121),
+         "owners": [owner(3050, "/home/a/proj/x", "copilot"), owner(3001, "/home/a/proj/x", "claude")]},
+    ]
+    assert engine_client.describe(listing) == [
+        'stt moonshine {"model": "base"}  engine pid 4121  2 orbs',
+        "  claude in /home/a/proj/x (orb pid 3001)",
+        "  copilot in /home/a/proj/x (orb pid 3050)",
+        'stt moonshine {"model": "tiny"}  engine pid 4188  1 orb',
+        "  claude in /home/a/proj/y (orb pid 3122)",
+        "tts kokoro {}  engine pid 4160  no orbs, closes in 81 s",
+    ]
 
 
-def test_only_an_engine_with_no_server_and_no_grace_is_unowned():
+def test_two_processes_of_one_engine_are_ordered_by_their_settings():
+    lines = engine_client.describe([row(settings={"model": "tiny"}, owners=[2]), row(settings={"model": "base"}, owners=[1])])
+    assert [line for line in lines if not line.startswith(" ")] == ['stt moonshine {"model": "base"}  engine pid 9  1 orb',
+                                                                     'stt moonshine {"model": "tiny"}  engine pid 9  1 orb']
+
+
+def test_the_settings_are_printed_with_their_keys_in_order():
+    assert engine_client.describe([row(settings={"b": 1, "a": 2}, owners=[1])])[0] == 'stt moonshine {"a": 2, "b": 1}  engine pid 9  1 orb'
+
+
+def test_owners_are_ordered_by_repo_then_agent():
+    listing = [{**row(), "owners": [owner(1, "/b", "claude"), owner(2, "/a", "copilot"), owner(3, "/a", "claude")]}]
+    assert [line.split(" (")[0] for line in engine_client.describe(listing)[1:]] == ["  claude in /a", "  copilot in /a", "  claude in /b"]
+
+
+def test_an_engine_with_no_orb_and_no_grace_is_described_as_having_no_grace_running():
+    assert engine_client.describe([row()]) == ["stt moonshine {}  engine pid 9  no orbs, no grace running"]
+
+
+def test_only_an_engine_with_no_orb_and_no_grace_is_leaked():
     owned, graced, orphan = row(owners=[1]), row(name="g", grace_left=3.0), row(name="o")
-    assert engine_client.unowned([owned, graced, orphan]) == [orphan]
+    assert engine_client.leaked([owned, graced, orphan]) == [orphan]
 
 
 def test_no_host_recorded_means_none_running(tmp_path):

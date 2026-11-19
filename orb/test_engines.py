@@ -698,6 +698,26 @@ def test_closing_an_engine_that_ignores_its_input_kills_the_pid_it_reported_and_
         kill_pid(engine_pid)
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="process groups are POSIX; Windows uses CREATE_NEW_PROCESS_GROUP")
+def test_an_engines_launcher_leads_a_process_group_of_its_own(tmp_path):
+    process = start("tts", {"engine": "fake"}, tmp_path)
+    try:
+        assert os.getpgid(process.process.pid) == process.process.pid != os.getpgid(0)
+    finally:
+        process.close()
+
+
+def test_killing_an_engine_whose_pid_is_not_known_ends_the_python_its_launcher_started(tmp_path):
+    process = start("tts", {"engine": "fake", "hold": True}, tmp_path)
+    engine_pid = process.loaded["pid"]
+    process.loaded = {}
+    try:
+        process.kill()
+        assert gone(engine_pid) and gone(process.process.pid)
+    finally:
+        kill_pid(engine_pid)
+
+
 SPEAKS = 'import json, os, sys, time\nsys.stdin.readline()\ndef say(**line):\n    sys.stdout.write(json.dumps(line) + "\\n"); sys.stdout.flush()\n'
 
 
@@ -705,6 +725,42 @@ def spoken(tmp_path, name, body):
     write_engine(tmp_path / ".config" / "voice-engines", "tts", name, SPEAKS + body,
                  {"name": name, "version": "1", "kind": "tts", "protocol": 2, "run": [sys.executable, "engine.py"]})
     return {"engine": name}
+
+
+def test_the_process_is_handed_to_started_before_the_load_reports_anything_and_is_the_one_returned(tmp_path):
+    events, handed = [], []
+
+    def started(process):
+        handed.append(process)
+        events.append("started")
+
+    body = 'say(progress="loading")\nsay(ok=True, pid=os.getpid())\nsys.stdin.read()\n'
+    process = start("tts", spoken(tmp_path, "early", body), tmp_path, report=events.append, started=started)
+    process.close()
+    assert events == ["started", "loading"] and handed == [process]
+
+
+ESCAPES_THE_LAUNCHERS_GROUP = (
+    "child = os.fork()\n"
+    "if child == 0:\n"
+    "    os.setsid()\n"
+    "    say(ok=True, pid=os.getpid())\n"
+    "    time.sleep(3600)\n"
+    "os.waitpid(child, 0)\n"
+)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a new session and a group kill are POSIX")
+def test_closing_an_engine_that_left_its_launchers_process_group_kills_the_pid_it_reported(tmp_path, monkeypatch):
+    monkeypatch.setattr(engines, "EXIT_WAIT_S", 0.3)
+    process = start("tts", spoken(tmp_path, "escapes", ESCAPES_THE_LAUNCHERS_GROUP), tmp_path)
+    engine_pid = process.loaded["pid"]
+    try:
+        assert os.getpgid(engine_pid) != process.process.pid
+        assert process.close() is False
+        assert gone(engine_pid)
+    finally:
+        kill_pid(engine_pid)
 
 
 def test_a_load_that_keeps_reporting_progress_outlasts_the_silence_limit_and_every_report_reaches_the_caller(tmp_path, monkeypatch):

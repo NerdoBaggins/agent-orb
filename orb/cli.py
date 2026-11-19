@@ -16,6 +16,7 @@ from pathlib import Path
 from orb import PLUGIN_ROOT, agents, browser, engine_client, logs, pages, panels, widgets
 from orb.config import ConfigError, load_for, panel_dirs_for, private_config_path, save_for_repo, save_widget, widget_dirs_for, widgets_on
 from orb.copilot import CopilotLink
+from orb.engines import EngineError
 from orb.state import copilot_channel_file, port_file, private_root, read_json, running_server, server_file, session_project, state_dir, user_only
 
 HEALTH_WAIT_S = 60
@@ -324,6 +325,8 @@ def cmd_widget(args) -> int:
 
 def cmd_engines(args) -> int:
     _, home = repo_and_home(args, os.environ)
+    if args.action == "stop":
+        return cmd_engines_stop(home)
     try:
         running = engine_client.running_engines(home)
     except engine_client.HostDown as e:
@@ -333,6 +336,16 @@ def cmd_engines(args) -> int:
         print("no shared speech engines are running" if running is None else "the engine host is running no engines")
         return 0
     print("\n".join(engine_client.describe(running)))
+    return 0
+
+
+def cmd_engines_stop(home: Path) -> int:
+    try:
+        stopped = engine_client.stop_engines(home)
+    except EngineError as e:
+        print(f"orb: {e}", file=sys.stderr)
+        return 1
+    print("stopped the engine host and its engines" if stopped else "no shared speech engines are running")
     return 0
 
 
@@ -393,7 +406,9 @@ def main(argv=None) -> int:
     p_voice = sub.add_parser("voice", help="mute or unmute the orb's speech, or enroll your voiceprint")
     p_voice.add_argument("setting", choices=("on", "off", "toggle", "enroll"))
     common(p_voice)
-    common(sub.add_parser("engines", help="the speech engines shared between this machine's orbs, and the servers using each"))
+    p_engines = sub.add_parser("engines", help="the speech engines shared between this machine's orbs and the orbs using each; `stop` closes them all")
+    p_engines.add_argument("action", nargs="?", choices=("stop",))
+    common(p_engines)
     p_log = sub.add_parser("log", help="the newest lines of this repo's orb log (it keeps about 5 MB, oldest dropped)")
     p_log.add_argument("-n", "--lines", type=int, default=60)
     common(p_log)
