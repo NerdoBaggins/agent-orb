@@ -559,3 +559,13 @@ def test_a_server_that_exits_before_answering_names_its_log_and_its_crash_output
     exited.wait()
     with pytest.raises(SystemExit, match=r"exited with 3; see .*server\.claude\.log and .*server\.claude\.out"):
         cli.wait_healthy(1, "t", exited, logs.log_path(tmp_path, "claude"), logs.crash_output_path(tmp_path, "claude"))
+
+
+def test_orb_open_reports_a_failed_start_with_the_file_the_server_wrote_its_output_to(tmp_path, monkeypatch):
+    written, reported = [], []
+    monkeypatch.setattr(cli, "stable_port", lambda previous: 4321)
+    monkeypatch.setattr(cli, "spawn_detached", lambda command, output, token: written.append(output))
+    monkeypatch.setattr(cli, "wait_healthy", lambda port, token, proc, log_path, crash_path: reported.append(crash_path) or {"attach_text": "attached"})
+    monkeypatch.setattr(cli.browser, "open_app_window", lambda url, profile: "Chrome")
+    cli.main(["open", "--agent", "claude", "--repo", str(tmp_path / "repo"), "--home", str(tmp_path / "home")])
+    assert reported == written and written
