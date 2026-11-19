@@ -971,8 +971,8 @@ class OrbServer:
         if self.state == "speaking":
             await self.set_state(self.resume_state())
         old, self.tts = self.tts, tts
-        await asyncio.to_thread(old.close)
         self.config["tts"].update(settings)
+        await asyncio.to_thread(old.close)
         self.voice_menu = self.menu_of(await asyncio.to_thread(self.tts.voices))
         return None
 
@@ -1130,9 +1130,12 @@ class OrbServer:
             engine, settings, failed = speech["engine"], overlay("tts", self.config["tts"], speech), None
             if engine not in await asyncio.to_thread(engines.available, "tts", self.home):
                 failed = "which is not installed"
-            elif engine != self.tts.name or settings != self.config["tts"]:
+            elif engine != self.tts.name or engines.load_settings("tts", engine_settings(settings)) != engines.load_settings("tts", engine_settings(self.config["tts"])):
                 failed = await self.use_tts(settings)
                 failed = failed and f"which did not load ({failed})"
+            elif settings != self.config["tts"]:
+                self.config["tts"].update(settings)
+                self.voice_menu = self.menu_of(self.voice_menu and self.voice_menu["voices"])
             if failed:
                 notes.append(f"the {self.theme.name} theme names the {engine} speech engine, {failed}; keeping {self.tts.name}")
                 speech = None

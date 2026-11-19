@@ -1,11 +1,13 @@
 import asyncio
 import json
+import os
 import shutil
 
 import pytest
 
 from orb import engines
-from orb.config import private_config_path
+from orb.config import engine_settings, private_config_path
+from orb.engines import Tts, start, unreported
 from orb.test_server import TOKEN, client_for, make, run, skinned, until_state, user_tts_engine, wait_for
 from orb.test_server_panels import fast, show, watching
 from orb.test_skins import skin_in
@@ -255,18 +257,50 @@ def test_a_theme_naming_the_engine_and_voice_already_speaking_does_not_reload_it
 
 
 @pytest.mark.timeout(60)
-def test_a_theme_naming_the_engine_already_speaking_with_another_voice_loads_that_voice(tmp_path):
+def test_a_theme_that_changes_the_voice_and_a_load_setting_of_the_same_engine_loads_it_again(tmp_path):
     user_tts_engine(tmp_path, "other")
-    hud(tmp_path, tts={"engine": "other", "other": {"voice": "bob"}})
+    hud(tmp_path, tts={"engine": "other", "other": {"voices": ["ann", "bob", "cy"], "voice": "bob"}})
     choose(tmp_path, tts={"engine": "other", "other": {"voices": ["ann", "bob"], "voice": "ann"}})
+    launched = []
+
+    def counting(kind, settings, home, env=os.environ, report=unreported):
+        launched.append(kind)
+        return start(kind, settings, home, env, report)
 
     async def go():
         server = make(tmp_path, voice=True)
-        server.tts.name = "other"
-        old = server.tts
+        server.launch = counting
+        server.tts = Tts(lambda n: engine_settings(server.config["tts"]), server.call_for, server.home, launch=counting)
+        old, started = server.tts, len(launched)
         async with await client_for(server) as c:
             await switch_to_hud(c)
-            assert server.tts is not old and server.voice_menu["current"] == "bob"
+            assert server.tts is not old and len(launched) == started + 1 and server.voice_menu["current"] == "bob"
+        server.tts.close()
+    run(go())
+
+
+@pytest.mark.timeout(60)
+def test_a_theme_that_changes_only_the_voice_starts_no_engine(tmp_path):
+    user_tts_engine(tmp_path, "other")
+    hud(tmp_path, tts={"engine": "other", "other": {"voice": "bob"}})
+    choose(tmp_path, tts={"engine": "other", "other": {"voices": ["ann", "bob"], "voice": "ann"}})
+    launched = []
+
+    def counting(kind, settings, home, env=os.environ, report=unreported):
+        launched.append(kind)
+        return start(kind, settings, home, env, report)
+
+    async def go():
+        server = make(tmp_path, voice=True)
+        server.launch = counting
+        server.tts = Tts(lambda n: engine_settings(server.config["tts"]), server.call_for, server.home, launch=counting)
+        server.voice_menu = server.menu_of(server.tts.voices())
+        old, started = server.tts, len(launched)
+        async with await client_for(server) as c:
+            await switch_to_hud(c)
+            assert server.tts is old and len(launched) == started
+            assert server.config["tts"]["other"]["voice"] == "bob" and server.voice_menu["current"] == "bob"
+            assert server.snapshot()["theme"]["note"] is None
         server.tts.close()
     run(go())
 
