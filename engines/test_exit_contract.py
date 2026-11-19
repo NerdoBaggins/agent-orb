@@ -53,6 +53,8 @@ def slow(*args, **kwargs):
 
 if library == "moonshine":
     stub("moonshine_onnx", MoonshineOnnxModel=slow, load_tokenizer=slow)
+elif library == "moonshine_tokenizer_only":
+    stub("moonshine_onnx", MoonshineOnnxModel=lambda **kwargs: None, load_tokenizer=slow)
 else:
     stub("openwakeword", utils=stub("openwakeword.utils", download_models=slow))
     stub("openwakeword.vad", VAD=slow)
@@ -309,6 +311,15 @@ def test_a_download_inside_the_models_library_is_ticked_until_the_library_return
     finally:
         engine.kill()
     assert engine.progress[0].startswith("loading the") and engine.progress.count("downloading the model") >= 3
+
+
+def test_a_slow_tokenizer_download_is_ticked_while_the_model_is_already_loaded():
+    engine = Engine([sys.executable, "-c", TICKING_HARNESS, str(ENGINES / "stt/moonshine/engine.py"), "moonshine_tokenizer_only"], ENGINES)
+    try:
+        assert engine.call(load())["ok"] is True
+    finally:
+        engine.kill()
+    assert engine.progress.count("downloading the model") >= 3
 
 
 @pytest.mark.parametrize("kind", LOGGING)
