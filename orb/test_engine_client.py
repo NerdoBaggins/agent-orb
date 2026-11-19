@@ -544,8 +544,8 @@ def test_owners_are_ordered_by_repo_then_agent():
     assert [line.split(" (")[0] for line in engine_client.describe(listing)[1:]] == ["  claude in /a", "  copilot in /a", "  claude in /b"]
 
 
-def test_an_engine_with_no_orb_and_no_grace_is_described_as_having_no_grace_running():
-    assert engine_client.describe([row()]) == ["stt moonshine {}  engine pid 9  no orbs, no grace running"]
+def test_an_engine_with_no_orb_and_no_grace_is_described_as_leaked():
+    assert engine_client.describe([row()]) == ["stt moonshine {}  engine pid 9  no orbs, leaked"]
 
 
 def test_only_an_engine_with_no_orb_and_no_grace_is_leaked():

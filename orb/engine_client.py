@@ -309,7 +309,7 @@ def describe(running: list[dict]) -> list[str]:
 def orbs_text(owners: list[dict], grace_left: float | None) -> str:
     if owners:
         return f"{len(owners)} orb{'s' if len(owners) != 1 else ''}"
-    return "no orbs, no grace running" if grace_left is None else f"no orbs, closes in {grace_left:.0f} s"
+    return "no orbs, leaked" if grace_left is None else f"no orbs, closes in {grace_left:.0f} s"
 
 
 def settings_text(settings: dict) -> str:

@@ -113,10 +113,10 @@ def check_engine_host(home: Path) -> Check:
     orphans = engine_client.leaked(running)
     if orphans:
         names = ", ".join(f"{e['kind']} {e['name']} (pid {e['pid']})" for e in orphans)
-        return Check("engine host", False, f"answers, but {names} has no server attached and no grace period running; "
+        return Check("engine host", False, f"answers, but {names} has no orb attached and no grace period running; "
                      "stop it with `kill <pid>` and report it")
     attached = sum(len(e["owners"]) for e in running)
-    return Check("engine host", True, f"answers; {len(running)} engine(s), {attached} server(s) attached")
+    return Check("engine host", True, f"answers; {len(running)} engine(s), {attached} orb(s) attached")
 
 
 def check_theme_tts(theme: themes.Theme, home: Path) -> Check:
