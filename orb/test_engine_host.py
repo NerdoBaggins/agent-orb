@@ -489,7 +489,7 @@ def test_close_all_closes_every_engine(host, starter):
 
 
 def test_a_stop_is_answered_and_the_host_is_told_to_exit(host):
-    assert host.handle(Session(), {"op": "stop"}) == {"ok": True} and host.stopping.is_set()
+    assert host.handle(Session(), {"op": "stop"}) == {"ok": True} and host.wait_for_stop(0)
 
 
 def test_an_attach_after_a_stop_is_told_to_retry(host):
@@ -537,7 +537,7 @@ def wire(host):
 @pytest.mark.parametrize("first", [{}, {"token": "not-the-secret"}, {"token": 7}], ids=["no secret", "wrong secret", "secret that is not text"])
 def test_a_first_message_that_is_not_the_secret_is_closed_with_no_reply_for_every_op(host, wire, op, first):
     wire.send({"op": op, **first})
-    assert wire.closes_without_reply() and not host.stopping.is_set()
+    assert wire.closes_without_reply() and not host.wait_for_stop(0)
 
 
 def test_a_connection_that_sends_nothing_is_closed_after_5_s(host, monkeypatch):
