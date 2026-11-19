@@ -13,7 +13,7 @@ from pathlib import Path
 from orb import PLUGIN_ROOT, engine_wire
 from orb.engine_wire import Link, WireBroken, WireError, WireTimeout
 from orb.state import kill_pid, pid_alive
-from orb.engines import CALL_TIMEOUT_S, LOAD_TIMEOUT_S, EngineError, EngineTimeout, Manifest, load_settings, resolve
+from orb.engines import CALL_TIMEOUT_S, EngineError, EngineTimeout, Manifest, load_settings, resolve, unreported
 
 HOST_START_WAIT_S = 10.0
 HOST_ANSWER_S = 5.0
@@ -208,7 +208,18 @@ def ask(link: Link, attachment: Attachment, message: dict, timeout: float) -> di
         raise EngineError(f"{attachment.kind} engine {attachment.name!r}: {e}")
 
 
-def attach(attachment: Attachment) -> tuple[Link, dict]:
+def load_outcome(link: Link, attachment: Attachment, report) -> dict:
+    """The host's answer to `ready` once the load has ended. The host answers each ask within engine_wire.READY_WAIT_S,
+    with the outcome or with what the engine last said, which goes to `report`; the orb holds no limit on the load."""
+    while True:
+        reply = ask(link, attachment, {"op": "ready"}, engine_wire.READY_WAIT_S + HOST_REPLY_MARGIN_S)
+        if "loading" not in reply:
+            return reply
+        if reply["loading"] is not None:
+            report(reply["loading"])
+
+
+def attach(attachment: Attachment, report=unreported) -> tuple[Link, dict]:
     """Attaches to the engine and waits for it to load: the host answers the attach at once and the load separately."""
     message = {"op": "attach", "kind": attachment.kind, "name": attachment.name, "settings": attachment.settings,
                "env": attachment.env, "owner": attachment.owner}
@@ -220,7 +231,7 @@ def attach(attachment: Attachment) -> tuple[Link, dict]:
             wait_for_record_to_go(attachment.home, engine_wire.identity(attachment.plugin_root))
             continue
         if "error" not in reply:
-            reply = ask(link, attachment, {"op": "ready"}, LOAD_TIMEOUT_S)
+            reply = load_outcome(link, attachment, report)
         if "error" in reply:
             link.close()
             raise EngineError(reply["error"])
@@ -231,12 +242,12 @@ def attach(attachment: Attachment) -> tuple[Link, dict]:
 def launcher(owner: dict, spawn=spawn_host, plugin_root: Path = PLUGIN_ROOT):
     """A stand-in for engines.start that attaches to the shared engine instead of starting one."""
 
-    def launch(kind: str, settings: dict, home: Path, env=os.environ) -> RemoteEngine:
+    def launch(kind: str, settings: dict, home: Path, env=os.environ, report=unreported) -> RemoteEngine:
         manifest = resolve(kind, settings, home, env)
         name = settings["engine"]
         attachment = Attachment(Path(home), kind, name, manifest, load_settings(kind, settings),
                                 {var: env[var] for var in manifest.env}, owner, spawn, plugin_root)
-        link, loaded = attach(attachment)
+        link, loaded = attach(attachment, report)
         return RemoteEngine(attachment, link, loaded)
 
     return launch

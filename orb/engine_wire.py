@@ -14,6 +14,7 @@ from orb.engines import names_one_process
 from orb.state import normalized_root, read_json, state_root, user_only, write_json
 
 CONNECT_TIMEOUT_S = 2.0
+READY_WAIT_S = 2.0
 LOCK_POLL_S = 0.05
 IDENTITY_DIGITS = 12
 

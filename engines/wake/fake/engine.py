@@ -3,7 +3,8 @@
 # dependencies = []
 # ///
 """Test wake engine: a frame whose first sample is at or above `trigger` (default 0.9) scores 1, any other 0.
-`fail` refuses to load. `delay_s` makes every request after the load take that long; `hold` ignores the hang-up."""
+`fail` refuses to load. `delay_s` makes every request after the load take that long; `hold` ignores the hang-up;
+`load_delay_s` makes the load take that long."""
 import base64
 import json
 import struct
@@ -36,6 +37,11 @@ def requests():
         yield line
 # ---- end of the exit contract ----
 
+def progress(text: str) -> None:
+    sys.stdout.write(json.dumps({"progress": text}) + "\n")
+    sys.stdout.flush()
+
+
 trigger = 0.9
 delay_s, hold = 0.0, False
 for line in requests():
@@ -43,11 +49,13 @@ for line in requests():
     if req["op"] != "load":
         time.sleep(delay_s)
     if req["op"] == "load":
+        progress("loading the fake wake engine")
         settings = req.get("settings", {})
         if settings.get("fail"):
             out = {"error": "fake wake was told to fail"}
         else:
             trigger = float(settings.get("trigger", trigger))
+            time.sleep(float(settings.get("load_delay_s", 0)))
             delay_s = float(settings.get("delay_s", 0))
             hold = bool(settings.get("hold"))
             if hold:

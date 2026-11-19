@@ -11,7 +11,8 @@ def converse(settings, *requests):
     lines = [{"op": "load", "settings": settings}, *requests]
     done = subprocess.run([sys.executable, str(ENGINE)], input="".join(json.dumps(r) + "\n" for r in lines),
                           capture_output=True, text=True, timeout=30)
-    return [json.loads(line) for line in done.stdout.splitlines()][1:]
+    replies = [json.loads(line) for line in done.stdout.splitlines()]
+    return [reply for reply in replies if "progress" not in reply][1:]
 
 
 def test_the_fake_answers_an_unknown_voice_with_the_exact_text():

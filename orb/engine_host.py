@@ -39,7 +39,11 @@ class Slot:
     done: threading.Event = field(default_factory=threading.Event)
     process: engines.EngineProcess | None = None
     error: str | None = None
+    doing: str | None = None
     calls: int = 0
+
+    def say(self, progress: str) -> None:
+        self.doing = progress
 
 
 @dataclass(eq=False)
@@ -136,7 +140,7 @@ class Host:
 
     def _load(self, key: Key, slot: Slot, want: Attach, declared: dict) -> None:
         try:
-            process = self.start(key.kind, {"engine": key.name, **want.settings}, self.home, {**self.environ, **declared})
+            process = self.start(key.kind, {"engine": key.name, **want.settings}, self.home, {**self.environ, **declared}, slot.say)
         except EngineError as e:
             self._load_failed(key, slot, str(e))
             return
@@ -176,7 +180,8 @@ class Host:
         slot = session.slot
         if slot is None:
             return {"error": "this connection has not attached to an engine"}
-        slot.done.wait()
+        if not slot.done.wait(engine_wire.READY_WAIT_S):
+            return {"loading": slot.doing}
         if slot.error is not None:
             return {"error": slot.error}
         return {"loaded": slot.process.loaded}

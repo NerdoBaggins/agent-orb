@@ -163,3 +163,60 @@ def test_load_ignores_voice_and_lang(monkeypatch, tmp_path):
     monkeypatch.setattr(engine, "cache", lambda: tmp_path)
     engine.load({"voice": "ff_siwis", "lang": "fr-fr"})
     assert [(c["voice"].tolist(), c["lang"]) for c in kokoro.created] == [(DEFAULT_STYLE, "en-gb")]
+
+
+class Download:
+    """A response that hands out `chunks` of CHUNK_BYTES, each costing `seconds_each` on the engine's clock."""
+
+    def __init__(self, clock, chunks, seconds_each, length=None):
+        self.clock, self.left, self.seconds_each = clock, chunks, seconds_each
+        self.headers = {} if length is None else {"Content-Length": str(length)}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def read(self, size):
+        if not self.left:
+            return b""
+        self.left -= 1
+        self.clock["now"] += self.seconds_each
+        return b"x" * size
+
+
+def fetching(monkeypatch, tmp_path, download, every_s=5.0):
+    clock = {"now": 0.0}
+    reported = []
+    monkeypatch.setattr(engine, "PROGRESS_EVERY_S", every_s)
+    monkeypatch.setattr(engine, "CHUNK_BYTES", 1 << 20)
+    monkeypatch.setattr(engine, "time", types.SimpleNamespace(monotonic=lambda: clock["now"]))
+    monkeypatch.setattr(engine, "progress", lambda text: reported.append((clock["now"], text)))
+    monkeypatch.setattr(engine.urllib.request, "urlopen", lambda url, timeout: download(clock))
+    engine.fetch("https://example.test/kokoro-v1.0.onnx", tmp_path / "cache" / "kokoro-v1.0.onnx")
+    return reported
+
+
+def test_a_slow_download_reports_at_least_every_interval_with_the_megabytes_so_far_of_the_total(monkeypatch, tmp_path):
+    reported = fetching(monkeypatch, tmp_path, lambda clock: Download(clock, chunks=12, seconds_each=2.0, length=12 << 20))
+    times = [at for at, _ in reported]
+    gaps = [later - earlier for earlier, later in zip(times, times[1:])]
+    assert (reported[0], reported[-1][1], len(reported)) == ((0.0, "downloading kokoro-v1.0.onnx, 0 of 12 MB"), "downloading kokoro-v1.0.onnx, 12 of 12 MB", 5)
+    assert max(gaps) <= 5.0 + 2.0
+
+
+def test_a_download_that_does_not_say_its_size_reports_the_megabytes_so_far(monkeypatch, tmp_path):
+    reported = fetching(monkeypatch, tmp_path, lambda clock: Download(clock, chunks=4, seconds_each=3.0))
+    assert [text for _, text in reported] == ["downloading kokoro-v1.0.onnx, 0 MB", "downloading kokoro-v1.0.onnx, 2 MB", "downloading kokoro-v1.0.onnx, 4 MB"]
+
+
+def test_a_fast_download_is_not_reported_on_every_chunk(monkeypatch, tmp_path):
+    reported = fetching(monkeypatch, tmp_path, lambda clock: Download(clock, chunks=40, seconds_each=0.01, length=40 << 20))
+    assert len(reported) == 1
+
+
+def test_the_downloaded_bytes_are_saved_whole_under_the_files_name(monkeypatch, tmp_path):
+    fetching(monkeypatch, tmp_path, lambda clock: Download(clock, chunks=3, seconds_each=0.0, length=3 << 20))
+    assert (tmp_path / "cache" / "kokoro-v1.0.onnx").stat().st_size == 3 << 20
+    assert not list((tmp_path / "cache").glob("*.part"))

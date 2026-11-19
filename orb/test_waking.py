@@ -39,6 +39,14 @@ def test_a_waker_is_built_from_the_fake_engines_and_describes_its_phrase(tmp_pat
         waker.close()
 
 
+def test_building_the_waker_passes_what_each_of_its_engines_says_to_the_report(tmp_path):
+    said = []
+    save_voiceprint(tmp_path, "fake", [1.0, 0.0, 0.0, 0.0])
+    waker = build(fake_section(voice_auth=True), tmp_path, report=said.append)
+    waker.close()
+    assert sorted(said) == ["loading the fake vad engine", "loading the fake voiceprint engine", "loading the fake wake engine"]
+
+
 def test_bad_settings_keep_the_wake_word_off_with_the_reason(tmp_path):
     with pytest.raises(WakeOff, match="wake.threshold must be a non-negative number"):
         build(fake_section(threshold="x"), tmp_path)

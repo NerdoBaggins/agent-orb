@@ -5,6 +5,7 @@
 """Silero VAD through openWakeWord's wrapper (its bundled onnx model, downloaded once with the rest of
 openWakeWord's feature models). A frame in, the probability of speech out."""
 import base64
+import contextlib
 import json
 
 import numpy as np
@@ -36,15 +37,41 @@ def requests():
         yield line
 # ---- end of the exit contract ----
 
+PROGRESS_EVERY_S = 5.0
+
+
+def progress(text: str) -> None:
+    sys.stdout.write(json.dumps({"progress": text}) + "\n")
+    sys.stdout.flush()
+
+
+@contextlib.contextmanager
+def ticking(text: str):
+    done = threading.Event()
+
+    def tick() -> None:
+        while not done.wait(PROGRESS_EVERY_S):
+            progress(text)
+
+    ticker = threading.Thread(target=tick, daemon=True)
+    ticker.start()
+    try:
+        yield
+    finally:
+        done.set()
+        ticker.join()
+
 
 vad = None
 for line in requests():
     req = json.loads(line)
     try:
         if req["op"] == "load":
+            progress("loading the voice detection model")
             from openwakeword import utils
             from openwakeword.vad import VAD
-            utils.download_models(model_names=[])
+            with ticking("downloading the model"):
+                utils.download_models(model_names=[])
             vad = VAD()
             out = {"ok": True, "pid": os.getpid()}
         elif req["op"] == "frame":

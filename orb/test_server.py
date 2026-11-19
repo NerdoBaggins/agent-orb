@@ -14,7 +14,7 @@ from orb import PLUGIN_ROOT, agents, engines
 from orb.audio import SAMPLE_RATE
 from orb.capture import Ended, Frame
 from orb.config import DEFAULTS, private_config_path
-from orb.engines import EngineError, Tts, start
+from orb.engines import EngineError, Tts, start, unreported
 from orb.server import SERVER_STATES, OrbServer, audio_frame, page_sender, voice_menu
 from orb.test_engines import requests_sent
 from orb.skins import STATES as SKIN_STATES
@@ -1000,7 +1000,8 @@ def test_switching_the_voice_loads_the_engine_saves_it_for_this_repo_and_tells_e
             message = await ws.receive_json()
             assert message == {"type": "engines", "engines": {"stt": {"name": "fake", "fallback_reason": None},
                                                               "tts": {"name": "other", "fallback_reason": None}},
-                               "voices": None}
+                               "voices": None, "voice": True, "loading": {}, "speech_off": None,
+                               "tts_engines": engines.available("tts", server.home), "stt_engines": engines.available("stt", server.home)}
             assert old.closed and server.tts.name == "other"
             saved = json.loads(private_config_path(tmp_path / "home", server.repo_root).read_text(encoding="utf-8"))
             assert saved["tts"] == {"engine": "other"}
@@ -1091,9 +1092,9 @@ def test_picking_a_voice_sends_the_engine_nothing_saves_it_and_the_next_sentence
 def test_changing_speed_or_voice_starts_no_process_and_leaves_another_orb_alone(tmp_path):
     launched = []
 
-    def counting(kind, settings, home, env=os.environ):
+    def counting(kind, settings, home, env=os.environ, report=unreported):
         launched.append(kind)
-        return start(kind, settings, home, env)
+        return start(kind, settings, home, env, report)
 
     def orb(name):
         (tmp_path / name).mkdir()

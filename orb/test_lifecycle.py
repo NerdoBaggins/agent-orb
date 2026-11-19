@@ -61,6 +61,11 @@ def orb_env(tmp_path, monkeypatch):
     stop_hosts(home)
 
 
+def speech_config(env, **stt_settings):
+    (env["home"] / ".config" / "orb" / "config.json").write_text(
+        json.dumps({"stt": {"engine": "fake", "fake": stt_settings}, "tts": {"engine": "fake"}}), encoding="utf-8")
+
+
 def record_of(env):
     return read_json(server_file(state_dir(env["home"], env["repo"]), "claude"))
 
@@ -189,3 +194,29 @@ def test_a_server_that_exits_leaves_the_record_of_a_newer_one_alone(orb_env):
     cli.post(first, "/stop", {})
     wait_until(lambda: not listening(first), timeout=GRACE_S + 5)
     assert record_of(orb_env)["pid"] == os.getpid()
+
+
+def test_opening_returns_while_a_download_runs_the_window_shows_it_and_speech_turns_on_when_it_ends(orb_env, capsys):
+    speech_config(orb_env, download_s=5, download_tick_s=1)
+    assert main(["open", *orb_env["args"]]) == 0
+    assert capsys.readouterr().out.splitlines()[-1] == ("speech engines are still loading; the window shows what they are doing "
+                                                       "(the first run downloads about 400 MB of models)")
+    record = record_of(orb_env)
+    window = Window(record)
+    try:
+        assert health(record)["voice"] is False
+        wait_until(lambda: health(record)["loading"].get("stt", "").startswith("downloading the model, "), timeout=30)
+        wait_until(lambda: health(record)["voice"], timeout=40)
+        assert health(record)["loading"] == {} and health(record)["speech_off"] is None
+        assert any(m["type"] == "engines" and m["voice"] for m in window.messages)
+    finally:
+        window.close()
+
+
+def test_stopping_ends_the_server_without_waiting_for_a_load_still_running(orb_env):
+    speech_config(orb_env, load_delay_s=60)
+    main(["open", *orb_env["args"]])
+    first = record_of(orb_env)
+    assert health(first)["voice"] is False
+    assert main(["stop", *orb_env["args"]]) == 0
+    wait_until(lambda: not pid_alive(first["pid"]), timeout=GRACE_S + 8)

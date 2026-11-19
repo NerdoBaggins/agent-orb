@@ -1,11 +1,17 @@
+import json
 import os
+import socket
+import sys
+import threading
+import time
 from pathlib import Path
 
 import pytest
 
-from orb import engine_client, engine_wire, engines
-from orb.engine_client import Attachment, RemoteEngine, attach
-from orb.engine_wire import HostRecord, WireBroken, WireError, WireTimeout
+from orb import engine_client, engine_host, engine_wire, engines
+from orb.engine_client import Attachment, RemoteEngine, attach, launcher
+from orb.engine_registry import Registry
+from orb.engine_wire import HostRecord, Link, WireBroken, WireError, WireTimeout
 from orb.engines import EngineError, EngineTimeout, Manifest, load_settings
 from orb.test_engine_wire import make_copy
 
@@ -240,11 +246,76 @@ def test_an_attach_carries_the_name_settings_credentials_and_owner(tmp_path, mon
                                "owner": OWNER}
 
 
-def test_an_attach_waits_5_s_for_the_handshake_and_the_load_limit_for_the_load(tmp_path, monkeypatch):
+def test_an_attach_waits_5_s_for_the_handshake_and_each_ask_for_the_load_only_as_long_as_the_host_takes_to_answer_it(tmp_path, monkeypatch):
     granted = FakeLink({"attached": True}, {"loaded": {}})
     links(monkeypatch, granted)
     attach(attachment(tmp_path))
-    assert (granted.sent[1], granted.timeouts) == ({"op": "ready"}, [5.0, engines.LOAD_TIMEOUT_S])
+    assert (granted.sent[1], granted.timeouts) == ({"op": "ready"}, [5.0, engine_wire.READY_WAIT_S + engine_client.HOST_REPLY_MARGIN_S])
+
+
+def test_an_attach_asks_again_while_the_host_says_the_engine_is_loading_and_passes_on_what_the_engine_said(tmp_path, monkeypatch):
+    patient = FakeLink({"attached": True}, {"loading": None}, {"loading": "downloading the model, 12 of 310 MB"}, {"loaded": {"ok": True}})
+    links(monkeypatch, patient)
+    said = []
+    link, loaded = attach(attachment(tmp_path), said.append)
+    assert (loaded, said, patient.sent[1:]) == ({"ok": True}, ["downloading the model, 12 of 310 MB"], [{"op": "ready"}] * 3)
+
+
+def test_a_host_that_stops_answering_a_ready_fails_the_attach_rather_than_being_asked_again(tmp_path, monkeypatch):
+    silent = FakeLink({"attached": True}, WireTimeout("no answer within 7 s"))
+    links(monkeypatch, silent)
+    with pytest.raises(EngineError, match="stt engine 'fake': no answer within 7 s"):
+        attach(attachment(tmp_path))
+    assert len(silent.sent) == 2
+
+
+@pytest.fixture
+def hosts():
+    made = []
+    yield made
+    for host in made:
+        host.close_all()
+
+
+def hosted(tmp_path, monkeypatch, hosts, name, script):
+    folder = tmp_path / ".config" / "voice-engines" / "stt" / name
+    folder.mkdir(parents=True)
+    (folder / "engine.py").write_text(script, encoding="utf-8")
+    (folder / "engine.json").write_text(json.dumps({"name": name, "version": "1", "kind": "stt", "protocol": 2, "run": [sys.executable, "engine.py"]}), encoding="utf-8")
+    host = engine_host.Host(tmp_path, Registry(time.monotonic, grace=120, host_idle=10))
+    hosts.append(host)
+    orb_end, host_end = socket.socketpair()
+    threading.Thread(target=engine_host.serve_connection, args=(host, host_end, "secret"), daemon=True).start()
+    link = Link(orb_end)
+    link.request({"op": "hello", "token": "secret"}, 5.0)
+    links(monkeypatch, link)
+    said = []
+    return launcher(OWNER)("stt", {"engine": name}, tmp_path, report=said.append), said
+
+
+SAYS = 'import json, os, sys, time\nsys.stdin.readline()\ndef say(**line):\n    sys.stdout.write(json.dumps(line) + "\\n"); sys.stdout.flush()\n'
+STEPS = [f"downloading, {mb} of 6 MB" for mb in range(1, 7)]
+DOWNLOADS_SLOWLY = SAYS + f'for step in {STEPS!r}:\n    say(progress=step); time.sleep(0.4)\nsay(ok=True, pid=os.getpid())\nsys.stdin.read()\n'
+STALLS = SAYS + 'say(progress="downloading, 1 of 6 MB")\nsys.stdin.read()\n'
+
+
+def test_a_hosted_load_that_keeps_reporting_outlasts_every_wait_and_the_orb_hears_what_the_engine_said(tmp_path, monkeypatch, hosts):
+    monkeypatch.setattr(engines, "LOAD_SILENCE_S", 1.0)
+    monkeypatch.setattr(engine_wire, "READY_WAIT_S", 0.3)
+    monkeypatch.setattr(engine_client, "HOST_REPLY_MARGIN_S", 0.3)
+    began = time.monotonic()
+    engine, said = hosted(tmp_path, monkeypatch, hosts, "slow", DOWNLOADS_SLOWLY)
+    took = time.monotonic() - began
+    engine.close()
+    heard = sorted(set(said), key=STEPS.index)
+    assert took > 1.0 + 0.6 and engine.loaded["ok"] is True and len(heard) >= 3 and set(heard) <= set(STEPS)
+
+
+def test_a_hosted_load_that_stalls_is_reported_in_the_engines_words_with_what_it_last_said(tmp_path, monkeypatch, hosts):
+    monkeypatch.setattr(engines, "LOAD_SILENCE_S", 0.5)
+    with pytest.raises(EngineError) as raised:
+        hosted(tmp_path, monkeypatch, hosts, "stalls", STALLS)
+    assert str(raised.value) == "stt engine 'stalls' failed to load: stt engine 'stalls' went quiet for 0.5 s after: downloading, 1 of 6 MB"
 
 
 def test_a_load_that_failed_reaches_the_caller_from_the_ready_reply_and_the_link_is_closed(tmp_path, monkeypatch):

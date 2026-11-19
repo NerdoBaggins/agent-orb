@@ -17,6 +17,7 @@ import glob
 import importlib.util
 import json
 import shutil
+import time
 import urllib.request
 from pathlib import Path
 
@@ -48,6 +49,14 @@ def requests():
     while (line := lines.get()) is not None:
         yield line
 # ---- end of the exit contract ----
+
+PROGRESS_EVERY_S = 1.0
+CHUNK_BYTES = 1 << 16
+
+
+def progress(text: str) -> None:
+    sys.stdout.write(json.dumps({"progress": text}) + "\n")
+    sys.stdout.flush()
 
 
 RELEASE = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/"
@@ -124,8 +133,21 @@ def fetch(url: str, dest: Path) -> None:
     tmp = dest.with_suffix(dest.suffix + ".part")
     print(f"downloading {url}", file=sys.stderr, flush=True)
     with urllib.request.urlopen(url, timeout=60) as r, open(tmp, "wb") as f:
-        shutil.copyfileobj(r, f, length=1 << 20)
+        total = int(r.headers.get("Content-Length") or 0)
+        done, reported = 0, time.monotonic()
+        progress(download_words(dest.name, done, total))
+        while chunk := r.read(CHUNK_BYTES):
+            f.write(chunk)
+            done += len(chunk)
+            if time.monotonic() - reported >= PROGRESS_EVERY_S:
+                progress(download_words(dest.name, done, total))
+                reported = time.monotonic()
     os.replace(tmp, dest)
+
+
+def download_words(name: str, done: int, total: int) -> str:
+    of = f" of {total >> 20}" if total else ""
+    return f"downloading {name}, {done >> 20}{of} MB"
 
 
 def short_data_path(data_path: Path) -> Path:
@@ -192,6 +214,7 @@ def render(styles: Styles, req: dict):
 
 
 def load(settings: dict) -> Styles:
+    progress("loading the voice model")
     import espeakng_loader
     from kokoro_onnx import EspeakConfig, Kokoro
 
