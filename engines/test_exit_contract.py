@@ -18,7 +18,7 @@ REQUEST = {"stt": {"op": "transcribe", "pcm": PCM}, "tts": {"op": "render", "tex
            "voiceprint": {"op": "embed", "pcm": PCM}, "wake": {"op": "frame", "pcm": PCM}}
 LOGGING = ("stt", "tts")
 LIVEKIT_HARNESS = """
-import importlib.util, sys, time
+import importlib.util, os, pathlib, sys, time
 from unittest import mock
 sd = sys.modules["sounddevice"] = mock.MagicMock()
 sd.query_devices.return_value = {"name": "microphone"}
@@ -26,6 +26,8 @@ sys.modules["livekit"] = mock.MagicMock()
 spec = importlib.util.spec_from_file_location("livekit_capture_engine", sys.argv[1])
 engine = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(engine)
+if len(sys.argv) > 3:
+    pathlib.Path(sys.argv[3]).write_text(str(os.getpid()))
 if sys.argv[2] == "stalled":
     engine.open_stream = lambda sd, settings, audio: time.sleep(60)
 else:
@@ -267,9 +269,9 @@ def test_a_capture_load_reply_reports_a_pid(launch):
     assert reply["ok"] is True and isinstance(reply["pid"], int) and reply["pid"] != engine.proc.pid
 
 
-def livekit(mode):
+def livekit(mode, *pid_file):
     script = ENGINES / "capture" / "livekit" / "engine.py"
-    return Engine([sys.executable, "-c", LIVEKIT_HARNESS, str(script), mode], ENGINES)
+    return Engine([sys.executable, "-c", LIVEKIT_HARNESS, str(script), mode, *map(str, pid_file)], ENGINES)
 
 
 def test_a_stalled_livekit_device_call_exits_within_5_s_of_input_closing():
@@ -291,11 +293,11 @@ def test_a_livekit_load_says_what_it_is_doing_before_it_opens_the_microphone():
     assert engine.progress == ["opening the microphone"]
 
 
-def test_a_livekit_load_reply_reports_a_pid():
-    engine = livekit("open")
+def test_a_livekit_load_reply_reports_the_pid_of_the_python_running_it(tmp_path):
+    engine = livekit("open", tmp_path / "pid")
     try:
         reply = engine.call(load())
-        assert reply["ok"] is True and isinstance(reply["pid"], int) and reply["pid"] == engine.proc.pid
+        assert reply["ok"] is True and reply["pid"] == int((tmp_path / "pid").read_text())
     finally:
         engine.kill()
 
