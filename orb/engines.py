@@ -32,7 +32,8 @@ DEFAULT = {"stt": "moonshine", "tts": "kokoro", "vad": "silero", "voiceprint": "
 PER_CALL = {"tts": ("voice", "lang")}
 BUILTIN_DIR = PLUGIN_ROOT / "engines"
 CACHE_ENV = "ORB_ENGINE_CACHE"
-LOAD_TIMEOUT_S = 300.0  # the first load may download a model
+ENGINE_START_TIMEOUT_S = 300.0
+LOAD_SILENCE_S = 30.0
 CALL_TIMEOUT_S = 120.0
 FRAME_TIMEOUT_S = 5.0
 EXIT_WAIT_S = 5.0
@@ -214,21 +215,48 @@ class EngineProcess:
         if not self.lock.acquire(timeout=max(deadline - time.monotonic(), 0.0)):
             raise EngineQueueTimeout(self._silence(timeout))
         try:
-            if not self.alive:
-                raise EngineExited(self._gone())
-            try:
-                self.process.stdin.write(json.dumps(request) + "\n")
-                self.process.stdin.flush()
-            except (OSError, ValueError):
-                raise EngineExited(f"{self.label} exited with code {self.process.wait()}")
-            try:
-                line = self.lines.get(timeout=max(deadline - time.monotonic(), 0.0))
-            except queue.Empty:
-                self.condemned = True
-                threading.Thread(target=self.close, daemon=True).start()
-                raise EngineTimeout(self._silence(timeout))
+            self._send(request)
+            line = self._next_line(deadline, self._silence(timeout))
         finally:
             self.lock.release()
+        return self._reply(line)
+
+    def load(self, settings: dict, report: Callable[[str], None]) -> dict:
+        """The load reply. Lines of `{"progress": text}` before it go to `report`; the engine has ENGINE_START_TIMEOUT_S
+        for its first line and LOAD_SILENCE_S for each one after, so a download that keeps reporting is never cut off
+        and a stalled one is named by the last thing it said."""
+        said = None
+        with self.lock:
+            self._send({"op": "load", "settings": settings})
+            while True:
+                if said is None:
+                    limit, silence = ENGINE_START_TIMEOUT_S, f"{self.label} did not start within {ENGINE_START_TIMEOUT_S:g} s"
+                else:
+                    limit, silence = LOAD_SILENCE_S, f"{self.label} went quiet for {LOAD_SILENCE_S:g} s after: {said}"
+                reply = self._reply(self._next_line(time.monotonic() + limit, silence))
+                if not isinstance(reply.get("progress"), str):
+                    return reply
+                said = reply["progress"]
+                report(said)
+
+    def _send(self, request: dict) -> None:
+        if not self.alive:
+            raise EngineExited(self._gone())
+        try:
+            self.process.stdin.write(json.dumps(request) + "\n")
+            self.process.stdin.flush()
+        except (OSError, ValueError):
+            raise EngineExited(f"{self.label} exited with code {self.process.wait()}")
+
+    def _next_line(self, deadline: float, silence: str) -> str | None:
+        try:
+            return self.lines.get(timeout=max(deadline - time.monotonic(), 0.0))
+        except queue.Empty:
+            self.condemned = True
+            threading.Thread(target=self.close, daemon=True).start()
+            raise EngineTimeout(silence)
+
+    def _reply(self, line: str | None) -> dict:
         if line is None:
             raise EngineExited(f"{self.label} exited with code {self.process.wait()}")
         try:
@@ -297,13 +325,17 @@ def load_settings(kind: str, settings: dict) -> dict:
     return {k: v for k, v in settings.items() if k != "engine" and k not in PER_CALL.get(kind, ())}
 
 
-def start(kind: str, settings: dict, home: Path, env=os.environ) -> EngineProcess:
-    """Finds, checks, starts and loads the engine `settings["engine"]` names."""
+def unreported(progress: str) -> None:
+    pass
+
+
+def start(kind: str, settings: dict, home: Path, env=os.environ, report: Callable[[str], None] = unreported) -> EngineProcess:
+    """Finds, checks, starts and loads the engine `settings["engine"]` names; `report` gets what it says it is doing."""
     manifest = resolve(kind, settings, home, env)
     name = settings["engine"]
     process = EngineProcess(manifest, cache_dir(home, kind, name), env)
     try:
-        loaded = process.call({"op": "load", "settings": load_settings(kind, settings)}, LOAD_TIMEOUT_S)
+        loaded = process.load(load_settings(kind, settings), report)
     except EngineError as e:
         process.close()
         raise EngineLoadError(f"{kind} engine {name!r} failed to load: {e}")
@@ -331,24 +363,24 @@ class Engine:
     selected engine fails is answered by the default and `failure` says why; the next call goes back to the selected
     engine, restarted if it died, until it fails STICKY_AFTER_FAILURES calls in a row."""
 
-    def __init__(self, kind: str, settings_for, home: Path, env=os.environ, launch=start):
+    def __init__(self, kind: str, settings_for, home: Path, env=os.environ, launch=start, report=unreported):
         self.kind, self.settings_for, self.home, self.env, self.launch = kind, settings_for, home, env, launch
         self.name = settings_for(None)["engine"]
         self.fallback_reason: str | None = None
         self.failure: str | None = None
         self.failures_in_a_row = 0
         try:
-            self.process = self.launch(kind, settings_for(self.name), home, env)
+            self.process = self.launch(kind, settings_for(self.name), home, env, report)
         except EngineError as e:
-            self._fall_back(e)
+            self._fall_back(e, report)
 
-    def _fall_back(self, error: EngineError) -> None:
+    def _fall_back(self, error: EngineError, report=unreported) -> None:
         default = DEFAULT.get(self.kind)
         if self.name == default or default is None:
             raise error
         self.fallback_reason = f"{error}; using {default}"
         self.name = default
-        self.process = self.launch(self.kind, self.settings_for(default), self.home, self.env)
+        self.process = self.launch(self.kind, self.settings_for(default), self.home, self.env, report)
 
     @property
     def manifest(self) -> Manifest:
@@ -357,7 +389,7 @@ class Engine:
     def call(self, request: Request, timeout: float = CALL_TIMEOUT_S) -> dict:
         if not self.process.alive:
             try:
-                self.process = self.launch(self.kind, self.settings_for(self.name), self.home, self.env)
+                self.process = self.launch(self.kind, self.settings_for(self.name), self.home, self.env, unreported)
             except EngineError as e:
                 self._fall_back(e)
         try:
@@ -378,7 +410,7 @@ class Engine:
             self.failure = f"{error}; {default} answers from now on"
             return self.process.call(build_request(request, self.name), timeout)
         self.failure = f"{error}; {default} answered this one"
-        stand_in = self.launch(self.kind, self.settings_for(default), self.home, self.env)
+        stand_in = self.launch(self.kind, self.settings_for(default), self.home, self.env, unreported)
         try:
             return stand_in.call(build_request(request, default), timeout)
         finally:
@@ -404,8 +436,8 @@ def split_at_quiet_points(samples: np.ndarray, max_s: float, search_s: float = 5
 
 
 class Stt(Engine):
-    def __init__(self, settings_for, home: Path, env=os.environ, launch=start):
-        super().__init__("stt", settings_for, home, env, launch)
+    def __init__(self, settings_for, home: Path, env=os.environ, launch=start, report=unreported):
+        super().__init__("stt", settings_for, home, env, launch, report)
 
     def transcribe(self, samples: np.ndarray) -> str:
         samples = np.asarray(samples, dtype=np.float32)
@@ -418,24 +450,24 @@ class Wake(Engine):
     """Scores each frame for the wake word. A `wake` engine has no built-in default: a failure is the caller's to
     report, and the wake word is off for the session."""
 
-    def __init__(self, settings_for, home: Path, env=os.environ):
-        super().__init__("wake", settings_for, home, env)
+    def __init__(self, settings_for, home: Path, env=os.environ, report=unreported):
+        super().__init__("wake", settings_for, home, env, report=report)
 
     def score(self, frame: np.ndarray) -> float:
         return float(self.call({"op": "frame", "pcm": encode_pcm(frame)}, FRAME_TIMEOUT_S)["score"])
 
 
 class Vad(Engine):
-    def __init__(self, settings_for, home: Path, env=os.environ):
-        super().__init__("vad", settings_for, home, env)
+    def __init__(self, settings_for, home: Path, env=os.environ, report=unreported):
+        super().__init__("vad", settings_for, home, env, report=report)
 
     def speech(self, frame: np.ndarray) -> float:
         return float(self.call({"op": "frame", "pcm": encode_pcm(frame)}, FRAME_TIMEOUT_S)["score"])
 
 
 class Voiceprint(Engine):
-    def __init__(self, settings_for, home: Path, env=os.environ):
-        super().__init__("voiceprint", settings_for, home, env)
+    def __init__(self, settings_for, home: Path, env=os.environ, report=unreported):
+        super().__init__("voiceprint", settings_for, home, env, report=report)
 
     def embed(self, samples: np.ndarray) -> np.ndarray:
         reply = self.call({"op": "embed", "pcm": encode_pcm(np.asarray(samples, dtype=np.float32))})
@@ -443,8 +475,8 @@ class Voiceprint(Engine):
 
 
 class Tts(Engine):
-    def __init__(self, settings_for, call_for, home: Path, env=os.environ, launch=start):
-        super().__init__("tts", settings_for, home, env, launch)
+    def __init__(self, settings_for, call_for, home: Path, env=os.environ, launch=start, report=unreported):
+        super().__init__("tts", settings_for, home, env, launch, report)
         self.call_for = call_for
 
     def render(self, text: str) -> tuple[np.ndarray, int]:

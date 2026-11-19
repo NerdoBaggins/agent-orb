@@ -36,12 +36,17 @@ def requests():
         yield line
 # ---- end of the exit contract ----
 
+def progress(text: str) -> None:
+    sys.stdout.write(json.dumps({"progress": text}) + "\n")
+    sys.stdout.flush()
+
 
 encoder = None
 for line in requests():
     req = json.loads(line)
     try:
         if req["op"] == "load":
+            progress("loading the speaker model")
             from resemblyzer import VoiceEncoder
             encoder = VoiceEncoder(verbose=False)
             out = {"ok": True, "pid": os.getpid()}

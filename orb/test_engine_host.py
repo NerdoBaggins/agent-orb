@@ -33,7 +33,7 @@ class Starter:
     def __init__(self):
         self.started, self.attempts, self.fail = [], 0, None
 
-    def __call__(self, kind, settings, home, env):
+    def __call__(self, kind, settings, home, env, report):
         self.attempts += 1
         if self.fail:
             raise self.fail if isinstance(self.fail, Exception) else EngineError(self.fail)
@@ -49,10 +49,10 @@ class GatedStarter(Starter):
         super().__init__()
         self.loading, self.release = threading.Event(), threading.Event()
 
-    def __call__(self, kind, settings, home, env):
+    def __call__(self, kind, settings, home, env, report):
         self.loading.set()
         assert self.release.wait(10)
-        return super().__call__(kind, settings, home, env)
+        return super().__call__(kind, settings, home, env, report)
 
 
 @pytest.fixture
@@ -262,6 +262,41 @@ def test_a_call_after_another_orbs_reload_of_the_dead_engine_failed_ends_the_con
     assert events == [("first", "hung up")] and host.registry.owners == {}
 
 
+def reporting_until_released(words):
+    release = threading.Event()
+
+    def start(kind, settings, home, env, report):
+        report(words)
+        assert release.wait(10)
+        return FakeProcess(7)
+
+    return start, release
+
+
+def test_a_ready_on_a_load_still_running_is_answered_after_the_ready_wait_with_what_the_engine_last_said(host, monkeypatch):
+    monkeypatch.setattr(engine_wire, "READY_WAIT_S", 0.2)
+    host.start, release = reporting_until_released("downloading the model, 12 of 310 MB")
+    session = Session()
+    host.handle(session, attach_message())
+    waiting, answers = handle_in_thread(host, session, {"op": "ready"})
+    waiting.join(5)
+    release.set()
+    assert answers == [{"loading": "downloading the model, 12 of 310 MB"}]
+    assert host.handle(session, {"op": "ready"}) == {"loaded": {"ok": True}}
+
+
+def test_an_attach_to_a_key_still_loading_is_told_what_the_engine_last_said(host, monkeypatch):
+    monkeypatch.setattr(engine_wire, "READY_WAIT_S", 0.2)
+    host.start, release = reporting_until_released("downloading the model, 40 of 310 MB")
+    first, second = Session(), Session()
+    host.handle(first, attach_message(pid=1))
+    assert eventually(lambda: host.slots[first.key].doing is not None)
+    host.handle(second, attach_message(pid=2))
+    answer = host.handle(second, {"op": "ready"})
+    release.set()
+    assert answer == {"loading": "downloading the model, 40 of 310 MB"}
+
+
 def test_a_call_before_the_engine_has_loaded_is_an_error_reply(host, gated):
     session = Session()
     host.handle(session, attach_message())
@@ -370,7 +405,7 @@ class StuckProcess(FakeProcess):
 
 
 def test_the_sweep_leaves_a_dead_engine_to_the_call_in_flight_on_it_so_the_caller_is_answered_before_any_hang_up(host, starter):
-    host.start = lambda kind, settings, home, env: StuckProcess(7)
+    host.start = lambda kind, settings, home, env, report: StuckProcess(7)
     events = []
     caller, _ = join(host, heard(events, "caller"))
     process = host.slots[caller.key].process
@@ -570,7 +605,7 @@ def test_a_connection_that_gave_the_secret_may_then_stay_silent_past_the_first_m
 
 def test_a_connection_that_ends_while_its_call_runs_drops_its_owner_before_the_call_returns(host, wire):
     process = StuckProcess(7)
-    host.start = lambda kind, settings, home, env: process
+    host.start = lambda kind, settings, home, env, report: process
     wire.greet()
     wire.send(attach_message())
     assert json.loads(wire.client.recv(1024)) == {"attached": True}

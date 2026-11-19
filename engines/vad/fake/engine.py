@@ -35,12 +35,18 @@ def requests():
         yield line
 # ---- end of the exit contract ----
 
+def progress(text: str) -> None:
+    sys.stdout.write(json.dumps({"progress": text}) + "\n")
+    sys.stdout.flush()
+
+
 delay_s, hold = 0.0, False
 for line in requests():
     req = json.loads(line)
     if req["op"] != "load":
         time.sleep(delay_s)
     if req["op"] == "load":
+        progress("loading the fake vad engine")
         settings = req.get("settings", {})
         if settings.get("fail"):
             out = {"error": "fake vad was told to fail"}

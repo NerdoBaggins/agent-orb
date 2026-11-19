@@ -96,6 +96,7 @@ def open_stream(sd, settings: dict, audio: queue.Queue):
 
 
 def run(settings: dict, writer: Writer, closed: threading.Event) -> None:
+    writer.send({"progress": "opening the microphone"})
     import sounddevice as sd
     from livekit import rtc
     audio: queue.Queue = queue.Queue()

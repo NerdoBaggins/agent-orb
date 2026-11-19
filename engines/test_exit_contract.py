@@ -35,6 +35,32 @@ else:
 engine.main()
 """
 
+TICKING_HARNESS = """
+import sys, time, types
+path, library = sys.argv[1], sys.argv[2]
+
+
+def stub(name, **members):
+    module = types.ModuleType(name)
+    vars(module).update(members)
+    sys.modules[name] = module
+    return module
+
+
+def slow(*args, **kwargs):
+    time.sleep(0.6)
+
+
+if library == "moonshine":
+    stub("moonshine_onnx", MoonshineOnnxModel=slow, load_tokenizer=slow)
+else:
+    stub("openwakeword", utils=stub("openwakeword.utils", download_models=slow))
+    stub("openwakeword.vad", VAD=slow)
+source = open(path).read().replace("PROGRESS_EVERY_S = 5.0", "PROGRESS_EVERY_S = 0.1")
+assert "PROGRESS_EVERY_S = 0.1" in source
+exec(compile(source, path, "exec"), {"__name__": "__main__"})
+"""
+
 EXIT_CONTRACT = '''# ---- exit contract: the same in every engine (engines/test_exit_contract.py) ----
 import os
 import queue
@@ -67,18 +93,22 @@ def requests():
 class Engine:
     def __init__(self, command, cwd):
         self.proc = subprocess.Popen(command, cwd=cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
-        self.pids = set()
+        self.pids, self.progress = set(), []
 
     def send(self, message):
         self.proc.stdin.write(json.dumps(message) + "\n")
         self.proc.stdin.flush()
 
-    def call(self, message):
-        self.send(message)
-        reply = json.loads(self.proc.stdout.readline())
+    def reply(self):
+        while "progress" in (reply := json.loads(self.proc.stdout.readline())):
+            self.progress.append(reply["progress"])
         if "pid" in reply:
             self.pids.add(reply["pid"])
         return reply
+
+    def call(self, message):
+        self.send(message)
+        return self.reply()
 
     def hang_up(self):
         self.proc.stdin.close()
@@ -129,6 +159,20 @@ def test_every_request_reply_engine_carries_the_exit_shim_verbatim():
         text = script.read_text(encoding="utf-8")
         assert EXIT_CONTRACT in text, script
         assert "sys.stdin" not in text.replace(EXIT_CONTRACT, ""), script
+
+
+SCRIPTS = sorted(path for kind in KINDS for path in (ENGINES / kind).glob("*/engine.py"))
+
+
+@pytest.mark.parametrize("script", SCRIPTS, ids=lambda path: f"{path.parent.parent.name}/{path.parent.name}")
+def test_an_engine_says_what_it_is_doing_before_it_answers_load(script):
+    engine = Engine([sys.executable, script.name], script.parent)
+    try:
+        engine.send(load())
+        first = json.loads(engine.proc.stdout.readline())
+        assert isinstance(first.get("progress"), str) and first["progress"]
+    finally:
+        engine.kill()
 
 
 @pytest.mark.parametrize("kind", KINDS)
@@ -183,7 +227,7 @@ def test_load_delay_s_holds_back_the_load_reply(kind, launch):
     engine = launch(kind)
     engine.send(load(load_delay_s=1.0))
     began = time.monotonic()
-    engine.proc.stdout.readline()
+    engine.reply()
     assert time.monotonic() - began >= 0.9
 
 
@@ -209,6 +253,12 @@ def test_a_capture_fake_with_linger_30_outlives_it(launch):
     assert not engine.exits_within(5)
 
 
+def test_a_capture_fake_says_what_it_is_doing_before_it_answers_load(launch):
+    engine = launch("capture")
+    engine.call(load())
+    assert engine.progress == ["opening the fake microphone"]
+
+
 def test_a_capture_load_reply_reports_a_pid(launch):
     engine = launch("capture")
     reply = engine.call(load())
@@ -230,6 +280,15 @@ def test_a_stalled_livekit_device_call_exits_within_5_s_of_input_closing():
         engine.kill()
 
 
+def test_a_livekit_load_says_what_it_is_doing_before_it_opens_the_microphone():
+    engine = livekit("open")
+    try:
+        engine.call(load())
+    finally:
+        engine.kill()
+    assert engine.progress == ["opening the microphone"]
+
+
 def test_a_livekit_load_reply_reports_a_pid():
     engine = livekit("open")
     try:
@@ -237,3 +296,23 @@ def test_a_livekit_load_reply_reports_a_pid():
         assert reply["ok"] is True and isinstance(reply["pid"], int) and reply["pid"] == engine.proc.pid
     finally:
         engine.kill()
+
+
+@pytest.mark.parametrize("script, library", [("stt/moonshine", "moonshine"), ("vad/silero", "silero")])
+def test_a_download_inside_the_models_library_is_ticked_until_the_library_returns_and_not_after(script, library):
+    engine = Engine([sys.executable, "-c", TICKING_HARNESS, str(ENGINES / script / "engine.py"), library], ENGINES)
+    try:
+        assert engine.call(load())["ok"] is True
+        time.sleep(0.5)
+        engine.hang_up()
+        assert engine.proc.stdout.read() == ""
+    finally:
+        engine.kill()
+    assert engine.progress[0].startswith("loading the") and engine.progress.count("downloading the model") >= 3
+
+
+@pytest.mark.parametrize("kind", LOGGING)
+def test_a_fake_told_to_download_reports_a_line_per_tick_between_its_start_and_its_load_reply(kind, launch):
+    engine = launch(kind)
+    assert engine.call(load(download_s=0.4, download_tick_s=0.2))["ok"] is True
+    assert engine.progress == [f"loading the fake {kind} engine", "downloading the model, 0 of 0.4 s", "downloading the model, 0.2 of 0.4 s"]

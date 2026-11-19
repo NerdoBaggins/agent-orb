@@ -220,8 +220,12 @@ class Request:
 
 class OrbServer:
     def __init__(self, repo_root: Path, agent: str, port: int, token: str, home: Path, link, stt=None, tts=None,
-                 waker=None, wake_off: str | None = None, capture=None, capture_off: str | None = None, launch=start):
+                 waker=None, wake_off: str | None = None, capture=None, capture_off: str | None = None, launch=start,
+                 loaders: dict | None = None):
         self.launch = launch
+        self.loaders = loaders or {}
+        self.loading = {kind: "starting" for kind in self.loaders}
+        self.load_failures: dict[str, str] = {}
         self.repo_root, self.agent, self.port, self.token, self.home, self.link = repo_root, agent, port, token, home, link
         self.capture, self.capture_off = capture, capture_off
         self.preroll: deque[np.ndarray] = deque(maxlen=PREROLL_FRAMES)
@@ -916,7 +920,7 @@ class OrbServer:
 
         await asyncio.to_thread(save_for_repo, self.home, self.repo_root, update)
         log.info("speech engine switched to %s", name)
-        await self.broadcast({"type": "engines", "engines": self.engines_snapshot(), "voices": self.voice_menu})
+        await self.broadcast(self.speech_message())
 
     async def set_stt_engine(self, name: str) -> None:
         """Switches this repo's orb to another installed stt engine, saved for this repo. A clip being transcribed
@@ -935,7 +939,7 @@ class OrbServer:
 
         await asyncio.to_thread(save_for_repo, self.home, self.repo_root, update)
         log.info("transcription engine switched to %s", name)
-        await self.broadcast({"type": "engines", "engines": self.engines_snapshot(), "voices": self.voice_menu})
+        await self.broadcast(self.speech_message())
 
     async def use_stt(self, settings: dict) -> str | None:
         name = settings["engine"]
@@ -996,6 +1000,75 @@ class OrbServer:
 
     def menu_of(self, catalogue: list[dict] | None) -> dict | None:
         return voice_menu(catalogue, self.config["tts"].get(self.tts.name, {}).get("voice"))
+
+    @property
+    def speech_off(self) -> str | None:
+        return "; ".join(self.load_failures[kind] for kind in sorted(self.load_failures)) or None
+
+    def speech_message(self) -> dict:
+        return {"type": "engines", "engines": self.engines_snapshot(), "voices": self.voice_menu, "voice": bool(self.stt and self.tts),
+                "loading": self.loading, "speech_off": self.speech_off, **self.engine_names()}
+
+    def engine_names(self) -> dict:
+        return {"tts_engines": engines.available("tts", self.home) if self.tts else [],
+                "stt_engines": engines.available("stt", self.home) if self.stt else []}
+
+    def begin_loading(self) -> None:
+        """Loads what `loaders` names, each kind on a daemon thread of its own so the window is up while a first run
+        downloads models, each kind clearing when it finishes, and the server can exit without waiting for a load."""
+        loop = asyncio.get_running_loop()
+        for kind, load in self.loaders.items():
+            threading.Thread(target=self.load_kind, args=(loop, kind, load), daemon=True).start()
+
+    def load_kind(self, loop: asyncio.AbstractEventLoop, kind: str, load) -> None:
+        try:
+            engine = load(lambda progress: self.on_loop(loop, self.said_loading(kind, progress)))
+        except (EngineError, waking.WakeOff) as e:
+            self.on_loop(loop, self.load_failed(kind, str(e)))
+        except Exception as e:
+            log.exception("loading the %s engine raised", kind)
+            self.on_loop(loop, self.load_failed(kind, f"{kind} failed to load: {e!r}"))
+        else:
+            self.on_loop(loop, self.load_finished(kind, engine))
+
+    def on_loop(self, loop: asyncio.AbstractEventLoop, coro) -> None:
+        try:
+            loop.call_soon_threadsafe(self.spawn, coro)
+        except RuntimeError:
+            coro.close()
+
+    async def said_loading(self, kind: str, progress: str) -> None:
+        self.loading[kind] = progress
+        await self.broadcast(self.speech_message())
+
+    async def load_failed(self, kind: str, reason: str) -> None:
+        self.loading.pop(kind, None)
+        if kind == "wake":
+            self.wake_off = reason
+            log.warning("wake word off: %s", reason)
+            await self.broadcast({"type": "wake", "wake": self.wake_snapshot()})
+        else:
+            self.load_failures[kind] = reason
+            log.error("%s", reason)
+        await self.broadcast(self.speech_message())
+
+    async def load_finished(self, kind: str, engine) -> None:
+        catalogue = await asyncio.to_thread(engine.voices) if kind == "tts" else None
+        self.loading.pop(kind, None)
+        log.info("%s engine ready", kind)
+        if kind == "wake":
+            self.waker = engine
+            await self.broadcast({"type": "wake", "wake": self.wake_snapshot()})
+        else:
+            if kind == "stt":
+                self.stt = engine
+            else:
+                engine.call_for = self.call_for
+                self.tts = engine
+                self.voice_menu = self.menu_of(catalogue)
+            if engine.fallback_reason:
+                await self.notify("error", f"{kind}: {engine.fallback_reason}")
+        await self.broadcast(self.speech_message())
 
     def engines_snapshot(self) -> dict:
         return {kind: {"name": engine.name, "fallback_reason": engine.fallback_reason} if engine else None
@@ -1117,9 +1190,8 @@ class OrbServer:
     def snapshot(self) -> dict:
         return {"type": "snapshot", "state": self.state, "attached": self.attached, "agent": self.link.name,
                 "attach_text": self.link.describe(self.attached), "repo": str(self.repo_root),
-                "engines": self.engines_snapshot(), "capture": self.capture_snapshot(), "tts_engines": engines.available("tts", self.home) if self.tts else [],
-                "stt_engines": engines.available("stt", self.home) if self.stt else [],
-                "voices": self.voice_menu,
+                "engines": self.engines_snapshot(), "capture": self.capture_snapshot(), **self.engine_names(),
+                "voices": self.voice_menu, "loading": self.loading, "speech_off": self.speech_off,
                 "voice": bool(self.stt and self.tts), "speak": self.voice, "said": self.said, "mute_key": self.config["mute_key"], "panels_key": self.config["panels_key"], "wake": self.wake_snapshot(), "enrolling": self.enroll_snapshot(), "ptt_key": self.config["ptt_key"], "speed": self.speed, "background": self.background, "waiting": self.waiting, "session": self.session,
                 "skin": self.skin.describe() | {"values": self.skin_values, "size": size_for(self.config["skin_sizes"], self.skin.name)}, "skin_key": self.config["skin_key"],
                 **self.installed_pickers(),
@@ -2003,6 +2075,7 @@ class OrbServer:
                     "repo": str(self.repo_root)})
         log.info("listening on %s for %s (%s)", self.origin, self.repo_root, self.agent)
         await self.show_saved_widgets()
+        self.begin_loading()
         attachment = asyncio.create_task(self.watch_attachment())
         session = asyncio.create_task(self.watch_session())
         panel_files = asyncio.create_task(self.watch_pages())
@@ -2056,16 +2129,19 @@ def voice_menu(catalogue: list[dict] | None, configured) -> dict | None:
     return {"voices": catalogue, "current": current}
 
 
-def load_engines(config, home: Path, agent: str, launch=start):
+def speech_loaders(config, home: Path, agent: str, launch) -> dict:
+    """What the server loads once its window can open, by kind: each takes the `report` that hears what its engine says
+    it is doing."""
     log.info("loading speech engines: stt=%s tts=%s", config["stt"]["engine"], config["tts"]["engine"])
-    stt = Stt(lambda name: engine_settings(config["stt"] | ({"engine": name} if name else {})), home, launch=launch)
-    tts = Tts(lambda name: engine_settings(config["tts"] | ({"engine": name} if name else {})),
-              lambda name: tts_call_settings(config["tts"], agent, name), home, launch=launch)
-    for engine in (stt, tts):
-        if engine.fallback_reason:
-            log.warning("%s", engine.fallback_reason)
-    log.info("engines ready")
-    return stt, tts
+    loaders = {
+        "stt": lambda report: Stt(lambda name: engine_settings(config["stt"] | ({"engine": name} if name else {})), home,
+                                  launch=launch, report=report),
+        "tts": lambda report: Tts(lambda name: engine_settings(config["tts"] | ({"engine": name} if name else {})),
+                                  lambda name: tts_call_settings(config["tts"], agent, name), home, launch=launch, report=report),
+    }
+    if config["wake"] is not None:
+        loaders["wake"] = lambda report: waking.build(config["wake"], home, report=report)
+    return loaders
 
 
 def start_capture(section: dict | None, home: Path) -> tuple[Capture | None, str | None]:
@@ -2104,26 +2180,17 @@ def main(argv=None) -> None:
     config = load_for(repo, args.home)
     for warning in config.warnings:
         log.warning(warning)
-    try:
-        launch = engine_launcher(config, repo, args.agent)
-        stt, tts = load_engines(config, args.home, args.agent, launch)
-    except EngineError as e:
-        log.error("%s", e)
-        raise SystemExit(2)
-    waker, wake_off = None, None
-    try:
-        waker = waking.build(config["wake"], args.home)
-    except waking.WakeOff as e:
-        wake_off = str(e)
-        log.warning("wake word off: %s", e)
+    launch = engine_launcher(config, repo, args.agent)
     capture, capture_off = start_capture(config["capture"], args.home)
     link = make_link(args.agent, state_dir(args.home, repo), config)
-    server = OrbServer(repo, args.agent, args.port, token, args.home, link, stt, tts, waker, wake_off, capture, capture_off, launch)
+    server = OrbServer(repo, args.agent, args.port, token, args.home, link, capture=capture, capture_off=capture_off, launch=launch,
+                       loaders=speech_loaders(config, args.home, args.agent, launch))
     try:
         asyncio.run(server.run())
     finally:
         for engine in (server.stt, server.tts):
-            engine.close()
+            if engine is not None:
+                engine.close()
 
 
 if __name__ == "__main__":

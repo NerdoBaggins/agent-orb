@@ -7,6 +7,11 @@ that has one adds it under Unreleased.
 
 ### Added
 
+- `orb open` returns once the window is open, without waiting for the speech engines. The window works in text and says
+  what each engine is doing while it loads, speech turns on when they finish, and an engine that fails to load
+  leaves the window open with the reason. A load is timed by silence, 30 s between the lines an engine writes, so a
+  first-run download that keeps reporting is no longer cut off after 5 minutes
+  ([#203](https://github.com/NerdoBaggins/agent-orb/issues/203)).
 - Every orb on a machine now shares one set of speech-to-text and voice engines, where each used to start its own
   (two orbs with Parakeet held two 5 GB copies). An engine stays up while any orb uses it, closes 30 s after the last
   one goes, and is freed when an orb dies without closing it. `orb engines` lists what is running and who uses it,

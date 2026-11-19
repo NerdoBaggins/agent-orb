@@ -32,7 +32,8 @@ Run, from the repo the user is working in:
 
 It starts this session's orb server if none is running and opens the window. It prints the URL and the attach
 state. Tell the user what it printed, in one sentence. If it says an orb is already open for this agent in this repo,
-say so; there is one orb per agent per repo. If the server was running with no window, it reopens one.
+say so; there is one orb per agent per repo. If the server was running with no window, it reopens one. If it also
+prints that the speech engines are still loading, pass that line on to the user: speech turns on when they finish.
 
 If `orb open` fails, run `uv run --project "<ORB_ROOT>" python -m orb doctor` and walk the user through each failing
 check it reports, one at a time, until `orb open` succeeds.

@@ -698,14 +698,101 @@ def test_closing_an_engine_that_ignores_its_input_kills_the_pid_it_reported_and_
         kill_pid(engine_pid)
 
 
+SPEAKS = 'import json, os, sys, time\nsys.stdin.readline()\ndef say(**line):\n    sys.stdout.write(json.dumps(line) + "\\n"); sys.stdout.flush()\n'
+
+
+def spoken(tmp_path, name, body):
+    write_engine(tmp_path / ".config" / "voice-engines", "tts", name, SPEAKS + body,
+                 {"name": name, "version": "1", "kind": "tts", "protocol": 2, "run": [sys.executable, "engine.py"]})
+    return {"engine": name}
+
+
+def test_a_load_that_keeps_reporting_progress_outlasts_the_silence_limit_and_every_report_reaches_the_caller(tmp_path, monkeypatch):
+    monkeypatch.setattr(engines, "LOAD_SILENCE_S", 0.6)
+    steps = [f"downloading, {mb} of 5 MB" for mb in range(1, 6)]
+    said = []
+    began = time.monotonic()
+    process = start("tts", spoken(tmp_path, "steady", f"for step in {steps!r}:\n    say(progress=step); time.sleep(0.3)\nsay(ok=True, pid=os.getpid())\nsys.stdin.read()\n"), tmp_path, report=said.append)
+    process.close()
+    assert said == steps and time.monotonic() - began > 1.2
+
+
+def test_a_load_that_goes_quiet_after_reporting_is_closed_after_the_silence_limit_and_named_by_what_it_last_said(tmp_path, monkeypatch):
+    monkeypatch.setattr(engines, "LOAD_SILENCE_S", 0.4)
+    with pytest.raises(EngineLoadError) as raised:
+        start("tts", spoken(tmp_path, "stalls", 'say(progress="downloading, 1 of 5 MB")\nsys.stdin.read()\n'), tmp_path)
+    assert str(raised.value) == "tts engine 'stalls' failed to load: tts engine 'stalls' went quiet for 0.4 s after: downloading, 1 of 5 MB"
+
+
+def test_an_engine_that_reports_nothing_has_the_start_limit_for_its_reply_not_the_silence_limit(tmp_path, monkeypatch):
+    monkeypatch.setattr(engines, "LOAD_SILENCE_S", 0.2)
+    process = start("tts", spoken(tmp_path, "mum", "time.sleep(1.0)\nsay(ok=True, pid=os.getpid())\nsys.stdin.read()\n"), tmp_path)
+    process.close()
+    assert process.loaded["ok"] is True
+
+
+def test_a_report_after_the_first_ends_the_start_limit_and_begins_the_silence_limit(tmp_path, monkeypatch):
+    monkeypatch.setattr(engines, "LOAD_SILENCE_S", 0.4)
+    monkeypatch.setattr(engines, "ENGINE_START_TIMEOUT_S", 3.0)
+    began = time.monotonic()
+    with pytest.raises(EngineLoadError, match="went quiet for 0.4 s after: starting"):
+        start("tts", spoken(tmp_path, "slow", 'say(progress="starting")\nsys.stdin.read()\n'), tmp_path)
+    assert time.monotonic() - began < 2.5
+
+
+def test_a_progress_that_is_not_text_is_the_reply_and_fails_the_load_for_want_of_a_pid(tmp_path, monkeypatch):
+    monkeypatch.setattr(engines, "LOAD_SILENCE_S", 0.3)
+    with pytest.raises(EngineLoadError, match="did not report its pid"):
+        start("tts", spoken(tmp_path, "odd", "say(progress=5)\nsys.stdin.read()\n"), tmp_path)
+
+
+def test_an_engine_that_never_starts_is_named_with_the_start_limit_it_ran_out_of(tmp_path, monkeypatch):
+    monkeypatch.setattr(engines, "ENGINE_START_TIMEOUT_S", 0.3)
+    with pytest.raises(EngineLoadError) as raised:
+        start("tts", spoken(tmp_path, "late", "sys.stdin.read()\n"), tmp_path)
+    assert str(raised.value) == "tts engine 'late' failed to load: tts engine 'late' did not start within 0.3 s"
+
+
+class Launches:
+    def __init__(self):
+        self.asked = []
+
+    def __call__(self, kind, settings, home, env, report):
+        self.asked.append(settings["engine"])
+        report(f"loading {settings['engine']}")
+        return start(kind, settings, home, env)
+
+
+def test_the_selected_engines_first_load_reports_but_a_later_relaunch_does_not(tmp_path, monkeypatch):
+    monkeypatch.setitem(engines.DEFAULT, "tts", "fake")
+    write_engine(tmp_path / ".config" / "voice-engines", "tts", "frail", (BUILTIN_DIR / "tts" / "fake" / "engine.py").read_text())
+    launches, said = Launches(), []
+    tts = Tts(lambda name: {"engine": "fake"} if name == "fake" else {"engine": "frail", "die_after": 1}, speaking, tmp_path,
+              launch=launches, report=said.append)
+    ask = lambda name: {"op": "render", "text": "a", "speed": 1.0}
+    tts.call(ask)
+    tts.call(ask)
+    tts.call(ask)
+    tts.close()
+    assert said == ["loading frail"] and launches.asked == ["frail", "fake", "frail"]
+
+
+def test_the_fallback_a_failed_first_load_starts_reports_to_the_same_caller(tmp_path, monkeypatch):
+    monkeypatch.setitem(engines.DEFAULT, "tts", "fake")
+    launches, said = Launches(), []
+    tts = Tts(lambda name: {"engine": name or "nope", "fail": name != "fake"}, speaking, tmp_path, launch=launches, report=said.append)
+    tts.close()
+    assert said == ["loading nope", "loading fake"]
+
+
 def test_an_engine_that_never_answers_load_has_its_launcher_killed(tmp_path, monkeypatch):
     write_engine(tmp_path / ".config" / "voice-engines", "tts", "mute", "import sys, time\nsys.stdin.readline()\ntime.sleep(3600)\n",
                  {"name": "mute", "version": "1", "kind": "tts", "protocol": 2, "run": [sys.executable, "engine.py"]})
-    monkeypatch.setattr(engines, "LOAD_TIMEOUT_S", 0.5)
+    monkeypatch.setattr(engines, "ENGINE_START_TIMEOUT_S", 0.5)
     closed = []
     real_close = EngineProcess.close
     monkeypatch.setattr(EngineProcess, "close", lambda self: (closed.append(self), real_close(self))[1])
-    with pytest.raises(EngineLoadError, match="did not answer within 0.5 s"):
+    with pytest.raises(EngineLoadError, match="did not start within 0.5 s"):
         start("tts", {"engine": "mute"}, tmp_path)
     process = closed[0]
     try:

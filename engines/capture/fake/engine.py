@@ -14,6 +14,7 @@ EXIT_BACKSTOP_S = 4.0
 
 request = json.loads(sys.stdin.readline())
 settings = request.get("settings", {})
+sys.stdout.write(json.dumps({"progress": "opening the fake microphone"}) + "\n")
 if settings.get("fail"):
     sys.stdout.write(json.dumps({"error": settings["fail"]}) + "\n")
     sys.exit(1)

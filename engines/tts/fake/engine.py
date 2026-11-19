@@ -8,8 +8,9 @@ load; `die_after` exits after that many renders; `fail_renders`, a list of rende
 `voices`, a list of ids, is the catalogue, its first entry the default voice, and a render naming another is an error;
 without it the engine knows no `voices` op, like an engine that offers no choice. `delay_s` makes every request after
 the load take that long; `hold` ignores the hang-up; `hang_once`, a marker path, makes the first process to find
-none never answer its first request; `load_delay_s` makes the load take that long; `log_loads`, a path, gets the pid
-on one line per load."""
+none never answer its first request; `load_delay_s` makes the load take that long; `download_s` makes it first report a
+download of that many seconds, a line every `download_tick_s` (default 1); `log_loads`, a path, gets the pid on one line per
+load."""
 import base64
 import json
 import math
@@ -43,6 +44,19 @@ def requests():
         yield line
 # ---- end of the exit contract ----
 
+def progress(text: str) -> None:
+    sys.stdout.write(json.dumps({"progress": text}) + "\n")
+    sys.stdout.flush()
+
+
+def download(seconds: float, tick_s: float) -> None:
+    elapsed = 0.0
+    while elapsed < seconds:
+        progress(f"downloading the model, {elapsed:g} of {seconds:g} s")
+        time.sleep(tick_s)
+        elapsed += tick_s
+
+
 def claim(marker: str | None) -> bool:
     if not marker:
         return False
@@ -63,6 +77,7 @@ for line in requests():
             threading.Event().wait()
         time.sleep(delay_s)
     if req["op"] == "load":
+        progress("loading the fake tts engine")
         settings = req["settings"]
         if settings.get("fail"):
             out = {"error": "fake tts was told to fail"}
@@ -76,6 +91,7 @@ for line in requests():
             if hold:
                 EXIT_BACKSTOP_S = 3600.0
             hang = claim(settings.get("hang_once"))
+            download(float(settings.get("download_s", 0)), float(settings.get("download_tick_s", 1.0)))
             time.sleep(float(settings.get("load_delay_s", 0)))
             if settings.get("log_loads"):
                 with open(settings["log_loads"], "a") as log:

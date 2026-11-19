@@ -6,6 +6,7 @@
 hands it clips of at most `max_seconds`; each is trimmed of silence and normalized before decoding, and a stuck
 repetition loop in the output is collapsed. Settings: `model` (default moonshine/base)."""
 import base64
+import contextlib
 import json
 
 import numpy as np
@@ -36,6 +37,30 @@ def requests():
     while (line := lines.get()) is not None:
         yield line
 # ---- end of the exit contract ----
+
+PROGRESS_EVERY_S = 5.0
+
+
+def progress(text: str) -> None:
+    sys.stdout.write(json.dumps({"progress": text}) + "\n")
+    sys.stdout.flush()
+
+
+@contextlib.contextmanager
+def ticking(text: str):
+    done = threading.Event()
+
+    def tick() -> None:
+        while not done.wait(PROGRESS_EVERY_S):
+            progress(text)
+
+    ticker = threading.Thread(target=tick, daemon=True)
+    ticker.start()
+    try:
+        yield
+    finally:
+        done.set()
+        ticker.join()
 
 
 DEFAULT_MODEL = "moonshine/base"
@@ -116,9 +141,11 @@ if __name__ == "__main__":
         req = json.loads(line)
         try:
             if req["op"] == "load":
+                progress("loading the transcription model")
                 from moonshine_onnx import MoonshineOnnxModel, load_tokenizer
-                model = MoonshineOnnxModel(model_name=req["settings"].get("model", DEFAULT_MODEL))
-                tokenizer = load_tokenizer()
+                with ticking("downloading the model"):
+                    model = MoonshineOnnxModel(model_name=req["settings"].get("model", DEFAULT_MODEL))
+                    tokenizer = load_tokenizer()
                 out = {"ok": True, "pid": os.getpid()}
             elif req["op"] == "transcribe":
                 samples = np.frombuffer(base64.b64decode(req["pcm"]), dtype="<f4")

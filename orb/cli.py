@@ -18,7 +18,8 @@ from orb.config import ConfigError, load_for, panel_dirs_for, private_config_pat
 from orb.copilot import CopilotLink
 from orb.state import copilot_channel_file, port_file, private_root, read_json, running_server, server_file, session_project, state_dir, user_only
 
-HEALTH_WAIT_S = 300  # the first run downloads the speech models (about 400 MB) before the server answers
+HEALTH_WAIT_S = 60
+SPEECH_LOADING = "speech engines are still loading; the window shows what they are doing (the first run downloads about 400 MB of models)"
 
 
 def free_port() -> int:
@@ -148,7 +149,7 @@ def cmd_open(args) -> int:
     port, token = stable_port(read_json(port_file(state, agent))), secrets.token_urlsafe(24)
     log_path = logs.log_path(state, agent)
     proc = spawn_detached(server_command(repo, agent, port, home, config), logs.output_path(state, agent), token)
-    print(f"starting the orb server for {agent} (loading speech engines; the first run downloads their models)…")
+    print(f"starting the orb server for {agent}…")
     health = wait_healthy(port, token, proc, log_path)
     server = {"port": port, "token": token}
     try:
@@ -157,6 +158,8 @@ def cmd_open(args) -> int:
         return no_browser(e, window_url(state, agent, server))
     print(f"orb open in {opened}: {page_address(server)}")
     print(health["attach_text"])
+    if any(kind in health["loading"] for kind in ("stt", "tts")):
+        print(SPEECH_LOADING)
     return 0
 
 

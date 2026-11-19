@@ -116,8 +116,9 @@ Coming from 0.4.0? A shell function that starts `copilot --ui-server --port …`
 In either agent, say or type *"open the orb"*. The agent runs `orb open`, and a window opens in a browser profile of
 the orb's own.
 
-- **The first open is slow.** Python dependencies install themselves and the speech models (about 400 MB) download
-  once; later opens take seconds.
+- **The first open is slow to speak.** The window opens at once and works in text while the speech engines load, saying
+  what each is doing. On the first run their Python dependencies install themselves and the speech models (about
+  400 MB) download once; later opens take seconds.
 - **The browser asks for the microphone** once per repo and agent, since each has its own port. The orb reuses that
   port on every later open, so the permission sticks, unless something else has taken it in the meantime.
 - **Talk:** hold the round button, or hold Space while the window has focus, and speak. Release to send. The reply is
