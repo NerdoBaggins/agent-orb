@@ -248,6 +248,7 @@ def test_a_second_attach_on_one_connection_is_refused_before_it_starts_an_engine
 
 def test_an_unknown_op_is_an_error(host):
     assert host.handle(Session(), {"op": "dance"}) == {"error": "unknown op 'dance'"}
+    assert host.handle(Session(), {"op": ["dance"]}) == {"error": "unknown op ['dance']"}
 
 
 def test_parse_attach_keeps_what_the_key_is_made_of():
