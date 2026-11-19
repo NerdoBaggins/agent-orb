@@ -248,7 +248,7 @@ def test_the_capture_check_runs_only_when_capture_is_configured(tmp_path):
     assert {c.name: c for c in run(repo, home)}["capture engine"].ok
 
 
-def engine_row(owners=(), grace_left=None, name="parakeet", pid=4242):
+def engine_row(owners=(), grace_left=None, name="moonshine", pid=4242):
     return {"kind": "stt", "name": name, "settings": {}, "pid": pid, "alive": True, "grace_left": grace_left,
             "owners": [{"pid": p, "repo": "/r", "agent": "claude"} for p in owners]}
 
@@ -261,7 +261,7 @@ def test_no_engine_host_running_is_a_passing_check(tmp_path):
 def test_an_engine_host_with_every_engine_leased_passes_and_counts_them(tmp_path, monkeypatch):
     monkeypatch.setattr(doctor.engine_client, "running_engines", lambda home: [engine_row([1, 2]), engine_row([3], name="other")])
     check = doctor.check_engine_host(tmp_path)
-    assert check.ok and "2 engine(s), 3 server(s)" in check.detail
+    assert check.ok and "2 engine(s), 3 orb(s)" in check.detail
 
 
 def test_an_engine_in_its_grace_period_is_not_an_orphan(tmp_path, monkeypatch):
@@ -269,10 +269,10 @@ def test_an_engine_in_its_grace_period_is_not_an_orphan(tmp_path, monkeypatch):
     assert doctor.check_engine_host(tmp_path).ok
 
 
-def test_an_engine_with_no_server_and_no_grace_running_fails_naming_it(tmp_path, monkeypatch):
+def test_an_engine_with_no_orb_and_no_grace_running_fails_naming_it(tmp_path, monkeypatch):
     monkeypatch.setattr(doctor.engine_client, "running_engines", lambda home: [engine_row([1]), engine_row(name="orphan", pid=777)])
     check = doctor.check_engine_host(tmp_path)
-    assert not check.ok and "stt orphan (pid 777)" in check.detail and "parakeet" not in check.detail
+    assert not check.ok and "stt orphan (pid 777)" in check.detail and "moonshine" not in check.detail
 
 
 def test_a_recorded_host_that_does_not_answer_fails(tmp_path, monkeypatch):
