@@ -1,5 +1,8 @@
 import json
 import os
+import sys
+
+import pytest
 
 from orb import gate as gate_module
 from orb.gate import CHANNEL_SERVER, delivered, gate, read_transcript, read_transcript_from
@@ -285,6 +288,7 @@ def test_a_transcript_rewritten_at_its_head_with_the_old_tail_kept_is_read_again
     assert second.restarted
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows refuses to replace a file another handle holds open")
 def test_a_transcript_replaced_after_its_mark_is_checked_is_read_as_the_file_that_was_checked(tmp_path, monkeypatch):
     path, other = tmp_path / "t.jsonl", tmp_path / "other.jsonl"
     path.write_bytes(numbered(50))
