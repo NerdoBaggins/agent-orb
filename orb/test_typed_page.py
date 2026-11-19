@@ -12,6 +12,7 @@ pytestmark = pytest.mark.browser
 
 MIC_OPENS_S = 5
 RELEASES_S = 1
+PAGE_STATE_LAG_S = 0.4
 STAYS_RELEASED_MS = 500
 WIDGET_ROUND_TRIP_MS = 5000
 
@@ -35,6 +36,21 @@ channel.port2.postMessage(0);
 FOCUS_NOW_AND_THEN = """<!doctype html><body><input id="i"><script>setInterval(() => document.getElementById("i").focus(), 700);</script></body>"""
 FOCUS_SOON = """<!doctype html><body><input id="i"><script>setTimeout(() => document.getElementById("i").focus(), 300);</script></body>"""
 KEY_POSTER = """<!doctype html><body><script>setInterval(() => parent.postMessage({ orb: "key", code: "Enter" }, "*"), 100);</script></body>"""
+
+
+def page_state_lags(server):
+    broadcast = server.broadcast
+
+    async def late(message):
+        if message.get("type") == "state" and message["state"] != "listening":
+            await asyncio.sleep(PAGE_STATE_LAG_S)
+        await broadcast(message)
+
+    server.broadcast = late
+
+
+async def page_leaves_listening(page):
+    await page.wait_for_function("document.body.dataset.state !== 'listening'", timeout=(RELEASES_S + PAGE_STATE_LAG_S) * 1000)
 
 
 def attached(tmp_path, **link):
@@ -258,13 +274,14 @@ def test_releasing_the_talk_key_after_enter_opened_the_box_stops_listening(tmp_p
 @pytest.mark.timeout(60)
 def test_a_finished_key_press_does_not_release_a_later_mic_button_hold(tmp_path):
     server = attached(tmp_path)
+    page_state_lags(server)
     seen = {}
 
     async def act(page):
         await page.keyboard.down("Space")
         await wait_for(lambda: server.state == "listening", timeout=MIC_OPENS_S)
         await page.keyboard.up("Space")
-        await wait_for(lambda: server.state != "listening", timeout=RELEASES_S)
+        await page_leaves_listening(page)
         await page.keyboard.press("Enter")
         mic = await page.locator("#mic").bounding_box()
         await page.mouse.move(mic["x"] + mic["width"] / 2, mic["y"] + mic["height"] / 2)
@@ -329,13 +346,14 @@ def test_the_talk_key_ends_a_hold_a_tap_left_listening(tmp_path):
 @pytest.mark.timeout(60)
 def test_a_key_up_lost_to_a_window_blur_does_not_release_a_later_mic_button_hold(tmp_path):
     server = attached(tmp_path)
+    page_state_lags(server)
     seen = {}
 
     async def act(page):
         await page.keyboard.down("Space")
         await wait_for(lambda: server.state == "listening", timeout=MIC_OPENS_S)
         await page.evaluate("window.dispatchEvent(new Event('blur'))")
-        await wait_for(lambda: server.state != "listening", timeout=RELEASES_S)
+        await page_leaves_listening(page)
         await page.keyboard.press("Enter")
         mic = await page.locator("#mic").bounding_box()
         await page.mouse.move(mic["x"] + mic["width"] / 2, mic["y"] + mic["height"] / 2)
