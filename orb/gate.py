@@ -3,31 +3,11 @@ silent cases in the spec are unit-tested without a session."""
 import hashlib
 import json
 import re
-from pathlib import Path
 from typing import Iterator, NamedTuple
 
 CHANNEL_SERVER = "plugin:agent-orb:orb-channel"
 # Tolerates the escaped quotes of an attachment entry serialized as JSON, whose exact shape is not pinned down.
 REQ_ATTR = re.compile(r'<channel\b[^>]*\breq=\\?"([^"\\]+)\\?"')
-
-
-def read_transcript(path: str | None) -> list[dict] | None:
-    """None when the transcript is missing or unreadable, which the gate treats as not the orb's turn."""
-    if not path:
-        return None
-    try:
-        lines = Path(path).read_bytes().decode("utf-8", "replace").splitlines()
-    except OSError:
-        return None
-    entries = []
-    for line in lines:
-        try:
-            entry = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(entry, dict):
-            entries.append(entry)
-    return entries
 
 
 def read_transcript_from(path: str | None, offset: int = 0) -> tuple[list[dict], int] | None:
@@ -220,7 +200,6 @@ def custom_title(entries: list[dict] | None) -> str | None:
     return next((t for t in reversed(titles) if isinstance(t, str) and t.strip()), None)
 
 
-def gate(entries: list[dict] | None, pending: set[str], server: str = CHANNEL_SERVER, start: Walk = Walk()) -> str | None:
-    """The pending request id this turn answers, or None for every turn that is not the orb's."""
-    request_id = walk(entries, start, server).request_id
-    return request_id if request_id in pending else None
+def answers(turn: Walk, pending: set[str]) -> str | None:
+    """The pending request id the walked turn answers, or None for every turn that is not the orb's."""
+    return turn.request_id if turn.request_id in pending else None
