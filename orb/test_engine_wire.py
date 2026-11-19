@@ -1,5 +1,7 @@
 import json
 import socket
+import stat
+import sys
 import threading
 import time
 
@@ -125,6 +127,15 @@ def test_a_record_whose_pid_cannot_name_one_process_is_no_record(tmp_path, pid):
     assert engine_wire.read_record(tmp_path, "abc123") is None
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX modes; on Windows the profile folder's own ACL keeps other users out")
+def test_writing_a_record_closes_its_folder_to_other_users(tmp_path):
+    folder = engine_wire.record_file(tmp_path, "abc123").parent
+    folder.mkdir(parents=True)
+    folder.chmod(0o755)
+    engine_wire.write_record(tmp_path, "abc123", HostRecord(4000, "secret", 7, None))
+    assert stat.S_IMODE(folder.stat().st_mode) == 0o700
+
+
 def test_one_identitys_record_is_not_another_identitys(tmp_path):
     engine_wire.write_record(tmp_path, "abc123", HostRecord(4000, "secret", 7, None))
     assert engine_wire.read_record(tmp_path, "def456") is None
@@ -203,6 +214,29 @@ def test_a_reply_that_is_not_an_object_raises_broken(linked, sent):
     host.sendall(sent)
     with pytest.raises(WireBroken, match="something that is not"):
         link.request({"op": "ping"}, 5)
+
+
+@pytest.mark.parametrize("answer", [{}, {"ok": False}, {"ok": 1}, {"error": "x"}])
+def test_a_listener_that_answers_the_hello_with_anything_but_ok_true_is_not_connected_to(answer):
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen()
+    done = threading.Event()
+
+    def answer_one_hello():
+        conn, _ = listener.accept()
+        conn.makefile("rb").readline()
+        conn.sendall(json.dumps(answer).encode("utf-8") + b"\n")
+        done.wait(5)
+        conn.close()
+
+    threading.Thread(target=answer_one_hello, daemon=True).start()
+    try:
+        with pytest.raises(engine_wire.WireError, match="the engine host refused the connection"):
+            engine_wire.connect(HostRecord(listener.getsockname()[1], "secret", 7, None))
+    finally:
+        done.set()
+        listener.close()
 
 
 def test_a_timeout_is_a_kind_of_wire_error_and_so_is_a_broken_connection():

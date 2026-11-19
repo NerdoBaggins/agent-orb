@@ -13,6 +13,7 @@ from orb.engine_client import Attachment, RemoteEngine, attach, launcher
 from orb.engine_registry import Registry
 from orb.engine_wire import HostRecord, Link, WireBroken, WireError, WireTimeout
 from orb.engines import EngineError, EngineTimeout, Manifest, load_settings
+from orb.test_engine_host import eventually
 from orb.test_engine_wire import make_copy
 
 OWNER = {"pid": 1, "repo": "/r", "agent": "claude"}
@@ -82,6 +83,17 @@ def test_the_engine_host_is_started_with_the_uv_that_was_found(tmp_path, monkeyp
     monkeypatch.setattr(engine_client.subprocess, "Popen", lambda command, **kwargs: started.append(command))
     engine_client.spawn_host(tmp_path, "0123456789ab", "1.0.0")
     assert [command[0] for command in started] == ["/found/bin/uv"]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a session is a POSIX notion; Windows detaches the host with creation flags")
+def test_the_engine_host_is_started_as_the_leader_of_a_session_of_its_own(tmp_path, monkeypatch):
+    leads, stand_in = tmp_path / "leads-its-session", tmp_path / "uv"
+    report = f"import os; open({str(leads)!r}, 'w').write(str(os.getsid(0) == os.getpid()))"
+    stand_in.write_text(f'#!/bin/sh\nexec "{sys.executable}" -c "{report}"\n', encoding="utf-8")
+    stand_in.chmod(0o755)
+    monkeypatch.setenv("PATH", str(tmp_path))
+    engine_client.spawn_host(tmp_path, "0123456789ab", "1.0.0")
+    assert eventually(lambda: leads.exists() and leads.read_text() == "True")
 
 
 def test_a_host_that_answers_a_hello_but_not_a_ping_is_not_reached(monkeypatch):
@@ -228,6 +240,21 @@ def test_an_attach_refused_by_a_closing_host_waits_for_its_record_to_go_before_t
     monkeypatch.setattr(engine_client, "open_link", lambda home, plugin_root, spawn: opened_at.append(clock.now) or queue.pop(0))
     attach(attachment(tmp_path))
     assert opened_at[0] == 0.0 and 0.5 <= opened_at[1] < 1.0
+
+
+def test_a_record_a_new_host_has_already_replaced_is_not_waited_on(tmp_path, monkeypatch):
+    host_identity = engine_wire.identity(engine_client.PLUGIN_ROOT)
+    engine_wire.write_record(tmp_path, host_identity, HostRecord(1, "t", 111, None))
+
+    class ReplacingHostClock(FakeClock):
+        def sleep(self, seconds):
+            super().sleep(seconds)
+            engine_wire.write_record(tmp_path, host_identity, HostRecord(2, "t", 222, None))
+
+    clock = ReplacingHostClock()
+    monkeypatch.setattr(engine_client, "time", clock)
+    engine_client.wait_for_record_to_go(tmp_path, host_identity)
+    assert clock.now < engine_client.HOST_RECORD_GONE_WAIT_S
 
 
 def test_the_hosts_reason_for_refusing_an_attach_reaches_the_caller_and_the_link_is_closed(tmp_path, monkeypatch):
