@@ -189,6 +189,8 @@ def style(kokoro, voice):
         if voice not in kokoro.get_voices():
             raise UnknownVoice(f"no kokoro voice named {voice!r}")
         voice = {voice: 1.0}
+    elif not isinstance(voice, dict):
+        raise UnknownVoice(f"a kokoro voice is a name or a table of names and weights, not {json.dumps(voice)}")
     return sum(float(w) * kokoro.get_voice_style(name) for name, w in voice.items())
 
 

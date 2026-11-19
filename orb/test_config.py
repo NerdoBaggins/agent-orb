@@ -78,6 +78,11 @@ def test_tts_call_settings_carry_the_orbs_speed_and_the_engines_voice_and_lang()
     assert tts_call_settings(section, "claude", "absent") == {"speed": 1.1}
 
 
+def test_a_voice_or_language_held_as_null_is_left_out_of_the_render():
+    section = {"engine": "kokoro", "speed": 1.0, "kokoro": {"voice": None, "lang": None}}
+    assert tts_call_settings(section, "claude", "kokoro") == {"speed": 1.0}
+
+
 def test_engine_blocks_merge_per_key_across_layers(tmp_path):
     cfg = load_layers(tmp_path, user={"tts": {"kokoro": {"lang": "en-us"}}}, private={"tts": {"kokoro": {"voice": "af_sky"}}})
     assert cfg["tts"]["kokoro"] == {"voice": "af_sky", "lang": "en-us"}

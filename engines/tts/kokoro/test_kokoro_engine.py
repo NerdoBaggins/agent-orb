@@ -146,6 +146,13 @@ def test_an_unknown_voice_is_answered_with_the_bare_text():
     assert engine.answer(styles, {"op": "render", "text": "x", "voice": "nope"}) == {"error": "no kokoro voice named 'nope'"}
 
 
+def test_a_voice_that_is_neither_a_name_nor_a_table_is_answered_with_what_a_voice_is():
+    styles = engine.Styles(StubKokoro())
+    for voice, shown in ((7, "7"), (["af_heart"], '["af_heart"]')):
+        assert engine.answer(styles, {"op": "render", "text": "x", "voice": voice}) == {
+            "error": f"a kokoro voice is a name or a table of names and weights, not {shown}"}
+
+
 def test_an_absent_voice_is_the_default():
     kokoro = StubKokoro()
     engine.render(engine.Styles(kokoro), {"text": "x"})
