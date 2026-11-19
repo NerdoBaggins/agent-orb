@@ -10,6 +10,7 @@ import pytest
 from orb import agents, commands, server as server_module, terminal
 from orb.state import session_file, write_json
 from orb.test_server import TOKEN, FakeLink, client_for, make, run, wait_for
+from orb.test_feed import _echo
 from orb.test_server_side import next_json, of_type
 
 
@@ -257,10 +258,21 @@ def test_the_session_link_types_the_commands_parts_into_the_sessions_terminal(tm
 def test_the_session_links_mark_for_a_command_is_taken_before_the_command_is_typed(tmp_path, monkeypatch):
     typed_at = []
     monkeypatch.setattr(terminal, "target_for", lambda pid: terminal.Target(pid, "claude"))
-    monkeypatch.setattr(terminal, "send_line", lambda target, parts: typed_at.append(datetime.now(timezone.utc)) or time.sleep(0.01))
+    monkeypatch.setattr(terminal, "send_line", lambda target, parts: time.sleep(0.05) or typed_at.append(datetime.now(timezone.utc)))
     link = server_module.ClaudeLink(tmp_path)
     link.info = types.SimpleNamespace(session_pid=4242)
-    assert link.send_command(commands.Command("context", "")) < typed_at[0]
+    before = datetime.now(timezone.utc)
+    assert before <= link.send_command(commands.Command("context", "")) <= typed_at[0]
+
+
+def test_the_session_link_counts_only_a_run_echoed_after_its_mark(tmp_path, monkeypatch):
+    link = server_module.ClaudeLink(tmp_path)
+    monkeypatch.setattr(link, "refresh", lambda: None)
+    link.transcript = [_echo("/context", "2026-11-06T09:00:00Z")]
+    mark = datetime(2026, 11, 6, 9, 0, 1, tzinfo=timezone.utc)
+    assert not link.command_ran("context", mark)
+    link.transcript.append(_echo("/context", "2026-11-06T09:00:02Z"))
+    assert link.command_ran("context", mark)
 
 
 def test_the_session_link_without_a_session_process_types_nothing(tmp_path, monkeypatch):
