@@ -1,4 +1,8 @@
 import importlib.util
+import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -73,3 +77,18 @@ def test_a_clip_is_trimmed_before_decoding():
     samples[16_000:16_100] = 0.5
     assert engine.transcribe(model, FakeTokenizer(), samples) == "part1"
     assert model.lengths[0] < 16_000
+
+
+def test_a_load_that_fails_is_answered_once_and_ends_the_engine_with_its_input_still_open(tmp_path):
+    (tmp_path / "moonshine_onnx.py").write_text("def MoonshineOnnxModel(model_name):\n    raise RuntimeError('no model')\n\n\ndef load_tokenizer():\n    pass\n", encoding="utf-8")
+    process = subprocess.Popen([sys.executable, str(Path(__file__).with_name("engine.py"))], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True,
+                               env={**os.environ, "PYTHONPATH": str(tmp_path)})
+    try:
+        process.stdin.write('{"op": "load", "settings": {}}\n{"op": "transcribe", "pcm": ""}\n')
+        process.stdin.flush()
+        assert process.wait(timeout=20) == 0
+        lines = [json.loads(line) for line in process.stdout.read().splitlines()]
+        assert [line for line in lines if "progress" not in line] == [{"error": "RuntimeError: no model"}]
+    finally:
+        process.kill()
+        process.wait()

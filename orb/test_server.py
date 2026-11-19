@@ -1,9 +1,12 @@
 import asyncio
+import contextlib
+import io
 import json
 import os
 import queue
 import shutil
 import struct
+import sys
 from types import SimpleNamespace
 
 import numpy as np
@@ -11,6 +14,7 @@ import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
 from orb import PLUGIN_ROOT, agents, engines
+from orb import server as server_module
 from orb.audio import SAMPLE_RATE
 from orb.capture import Ended, Frame
 from orb.config import DEFAULTS, private_config_path
@@ -1059,6 +1063,19 @@ def test_a_render_is_built_when_it_is_sent_from_the_live_config(tmp_path):
                     {"op": "render", "text": "again", "speed": 1.4, "voice": "bob", "lang": "fr-fr"}]
 
 
+def test_a_tts_the_server_is_handed_builds_its_renders_from_the_servers_live_config(tmp_path):
+    (tmp_path / "repo").mkdir()
+    tts = Tts(lambda name: {"engine": "fake"}, lambda name: {"speed": 9.0}, tmp_path, launch=start)
+    sent = requests_sent(tts)
+    try:
+        server = OrbServer(tmp_path / "repo", "claude", 0, TOKEN, tmp_path / "home", FakeLink(), FakeStt(""), tts)
+        server.config["tts"]["fake"] = {"voice": "ann"}
+        tts.render("hi")
+    finally:
+        tts.close()
+    assert sent == [{"op": "render", "text": "hi", "speed": DEFAULTS["tts"]["speed"], "voice": "ann"}]
+
+
 @pytest.mark.timeout(60)
 def test_picking_a_voice_sends_the_engine_nothing_saves_it_and_the_next_sentence_carries_it(tmp_path):
     user_tts_engine(tmp_path, "other")
@@ -2098,3 +2115,37 @@ def test_a_request_is_not_overtaken_while_its_wait_notice_is_still_going_out(tmp
 
 def test_the_servers_state_tuple_is_within_the_states_a_skin_may_declare():
     assert set(SERVER_STATES) <= set(SKIN_STATES)
+
+
+class Closable:
+    closed = False
+
+    def close(self):
+        self.closed = True
+
+
+def ending_with_a_crash(server):
+    raise RuntimeError("the run ended badly")
+
+
+def ending_by_returning(server):
+    return None
+
+
+@pytest.mark.parametrize("ending", [ending_with_a_crash, ending_by_returning], ids=["a crash", "a return"])
+def test_the_engines_the_server_holds_are_closed_when_it_exits_however_its_run_ended(tmp_path, monkeypatch, ending):
+    stt, tts, wake_engine, vad = Closable(), Closable(), Closable(), Closable()
+    held = Waker(wake_rules.settings({"model": "hey_jarvis"}), wake_engine, vad, None, None)
+
+    async def run(self):
+        self.stt, self.tts, self.waker = stt, tts, held
+        ending(self)
+
+    monkeypatch.setattr(server_module, "speech_loaders", lambda config, home, agent, launch: {})
+    monkeypatch.setattr(server_module.logs, "setup", lambda path: None)
+    monkeypatch.setattr(OrbServer, "run", run)
+    monkeypatch.setattr(sys, "stdin", io.StringIO(TOKEN + "\n"))
+    (tmp_path / "repo").mkdir()
+    with contextlib.suppress(RuntimeError):
+        server_module.main(["--repo", str(tmp_path / "repo"), "--agent", "claude", "--port", "0", "--home", str(tmp_path / "home")])
+    assert [engine.closed for engine in (stt, tts, wake_engine, vad)] == [True] * 4

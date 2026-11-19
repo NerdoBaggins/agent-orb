@@ -2188,7 +2188,7 @@ def main(argv=None) -> None:
     try:
         asyncio.run(server.run())
     finally:
-        for engine in (server.stt, server.tts):
+        for engine in (server.stt, server.tts, server.waker):
             if engine is not None:
                 engine.close()
 

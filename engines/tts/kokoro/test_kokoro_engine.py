@@ -153,6 +153,16 @@ def test_a_voice_that_is_neither_a_name_nor_a_table_is_answered_with_what_a_voic
             "error": f"a kokoro voice is a name or a table of names and weights, not {shown}"}
 
 
+def test_a_load_that_fails_is_answered_once_and_ends_the_engine_with_requests_still_waiting(monkeypatch, capsys):
+    def refuse(settings):
+        raise RuntimeError("no model")
+
+    monkeypatch.setattr(engine, "load", refuse)
+    monkeypatch.setattr(engine, "requests", lambda: iter(['{"op": "load", "settings": {}}', '{"op": "render", "text": "x"}']))
+    engine.main()
+    assert capsys.readouterr().out.splitlines() == ['{"error": "RuntimeError: no model"}']
+
+
 def test_an_absent_voice_is_the_default():
     kokoro = StubKokoro()
     engine.render(engine.Styles(kokoro), {"text": "x"})

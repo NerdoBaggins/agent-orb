@@ -350,6 +350,14 @@ def test_an_engine_error_is_passed_on_and_the_attachment_stays_while_the_engine_
 CALL = {"op": "call", "request": {"op": "x"}, "timeout": 5}
 
 
+def test_a_call_on_a_connection_whose_engine_was_retired_is_refused_and_never_reaches_the_engine(host, starter):
+    session, _ = join(host)
+    retired = processes(starter)[0]
+    retired.alive = False
+    host.sweep()
+    assert host.handle(session, CALL) == {"error": "this connection has not attached to an engine"} and retired.calls == []
+
+
 def test_a_timeout_on_the_reply_answers_the_caller_then_drops_the_engine_and_hangs_up_every_connection_on_it(host, starter):
     events = []
     caller, _ = join(host, heard(events, "caller"))
