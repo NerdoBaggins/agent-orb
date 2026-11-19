@@ -57,7 +57,6 @@ class Registry:
             self.idle_since[attached.key] = self.clock()
 
     def forget(self, conn: object) -> None:
-        """Drops a connection with no grace for its engine: the engine was never used, or was not shared."""
         self.owners.pop(conn, None)
         self.note_activity()
 
@@ -78,7 +77,6 @@ class Registry:
         return {attached.key for attached in self.owners.values()} | set(self.idle_since)
 
     def note_activity(self) -> None:
-        """A start that came to nothing still counts as the host having been wanted just now."""
         if not self.keys():
             self.empty_since = self.clock()
 

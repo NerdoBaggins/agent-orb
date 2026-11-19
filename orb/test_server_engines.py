@@ -21,7 +21,6 @@ def test_the_server_attaches_to_the_host_as_its_own_pid_repo_and_agent(monkeypat
 
 
 class SlowToClose(FakeTts):
-    """An engine whose close does not return until released."""
     name = "other"
 
     def __init__(self):

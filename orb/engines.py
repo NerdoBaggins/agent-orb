@@ -381,7 +381,6 @@ def killable(pid: object) -> bool:
 
 
 def resolve(kind: str, settings: dict, home: Path, env=os.environ) -> Manifest:
-    """Finds and checks the engine `settings["engine"]` names, ready to start."""
     name = settings.get("engine")
     if not isinstance(name, str) or not name:
         raise EngineError(f"{kind} config needs an 'engine' name")

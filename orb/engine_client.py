@@ -235,7 +235,6 @@ def load_outcome(link: Link, attachment: Attachment, report) -> dict:
 
 
 def attach(attachment: Attachment, report=unreported) -> tuple[Link, dict]:
-    """Attaches to the engine and waits for it to load: the host answers the attach at once and the load separately."""
     def spawn_from_present_folder(home: Path, host_identity: str, version: str | None) -> None:
         require_plugin_root(attachment.kind, attachment.name, PLUGIN_ROOT)
         attachment.spawn(home, host_identity, version)
@@ -259,8 +258,6 @@ def attach(attachment: Attachment, report=unreported) -> tuple[Link, dict]:
 
 
 def launcher(owner: dict, spawn=spawn_host, plugin_root: Path = PLUGIN_ROOT):
-    """A stand-in for engines.start that attaches to the shared engine instead of starting one."""
-
     def launch(kind: str, settings: dict, home: Path, env=os.environ, report=unreported) -> RemoteEngine:
         manifest = resolve(kind, settings, home, env)
         name = settings["engine"]
@@ -331,5 +328,4 @@ def settings_text(settings: dict) -> str:
 
 
 def leaked(running: list[dict]) -> list[dict]:
-    """Engines no orb uses and no grace period explains."""
     return [e for e in running if not e["owners"] and e["grace_left"] is None]

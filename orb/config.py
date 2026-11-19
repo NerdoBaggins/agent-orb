@@ -328,8 +328,6 @@ def engine_settings(section: dict) -> dict:
 
 
 def tts_call_settings(section: dict, agent: str, engine: str) -> dict:
-    """What every render carries: the orb's speed and the voice and language the engine's block holds, as held; one
-    held as null is left out, so the engine uses its default as it does for one that is absent."""
     block = section.get(engine, {})
     return {"speed": speed_for(section, agent), **{key: block[key] for key in PER_CALL["tts"] if block.get(key) is not None}}
 

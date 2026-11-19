@@ -183,7 +183,6 @@ def test_load_ignores_voice_and_lang(monkeypatch, tmp_path):
 
 
 class Download:
-    """A response that hands out `chunks` of CHUNK_BYTES, each costing `seconds_each` on the engine's clock."""
 
     def __init__(self, clock, chunks, seconds_each, length=None):
         self.clock, self.left, self.seconds_each = clock, chunks, seconds_each

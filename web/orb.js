@@ -198,7 +198,6 @@
     const doing = (working || outside) && orb.session.doing;
     $("hint").textContent = working && orb.waiting ? `waiting for ${orb.waiting} to finish`
       : doing ? `working: ${orb.session.doing}` : outside ? "working…" : how;
-    // The how-to shows on hover; enrolment's instructions, what the agent is busy with and what the speech engines are doing show without it.
     $("hint").classList.toggle("shown", !!orb.enrolling || (working && !!orb.waiting) || !!doing || outside || speechPending());
     $("hint").classList.toggle("loading", !doing && !outside && speechPending());
   }
