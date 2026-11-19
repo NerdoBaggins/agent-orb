@@ -75,17 +75,17 @@ def no_browser(error: Exception, url: str) -> int:
     return 1
 
 
-def wait_healthy(port: int, token: str, proc: subprocess.Popen, log_path: Path) -> dict:
+def wait_healthy(port: int, token: str, proc: subprocess.Popen, log_path: Path, crash_path: Path) -> dict:
     deadline = time.time() + HEALTH_WAIT_S
     while time.time() < deadline:
         if proc.poll() is not None:
-            raise SystemExit(f"orb server exited with {proc.returncode}; see {log_path} and {log_path.with_suffix('.out')}")
+            raise SystemExit(f"orb server exited with {proc.returncode}; see {log_path} and {crash_path}")
         try:
             with urllib.request.urlopen(f"http://127.0.0.1:{port}/health?token={token}", timeout=1) as r:
                 return json.loads(r.read().decode("utf-8"))
         except (urllib.error.URLError, OSError, ValueError):
             time.sleep(0.3)
-    raise SystemExit(f"orb server did not answer within {HEALTH_WAIT_S}s; see {log_path} and {log_path.with_suffix('.out')}")
+    raise SystemExit(f"orb server did not answer within {HEALTH_WAIT_S}s; see {log_path} and {crash_path}")
 
 
 def open_windows(server: dict) -> int:
@@ -148,10 +148,10 @@ def cmd_open(args) -> int:
         return 0
 
     port, token = stable_port(read_json(port_file(state, agent))), secrets.token_urlsafe(24)
-    log_path = logs.log_path(state, agent)
-    proc = spawn_detached(server_command(repo, agent, port, home, config), logs.crash_output_path(state, agent), token)
+    log_path, crash_path = logs.log_path(state, agent), logs.crash_output_path(state, agent)
+    proc = spawn_detached(server_command(repo, agent, port, home, config), crash_path, token)
     print(f"starting the orb server for {agent}…")
-    health = wait_healthy(port, token, proc, log_path)
+    health = wait_healthy(port, token, proc, log_path, crash_path)
     server = {"port": port, "token": token}
     try:
         opened = browser.open_app_window(window_url(state, agent, server), browser.profile_dir(home))
