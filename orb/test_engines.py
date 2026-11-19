@@ -643,6 +643,48 @@ def gone(pid, within=1.0):
     return not pid_alive(pid)
 
 
+HOLDS_AFTER_REPORTING = """
+import json, sys, time
+sys.stdin.readline()
+sys.stdout.write(json.dumps({"ok": True, "pid": PID}) + "\\n"); sys.stdout.flush()
+time.sleep(3600)
+"""
+
+
+@pytest.mark.parametrize("reported", ["0", "1", "-1", "-4242", "OWN"], ids=["its process group", "the first process", "every process", "a process group", "the host itself"])
+def test_a_load_reply_naming_a_pid_that_is_not_one_engine_fails_the_load_and_kills_only_the_launcher(tmp_path, monkeypatch, reported):
+    reported = str(os.getpid()) if reported == "OWN" else reported
+    write_engine(tmp_path / ".config" / "voice-engines", "tts", "liar", HOLDS_AFTER_REPORTING.replace("PID", reported),
+                 {"name": "liar", "version": "1", "kind": "tts", "protocol": 2, "run": [sys.executable, "engine.py"]})
+    monkeypatch.setattr(engines, "EXIT_WAIT_S", 0.3)
+    killed, launchers = [], []
+    monkeypatch.setattr(engines, "kill_pid", killed.append)
+    real_close = EngineProcess.close
+    monkeypatch.setattr(EngineProcess, "close", lambda self: (launchers.append(self.process), real_close(self))[1])
+    with pytest.raises(EngineLoadError) as raised:
+        start("tts", {"engine": "liar"}, tmp_path)
+    assert str(raised.value) == f"tts engine 'liar' reported pid {reported} in its load reply, which is not its own (protocol 2)"
+    assert killed == [] and launchers[0].poll() is not None
+
+
+def test_closing_an_engine_whose_reported_pid_may_not_be_killed_still_kills_its_launcher_and_says_why(tmp_path, monkeypatch, caplog):
+    process = start("tts", {"engine": "fake", "hold": True}, tmp_path)
+    engine_pid = process.loaded["pid"]
+
+    def refuse(pid):
+        raise PermissionError("not yours to kill")
+
+    monkeypatch.setattr(engines, "kill_pid", refuse)
+    monkeypatch.setattr(engines, "EXIT_WAIT_S", 0.3)
+    try:
+        with caplog.at_level("WARNING", logger="orb"):
+            assert process.close() is False
+        assert gone(process.process.pid)
+        assert f"tts engine 'fake' reported pid {engine_pid}, which could not be killed: not yours to kill" in caplog.text
+    finally:
+        kill_pid(engine_pid)
+
+
 def test_closing_an_engine_that_ignores_its_input_kills_the_pid_it_reported_and_leaves_no_launcher(tmp_path):
     process = start("tts", {"engine": "fake", "hold": True}, tmp_path)
     engine_pid, launcher_pid = process.loaded["pid"], process.process.pid

@@ -104,16 +104,24 @@ def test_a_record_is_read_back_as_it_was_written(tmp_path):
 
 
 @pytest.mark.parametrize("record", [
-    {"transport": "unix", "address": "/x", "token": "t", "pid": 1},
-    {"port": "4000", "token": "t", "pid": 1, "version": None},
-    {"port": 4000, "token": 5, "pid": 1, "version": None},
+    {"transport": "unix", "address": "/x", "token": "t", "pid": 7},
+    {"port": "4000", "token": "t", "pid": 7, "version": None},
+    {"port": 4000, "token": 5, "pid": 7, "version": None},
     {"port": 4000, "token": "t", "pid": "1", "version": None},
-    {"port": 4000, "token": "t", "pid": 1, "version": 3},
-    {"port": 4000, "token": "t", "pid": 1},
+    {"port": 4000, "token": "t", "pid": 7, "version": 3},
+    {"port": 4000, "token": "t", "pid": 7},
 ])
 def test_a_record_that_is_not_the_current_shape_is_no_record(tmp_path, record):
     engine_wire.record_file(tmp_path, "abc123").parent.mkdir(parents=True)
     engine_wire.record_file(tmp_path, "abc123").write_text(json.dumps(record), encoding="utf-8")
+    assert engine_wire.read_record(tmp_path, "abc123") is None
+
+
+@pytest.mark.parametrize("pid", [0, -1, 1, True], ids=["its process group", "every process", "the first process", "a boolean"])
+def test_a_record_whose_pid_cannot_name_one_process_is_no_record(tmp_path, pid):
+    engine_wire.record_file(tmp_path, "abc123").parent.mkdir(parents=True)
+    engine_wire.record_file(tmp_path, "abc123").write_text(
+        json.dumps({"port": 4000, "token": "t", "pid": pid, "version": None}), encoding="utf-8")
     assert engine_wire.read_record(tmp_path, "abc123") is None
 
 

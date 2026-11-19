@@ -262,12 +262,23 @@ class EngineProcess:
         except subprocess.TimeoutExpired:
             pid = self.loaded.get("pid")
             if type(pid) is int:
-                kill_pid(pid)
+                try:
+                    kill_pid(pid)
+                except OSError as e:
+                    log.warning("%s reported pid %s, which could not be killed: %s", self.label, pid, e)
             self.process.kill()
             self.process.wait()
             log.warning("%s did not exit within %.0f s of its input closing and was killed", self.label, EXIT_WAIT_S)
             return False
         return True
+
+
+def names_one_process(pid: object) -> bool:
+    return type(pid) is int and pid > 1
+
+
+def killable(pid: object) -> bool:
+    return names_one_process(pid) and pid != os.getpid()
 
 
 def resolve(kind: str, settings: dict, home: Path, env=os.environ) -> Manifest:
@@ -292,14 +303,18 @@ def start(kind: str, settings: dict, home: Path, env=os.environ) -> EngineProces
     name = settings["engine"]
     process = EngineProcess(manifest, cache_dir(home, kind, name), env)
     try:
-        process.loaded = process.call({"op": "load", "settings": load_settings(kind, settings)}, LOAD_TIMEOUT_S)
+        loaded = process.call({"op": "load", "settings": load_settings(kind, settings)}, LOAD_TIMEOUT_S)
     except EngineError as e:
         process.close()
         raise EngineLoadError(f"{kind} engine {name!r} failed to load: {e}")
-    pid = process.loaded.get("pid")
+    pid = loaded.get("pid")
     if type(pid) is not int:
         process.close()
         raise EngineLoadError(f"{kind} engine {name!r} did not report its pid in its load reply (protocol {PROTOCOL})")
+    if not killable(pid):
+        process.close()
+        raise EngineLoadError(f"{kind} engine {name!r} reported pid {pid} in its load reply, which is not its own (protocol {PROTOCOL})")
+    process.loaded = loaded
     return process
 
 

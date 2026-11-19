@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
+from orb.engines import names_one_process
 from orb.state import normalized_root, read_json, state_root, user_only, write_json
 
 CONNECT_TIMEOUT_S = 2.0
@@ -89,7 +90,7 @@ class HostRecord:
 def read_record(home: Path, host_identity: str) -> HostRecord | None:
     data = read_json(record_file(home, host_identity))
     try:
-        if data and isinstance(data["port"], int) and isinstance(data["token"], str) and isinstance(data["pid"], int) \
+        if data and isinstance(data["port"], int) and isinstance(data["token"], str) and names_one_process(data["pid"]) \
                 and (data["version"] is None or isinstance(data["version"], str)):
             return HostRecord(data["port"], data["token"], data["pid"], data["version"])
     except KeyError:
