@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from orb import skins, themes
-from orb.config import ConfigError, expand_dirs, insert_dir, load_for, own_dirs, remove_dir, repo_config_path, user_config_path
+from orb.config import ConfigError, expand_dirs, insert_dir, load_for, own_dirs, remove_dir, user_config_path
 from orb.pages import PageError
 from orb.state import private_root
 
@@ -56,19 +56,19 @@ def extra_dirs(kind: Kind, repo_root: Path, home: Path) -> list[DirEntry]:
     except ConfigError as e:
         raise PageError(str(e))
     own = set(own_dirs(kind.key, home, repo_root))
-    return [DirEntry(d, p, p.is_dir(), d in own, "" if d in own else setting_file(kind, d, repo_root, home))
+    return [DirEntry(d, p, p.is_dir(), d in own, "" if d in own else setting_file(kind, d, home))
             for d, p in zip(listed, expand_dirs(listed, home))]
 
 
-def setting_file(kind: Kind, folder: str, repo_root: Path, home: Path) -> str:
+def setting_file(kind: Kind, folder: str, home: Path) -> str:
     """The config file, as a user would write its path, that lists a folder this page cannot remove."""
-    for path in (user_config_path(home), repo_config_path(repo_root)):
-        try:
-            listed = json.loads(path.read_text(encoding="utf-8")).get(kind.key, [])
-        except (OSError, json.JSONDecodeError, AttributeError):
-            continue
-        if isinstance(listed, list) and folder in listed:
-            return f"~/{path.relative_to(home).as_posix()}" if path.is_relative_to(home) else str(path)
+    path = user_config_path(home)
+    try:
+        listed = json.loads(path.read_text(encoding="utf-8")).get(kind.key, [])
+    except (OSError, json.JSONDecodeError, AttributeError):
+        return ""
+    if isinstance(listed, list) and folder in listed:
+        return f"~/{path.relative_to(home).as_posix()}" if path.is_relative_to(home) else str(path)
     return ""
 
 
@@ -145,6 +145,9 @@ if ($dialog.ShowDialog($owner) -eq 'OK') { [Console]::Out.Write($dialog.Selected
 $owner.Close()"""
 
 
+BROWSE_TIMEOUT_S = 300
+
+
 def browse_folder(platform: str = sys.platform, run=subprocess.run) -> str | None:
     if platform == "win32":
         command = ["powershell", "-NoProfile", "-STA", "-Command", WINDOWS_PICKER]
@@ -157,7 +160,7 @@ def browse_folder(platform: str = sys.platform, run=subprocess.run) -> str | Non
     else:
         raise PageError("this machine has no folder dialog the orb can open; type the path instead")
     try:
-        done = run(command, capture_output=True, timeout=300)
+        done = run(command, capture_output=True, timeout=BROWSE_TIMEOUT_S)
     except (OSError, subprocess.TimeoutExpired) as e:
         raise PageError(f"the folder dialog did not open: {e}")
     chosen = done.stdout.decode("utf-8", "replace").strip()
