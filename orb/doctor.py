@@ -1,5 +1,5 @@
 """`orb doctor`: read-only checks that the pieces the orb needs are actually there and answering. Nothing is
-started, sent or written."""
+sent or written; the speech engines are attached through the engine host, which it starts when none runs."""
 import json
 import os
 import shutil
@@ -103,6 +103,33 @@ def check_engine(kind: str, settings: dict, home: Path) -> Check:
         return Check(f"{kind} engine", False, str(e))
 
 
+def stale_voice(settings: dict, remote: engine_client.RemoteEngine) -> str | None:
+    """What is wrong with the voice the config holds for the engine, or None: a voice that is a weights table, an unset
+    one, and any voice of an engine that offers no choice are not checked."""
+    voice = settings.get("voice")
+    catalogue = engines.catalogue(remote)
+    if not isinstance(voice, str) or catalogue is None or voice in [v["id"] for v in catalogue]:
+        return None
+    ids = ", ".join(v["id"] for v in catalogue)
+    return f"tts.{settings['engine']}.voice is {voice!r}, which the {settings['engine']} engine does not offer; it offers {ids}"
+
+
+def check_hosted_engine(kind: str, settings: dict, home: Path, launch) -> Check:
+    """Attaches to the engine host as an orb, which starts the host when none runs, and lets go again: the engine stays
+    for its grace. Never loads a private copy beside the orbs' engine."""
+    try:
+        remote = launch(kind, settings, home)
+    except EngineError as e:
+        return Check(f"{kind} engine", False, str(e))
+    try:
+        stale = stale_voice(settings, remote) if kind == "tts" else None
+        manifest = remote.manifest
+        return Check(f"{kind} engine", stale is None,
+                     stale or f"{manifest.name} {manifest.version} loads from {manifest.path}, engine pid {remote.loaded['pid']}")
+    finally:
+        remote.close()
+
+
 def check_engine_protocol(home: Path) -> Check:
     read, refused = engines.refusals(home)
     if refused:
@@ -139,7 +166,7 @@ def check_chosen(kind: str, chosen: skins.Skin | themes.Theme, roots: list[Path]
     return Check(kind, not problems, "; ".join(problems) or f"{chosen.name} {chosen.version}")
 
 
-def run(repo: Path, home: Path, engines: bool = True) -> list[Check]:
+def run(repo: Path, home: Path, engines: bool = True, spawn=engine_client.spawn_host) -> list[Check]:
     checks = [check_tool("uv", ["--version"]), check_tool("node", ["--version"]), check_browser()]
     try:
         config = load_for(repo, home)
@@ -159,8 +186,9 @@ def run(repo: Path, home: Path, engines: bool = True) -> list[Check]:
     checks.append(check_engine_host(home))
     checks.append(check_engine_protocol(home))
     if engines:
-        checks.append(check_engine("stt", engine_settings(config["stt"]), home))
-        checks.append(check_engine("tts", engine_settings(config["tts"]), home))
+        launch = engine_client.launcher({"pid": os.getpid(), "repo": str(repo), "agent": "doctor"}, spawn)
+        checks.append(check_hosted_engine("stt", engine_settings(config["stt"]), home, launch))
+        checks.append(check_hosted_engine("tts", engine_settings(config["tts"]), home, launch))
     if config["wake"] is not None:
         checks += check_wake(config["wake"], home, engines)
     if engines and config["capture"] is not None:
