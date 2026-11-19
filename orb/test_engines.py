@@ -73,6 +73,39 @@ def test_a_missing_engine_names_where_it_looked(tmp_path):
     assert str(tmp_path / ".config" / "voice-engines" / "stt" / "nope") in str(e.value) and str(BUILTIN_DIR) in str(e.value)
 
 
+def remove_plugin_folder(monkeypatch, tmp_path):
+    gone = tmp_path / "swept"
+    monkeypatch.setattr(engines, "PLUGIN_ROOT", gone)
+    monkeypatch.setattr(engines, "BUILTIN_DIR", gone / "engines")
+
+
+def test_a_launch_from_a_removed_plugin_folder_says_to_reopen_the_orb_for_a_built_in_lookup(tmp_path, monkeypatch):
+    remove_plugin_folder(monkeypatch, tmp_path)
+    with pytest.raises(EngineError) as e:
+        find("stt", "moonshine", tmp_path)
+    assert str(e.value) == "stt engine 'moonshine' cannot start: its plugin folder was removed by an update; reopen the orb"
+
+
+def test_a_launch_from_a_removed_plugin_folder_still_starts_the_users_own_engine(tmp_path, monkeypatch):
+    remove_plugin_folder(monkeypatch, tmp_path)
+    write_engine(tmp_path / ".config" / "voice-engines", "stt", "mine", '''
+import json, os, sys
+for line in sys.stdin:
+    sys.stdout.write(json.dumps({"ok": True, "pid": os.getpid()}) + "\\n"); sys.stdout.flush()
+''')
+    process = start("stt", {"engine": "mine"}, tmp_path)
+    assert process.alive
+    process.close()
+
+
+def test_a_launch_from_a_removed_plugin_folder_says_to_reopen_the_orb_for_an_engine_process(tmp_path, monkeypatch):
+    remove_plugin_folder(monkeypatch, tmp_path)
+    manifest = Manifest("moonshine", "1", "stt", ("uv",), (), tmp_path / "swept" / "engines" / "stt" / "moonshine")
+    with pytest.raises(EngineError) as e:
+        EngineProcess(manifest, tmp_path / "cache")
+    assert str(e.value) == "stt engine 'moonshine' cannot start: its plugin folder was removed by an update; reopen the orb"
+
+
 @pytest.mark.parametrize("manifest, problem", [
     ({"version": "1", "kind": "tts", "protocol": 2, "run": ["x"]}, "needs a string 'name'"),
     ({"name": "a", "version": "1", "kind": "stt", "protocol": 2, "run": ["x"]}, "is a stt engine, not tts"),

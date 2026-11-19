@@ -101,6 +101,11 @@ def available(kind: str, home: Path) -> list[str]:
     return sorted(names)
 
 
+def require_plugin_root(kind: str, name: str, root: Path) -> None:
+    if not root.exists():
+        raise EngineError(f"{kind} engine {name!r} cannot start: its plugin folder was removed by an update; reopen the orb")
+
+
 def find(kind: str, name: str, home: Path) -> Path:
     if not plain_name(name):
         raise EngineError(f"{kind} engine name {name!r} is not a plain folder name (lowercase letters, digits, - or _)")
@@ -110,6 +115,7 @@ def find(kind: str, name: str, home: Path) -> Path:
         if folder.is_dir():
             return folder
         looked.append(str(folder))
+    require_plugin_root(kind, name, PLUGIN_ROOT)
     raise EngineError(f"no {kind} engine named {name!r}; looked in {', '.join(looked)}")
 
 
@@ -176,6 +182,8 @@ class EngineProcess:
 
     def __init__(self, manifest: Manifest, cache: Path, env=os.environ):
         self.manifest = manifest
+        if not manifest.path.is_dir():
+            require_plugin_root(manifest.kind, manifest.name, PLUGIN_ROOT)
         try:
             cache.mkdir(parents=True, exist_ok=True)
         except OSError as e:

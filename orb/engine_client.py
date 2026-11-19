@@ -14,7 +14,7 @@ from pathlib import Path
 from orb import PLUGIN_ROOT, engine_wire
 from orb.engine_wire import Link, WireBroken, WireError, WireTimeout
 from orb.state import kill_pid, pid_alive
-from orb.engines import CALL_TIMEOUT_S, EngineError, EngineTimeout, Manifest, load_settings, resolve, unreported
+from orb.engines import CALL_TIMEOUT_S, EngineError, EngineTimeout, Manifest, load_settings, require_plugin_root, resolve, unreported
 
 HOST_START_WAIT_S = 10.0
 HOST_ANSWER_S = 5.0
@@ -233,10 +233,14 @@ def load_outcome(link: Link, attachment: Attachment, report) -> dict:
 
 def attach(attachment: Attachment, report=unreported) -> tuple[Link, dict]:
     """Attaches to the engine and waits for it to load: the host answers the attach at once and the load separately."""
+    def spawn_from_present_folder(home: Path, host_identity: str, version: str | None) -> None:
+        require_plugin_root(attachment.kind, attachment.name, PLUGIN_ROOT)
+        attachment.spawn(home, host_identity, version)
+
     message = {"op": "attach", "kind": attachment.kind, "name": attachment.name, "settings": attachment.settings,
                "env": attachment.env, "owner": attachment.owner}
     for _ in range(HOST_START_TRIES):
-        link = open_link(attachment.home, attachment.plugin_root, attachment.spawn)
+        link = open_link(attachment.home, attachment.plugin_root, spawn_from_present_folder)
         reply = ask(link, attachment, message, ATTACH_TIMEOUT_S)
         if reply.get("closing"):
             link.close()
