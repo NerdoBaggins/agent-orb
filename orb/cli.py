@@ -147,7 +147,7 @@ def cmd_open(args) -> int:
 
     port, token = stable_port(read_json(port_file(state, agent))), secrets.token_urlsafe(24)
     log_path = logs.log_path(state, agent)
-    proc = spawn_detached(server_command(repo, agent, port, home, config), logs.output_path(state, agent), token)
+    proc = spawn_detached(server_command(repo, agent, port, home, config), logs.crash_output_path(state, agent), token)
     print(f"starting the orb server for {agent} (loading speech engines; the first run downloads their models)…")
     health = wait_healthy(port, token, proc, log_path)
     server = {"port": port, "token": token}
