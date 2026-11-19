@@ -120,6 +120,7 @@ body.typing iframe { pointer-events: none; }
 #hint { color: var(--orb-dim); font-size: 11px; max-width: 60vw; text-align: center; min-height: 1.2em; opacity: 0;
   transition: opacity 0.2s; }
 #controls:hover #hint, #hint.shown { opacity: 0.8; }
+#hint.loading { color: var(--orb-fg); font-size: 16px; opacity: 1; }
 #stop {
   width: 32px; height: 32px; padding: 0; display: grid; place-items: center; border-radius: 50%; cursor: pointer;
   background: color-mix(in srgb, var(--orb-surface) 35%, transparent); border: 1px solid var(--orb-err); color: var(--orb-err); opacity: 0.75;
