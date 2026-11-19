@@ -66,7 +66,6 @@ def run(payload: dict, project: Path, home: Path) -> str:
 
 
 def _progress_after_reading(state: Path, session: str | None, path: str | None) -> StopProgress:
-    """The Stop hook's progress through the session's transcript once the entries written since its last stop are read."""
     progress = read_stop_progress(state, session, path)
     read = read_transcript_after(path, progress.offset, progress.mark)
     if read is None or read.restarted:

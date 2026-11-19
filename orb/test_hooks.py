@@ -459,8 +459,9 @@ def test_a_hook_given_a_payload_that_is_not_json_exits_0(tmp_path, monkeypatch, 
     assert hook_main(monkeypatch, tmp_path, module, "{not json") == 0
 
 
-def test_the_stop_hook_given_a_payload_that_is_not_an_object_exits_0(tmp_path, monkeypatch):
-    assert hook_main(monkeypatch, tmp_path, stop_hook, json.dumps([str(tmp_path / "repo")])) == 0
+@pytest.mark.parametrize("module", [stop_hook, session_hook, turn_hook])
+def test_a_hook_given_a_payload_that_is_not_an_object_exits_0(tmp_path, monkeypatch, module):
+    assert hook_main(monkeypatch, tmp_path, module, json.dumps([str(tmp_path / "repo")])) == 0
 
 
 def test_the_stop_hook_exits_0_when_its_run_raises(tmp_path, monkeypatch):

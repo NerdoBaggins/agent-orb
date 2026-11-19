@@ -211,13 +211,13 @@ def test_a_message_typed_after_the_orbs_turn_ended_opens_a_turn_that_is_not_the_
     assert answered([channel_turn(), ended("Started it."), typed_mid_turn_queued_command(), ended("Answered.")], PENDING) is None
 
 
-def test_a_transcript_cut_mid_character_still_reads(tmp_path):
+def test_a_transcript_line_holding_bytes_that_are_not_utf8_still_reads(tmp_path):
     path = tmp_path / "t.jsonl"
-    path.write_bytes(json.dumps(channel_turn()).encode() + b"\n" + '{"t": "é'.encode()[:-1])
+    path.write_bytes(json.dumps(channel_turn()).encode().replace(b"time", b"t\xffme") + b"\n")
     assert answered(entries_of(str(path)), PENDING) == "r7"
 
 
-def test_the_gate_answers_for_the_channel_it_is_given():
+def test_a_walk_for_another_channel_answers_that_channels_request():
     other = "plugin:other:chat"
     ours_mid_turn = {"type": "attachment", "attachment": {"type": "queued_command", "origin": {"kind": "channel", "server": CHANNEL_SERVER},
                                                           "content": f'<channel source="{CHANNEL_SERVER}" req="r8">later</channel>'}}
