@@ -7,6 +7,7 @@ import numpy as np
 import pytest
 
 from orb import engines
+from orb.conftest import NO_ENGINE
 from orb.audio import SAMPLE_RATE
 from orb.engines import (BUILTIN_DIR, EngineError, available, EngineProcess, Manifest, Stt, Tts, cache_dir, check, find,
                          missing_env, read_manifest, split_at_quiet_points, start)
@@ -398,3 +399,8 @@ def test_a_name_with_a_trailing_newline_is_not_a_plain_folder_name(tmp_path, nam
 
 def test_the_orbs_sample_rate_is_the_16_khz_every_speech_engine_expects():
     assert SAMPLE_RATE == 16_000
+
+
+def test_an_engine_that_fails_in_a_test_that_set_no_stand_in_names_the_missing_default_instead_of_loading_one(tmp_path):
+    with pytest.raises(EngineError, match=NO_ENGINE):
+        engines.Tts(settings(engine="missing"), tmp_path)
