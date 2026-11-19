@@ -8,6 +8,7 @@ import itertools
 import json
 import logging
 import os
+import queue
 import secrets
 import signal
 import socket
@@ -77,7 +78,7 @@ class Host:
         self.lock = threading.Lock()
         self.slots: dict[Key, Slot] = {}
         self.closing = False
-        self.stopping = threading.Event()
+        self.stop_requests: queue.SimpleQueue = queue.SimpleQueue()
 
     def handle(self, session: Session, message: dict) -> dict | None:
         """The reply, or None when the connection was answered through `session.send` or is being ended instead."""
@@ -97,8 +98,18 @@ class Host:
     def stop(self, session: Session, message: dict) -> dict:
         with self.lock:
             self.closing = True
-        self.stopping.set()
+        self.request_stop()
         return {"ok": True}
+
+    def request_stop(self) -> None:
+        self.stop_requests.put(None)
+
+    def wait_for_stop(self, wait_s: float) -> bool:
+        try:
+            self.stop_requests.get(timeout=wait_s)
+        except queue.Empty:
+            return False
+        return True
 
     def attach(self, session: Session, message: dict) -> dict:
         if session.key is not None:
@@ -314,9 +325,9 @@ def serve_connection(host: Host, conn: socket.socket, token: str) -> None:
         conn.close()
 
 
-def accept_loop(host: Host, listener: socket.socket, token: str, stopping: threading.Event) -> None:
+def accept_loop(host: Host, listener: socket.socket, token: str) -> None:
     listener.settimeout(0.5)
-    while not stopping.is_set():
+    while True:
         try:
             conn, _ = listener.accept()
         except socket.timeout:
@@ -341,11 +352,11 @@ def run(home: Path, host_identity: str, version: str | None, registry: Registry,
     listener, record = listen(version)
     engine_wire.write_record(home, host_identity, record)
     for number in (signal.SIGTERM, signal.SIGINT):
-        signal.signal(number, lambda *_: host.stopping.set())
-    threading.Thread(target=accept_loop, args=(host, listener, record.token, host.stopping), daemon=True).start()
+        signal.signal(number, lambda *_: host.request_stop())
+    threading.Thread(target=accept_loop, args=(host, listener, record.token), daemon=True).start()
     log.info("engine host listening on port %s", record.port)
     try:
-        while not host.stopping.wait(tick):
+        while not host.wait_for_stop(tick):
             if host.sweep():
                 break
     finally:

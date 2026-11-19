@@ -677,3 +677,22 @@ def test_an_orb_killed_during_its_own_call_is_removed_within_2_s(home):
     finally:
         doomed.kill()
         doomed.wait()
+
+
+SPINNING_HOSTS = 16
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="SIGTERM ends a Windows process without running its handler")
+@pytest.mark.timeout(90)
+def test_a_host_sent_sigterm_while_its_main_loop_is_between_waits_still_exits(home):
+    hosts = [subprocess.Popen([sys.executable, "-m", "orb.engine_host", f"--home={home}", f"--identity=spin{n}", "--grace=60", "--host-idle=60", "--tick=0"],
+                              cwd=PLUGIN_ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) for n in range(SPINNING_HOSTS)]
+    try:
+        assert eventually(lambda: all(engine_wire.read_record(home, f"spin{n}") for n in range(SPINNING_HOSTS)))
+        for host in hosts:
+            host.send_signal(signal.SIGTERM)
+        assert eventually(lambda: all(host.poll() is not None for host in hosts), seconds=10.0)
+    finally:
+        for host in hosts:
+            host.kill()
+            host.wait()
