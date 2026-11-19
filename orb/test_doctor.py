@@ -1,17 +1,26 @@
 import json
+import os
+import sys
 from pathlib import Path
 
 import pytest
 
-from orb import doctor, engines
+from orb import doctor, engine_client, engines
 from orb.copilot import CopilotLink
 from orb import capture as capture_module
-from orb.doctor import Check, check_capture, report, run
+from orb.doctor import Check, check_capture, report
+from orb.doctor import run as run_doctor
+from orb.engines import EngineError, Manifest
+from orb.test_engine_shared import FAST, home, launcher, lines_of, running, spawner, stt, uv_dirs  # noqa: F401  (fixtures)
 
 
-def test_run_covers_tools_browser_config_skin_links_and_engines(tmp_path, monkeypatch):
-    repo, home = tmp_path / "repo", tmp_path / "home"
-    repo.mkdir(), home.mkdir()
+def run(repo, home, engines=True):
+    return run_doctor(repo, home, engines, spawner())
+
+
+def test_run_covers_tools_browser_config_skin_links_and_engines(tmp_path, home):
+    repo = tmp_path / "repo"
+    repo.mkdir()
     (home / ".config" / "orb").mkdir(parents=True)
     (home / ".config" / "orb" / "config.json").write_text(json.dumps({"stt": {"engine": "fake"}, "tts": {"engine": "fake"}, "skin": "nope"}), encoding="utf-8")
     names = [c.name for c in run(repo, home)]
@@ -39,8 +48,8 @@ def test_config_error_is_a_failing_check(tmp_path):
     assert checks[-1].name == "config" and not checks[-1].ok and "credentials" in checks[-1].detail
 
 
-def test_wake_checks_cover_the_engines_and_the_voiceprint(tmp_path, monkeypatch):
-    repo, home = tmp_path / "repo", tmp_path / "home"
+def test_wake_checks_cover_the_engines_and_the_voiceprint(tmp_path, home):
+    repo = tmp_path / "repo"
     repo.mkdir(), (home / ".config" / "orb").mkdir(parents=True)
     (home / ".config" / "orb" / "config.json").write_text(json.dumps({
         "stt": {"engine": "fake"}, "tts": {"engine": "fake"},
@@ -238,8 +247,103 @@ def test_a_capture_engine_that_cannot_open_the_mic_on_a_mac_names_the_grant(tmp_
     assert not check.ok and "no microphone found" in check.detail and "Privacy & Security > Microphone" in check.detail
 
 
-def test_the_capture_check_runs_only_when_capture_is_configured(tmp_path):
-    repo, home = tmp_path / "repo", tmp_path / "home"
+def configured(home, **sections):
+    (home / ".config" / "orb").mkdir(parents=True, exist_ok=True)
+    (home / ".config" / "orb" / "config.json").write_text(json.dumps({"stt": {"engine": "fake"}, "tts": {"engine": "fake"}, **sections}), encoding="utf-8")
+
+
+def test_doctor_uses_a_running_host_instead_of_loading_a_second_engine(tmp_path, home):
+    loads = tmp_path / "loads"
+    orb = stt(home, launcher(), log_loads=str(loads))
+    configured(home, stt={"engine": "fake", "fake": {"log_loads": str(loads)}})
+    check = {c.name: c for c in run(tmp_path / "repo", home)}["stt engine"]
+    [engine] = [e for e in running(home) if e["kind"] == "stt"]
+    assert check.ok and check.detail == f"fake 1.0.0 loads from {engines.BUILTIN_DIR / 'stt' / 'fake'}, engine pid {engine['pid']}"
+    assert lines_of(loads) == [str(engine["pid"])]
+    orb.close()
+
+
+def test_doctor_attaches_as_the_agent_doctor_with_its_own_pid_and_the_repo(tmp_path, home, monkeypatch):
+    owners, launcher_for = [], engine_client.launcher
+    monkeypatch.setattr(engine_client, "launcher", lambda owner, spawn: owners.append(owner) or launcher_for(owner, spawn))
+    configured(home)
+    run(tmp_path / "repo", home)
+    assert owners == [{"pid": os.getpid(), "repo": str(tmp_path / "repo"), "agent": "doctor"}]
+
+
+class Attached:
+    """What the host gives an orb for an engine: its manifest, its load reply, and the voices it offers."""
+
+    def __init__(self, voices):
+        self.voices, self.closed = voices, False
+        self.manifest = Manifest("mine", "1", "tts", ("run",), (), Path("engines") / "mine")
+        self.loaded = {"pid": 7}
+
+    def call(self, request):
+        if self.voices is None:
+            raise EngineError("no such op")
+        return {"voices": [{"id": v} for v in self.voices]}
+
+    def close(self):
+        self.closed = True
+
+
+CATALOGUE = ["default", "af_heart"]
+
+
+@pytest.mark.parametrize("engine", ["kokoro", "mine"])
+def test_the_tts_check_fails_naming_tts_kokoro_voice_for_a_stale_id_and_not_for_a_weights_table(tmp_path, engine):
+    def check(voice):
+        return doctor.check_hosted_engine("tts", {"engine": engine, "voice": voice}, tmp_path, lambda *a: Attached(CATALOGUE))
+
+    stale = check("af_gone")
+    assert not stale.ok and stale.detail.startswith(f"tts.{engine}.voice is 'af_gone'") and "default, af_heart" in stale.detail
+    assert check({"af_heart": 0.5, "af_gone": 0.5}).ok
+    assert check("af_heart").ok
+
+
+def test_the_tts_check_does_not_check_a_voice_against_an_engine_that_offers_no_choice(tmp_path):
+    assert doctor.check_hosted_engine("tts", {"engine": "mine", "voice": "anything"}, tmp_path, lambda *a: Attached(None)).ok
+
+
+def test_the_stt_check_does_not_ask_for_voices(tmp_path):
+    check = doctor.check_hosted_engine("stt", {"engine": "mine", "voice": "af_gone"}, tmp_path, lambda *a: Attached(CATALOGUE))
+    assert check.ok
+
+
+def test_every_hosted_check_lets_go_of_its_engine_even_when_the_voice_fails(tmp_path):
+    attached = Attached(CATALOGUE)
+    assert not doctor.check_hosted_engine("tts", {"engine": "mine", "voice": "af_gone"}, tmp_path, lambda *a: attached).ok
+    assert attached.closed
+
+
+def test_the_exit_check_fails_for_the_holding_capture_fake(tmp_path, home):
+    configured(home, capture={"engine": "fake", "frames": 1000, "every": 0.04, "linger": 30})
+    by = {c.name: c for c in run(tmp_path / "repo", home)}
+    assert not by["capture engine"].ok and by["capture engine"].detail == "capture engine 'fake' did not exit within 5 s of its input closing"
+    assert by["stt engine"].ok and by["tts engine"].ok
+
+
+def test_doctor_starts_the_host_with_the_default_lifetimes(tmp_path, home, monkeypatch):
+    commands, popen = [], engine_client.subprocess.Popen
+
+    def spy(command, *args, **kwargs):
+        if "orb.engine_host" not in command:
+            return popen(command, *args, **kwargs)
+        commands.append(command)
+        shortened = [sys.executable, "-m", "orb.engine_host", *command[command.index("orb.engine_host") + 1:], *FAST]
+        return popen(shortened, *args, **kwargs)
+
+    monkeypatch.setattr(engine_client.subprocess, "Popen", spy)
+    configured(home)
+    check = {c.name: c for c in run_doctor(tmp_path / "repo", home)}["stt engine"]
+    assert check.ok
+    [started] = commands
+    assert [a for a in started if a.startswith("--") and a.split("=")[0] in ("--grace", "--host-idle", "--tick")] == []
+
+
+def test_the_capture_check_runs_only_when_capture_is_configured(tmp_path, home):
+    repo = tmp_path / "repo"
     repo.mkdir(), (home / ".config" / "orb").mkdir(parents=True)
     (home / ".config" / "orb" / "config.json").write_text(json.dumps({"stt": {"engine": "fake"}, "tts": {"engine": "fake"}}), encoding="utf-8")
     assert "capture engine" not in {c.name for c in run(repo, home)}

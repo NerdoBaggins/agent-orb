@@ -564,14 +564,18 @@ class Tts(Engine):
     def voices(self) -> list[dict] | None:
         """The engine's catalogue, `[{"id", "label"}]`, or None from an engine that offers no choice. Asked of the
         process directly: an engine that does not know the op is not failing and must not be replaced."""
-        try:
-            reply = self.process.call({"op": "voices"})
-        except EngineError:
-            return None
-        voices = reply.get("voices")
-        if not isinstance(voices, list) or not all(isinstance(v, dict) and isinstance(v.get("id"), str) for v in voices):
-            return None
-        return [{"id": v["id"], "label": str(v.get("label", v["id"]))} for v in voices]
+        return catalogue(self.process)
+
+
+def catalogue(process) -> list[dict] | None:
+    try:
+        reply = process.call({"op": "voices"})
+    except EngineError:
+        return None
+    voices = reply.get("voices")
+    if not isinstance(voices, list) or not all(isinstance(v, dict) and isinstance(v.get("id"), str) for v in voices):
+        return None
+    return [{"id": v["id"], "label": str(v.get("label", v["id"]))} for v in voices]
 
 
 def check(kind: str, settings: dict, home: Path, env=os.environ) -> str:
