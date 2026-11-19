@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 import sys
 import threading
 import time
@@ -230,6 +231,15 @@ for line in sys.stdin:
     assert process.call({"op": "transcribe", "pcm": ""})["cache"] == str(cache_dir(tmp_path, "stt", "echo"))
     assert cache_dir(tmp_path, "stt", "echo").is_dir()
     process.close()
+
+
+def test_a_cache_folder_that_cannot_be_made_is_an_engine_error_naming_it(tmp_path):
+    write_engine(tmp_path / ".config" / "voice-engines", "stt", "echo", "")
+    folder = cache_dir(tmp_path, "stt", "echo")
+    folder.parent.mkdir(parents=True)
+    folder.write_text("not a folder")
+    with pytest.raises(EngineError, match=re.escape(str(folder))):
+        start("stt", {"engine": "echo"}, tmp_path)
 
 
 def test_an_engines_utf16_stderr_with_color_codes_reaches_the_log_as_plain_text(tmp_path, caplog):

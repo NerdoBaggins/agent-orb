@@ -140,6 +140,10 @@ class Host:
         except EngineError as e:
             self._load_failed(key, slot, str(e))
             return
+        except Exception as e:
+            log.exception("%s raised while loading", key.label)
+            self._load_failed(key, slot, f"{key.label} failed to load: {e!r}")
+            return
         log.info("started %s for pid %s", key.label, process.process.pid)
         with self.lock:
             wanted = not self.closing and key in self.registry.keys()

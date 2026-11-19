@@ -174,8 +174,8 @@ class EngineProcess:
 
     def __init__(self, manifest: Manifest, cache: Path, env=os.environ):
         self.manifest = manifest
-        cache.mkdir(parents=True, exist_ok=True)
         try:
+            cache.mkdir(parents=True, exist_ok=True)
             self.process = subprocess.Popen(manifest.run, cwd=str(manifest.path), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                             stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", bufsize=1, env={**env, CACHE_ENV: str(cache)})
         except OSError as e:

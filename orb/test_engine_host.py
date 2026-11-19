@@ -36,7 +36,7 @@ class Starter:
     def __call__(self, kind, settings, home, env):
         self.attempts += 1
         if self.fail:
-            raise EngineError(self.fail)
+            raise self.fail if isinstance(self.fail, Exception) else EngineError(self.fail)
         process = FakeProcess(len(self.started) + 100)
         self.started.append((kind, settings, env, process))
         return process
@@ -239,6 +239,16 @@ def test_waiters_on_a_failed_load_all_get_its_error_and_the_next_attach_tries_af
     assert [s.key for s in waiters] == [None, None] and host.registry.owners == {} and host.slots == {}
     gated.fail = None
     assert join(host)[1] == {"loaded": {"ok": True}} and gated.attempts == 2
+
+
+def test_a_load_that_raises_something_other_than_an_engine_error_is_answered_and_leaves_no_slot_loading(host, starter):
+    starter.fail = KeyError("model")
+    session = Session()
+    host.handle(session, attach_message())
+    waiting, answers = handle_in_thread(host, session, {"op": "ready"})
+    waiting.join(5)
+    assert answers and "KeyError('model')" in answers[0]["error"]
+    assert not host._loading()
 
 
 def test_a_call_after_another_orbs_reload_of_the_dead_engine_failed_ends_the_connection_and_drops_the_dead_engine(host, starter):
