@@ -153,6 +153,23 @@ def test_each_section_and_the_defaults_block_has_a_speaker_that_asks_the_agent_t
     assert server.transcript[0]["speak"] is True
 
 
+@pytest.mark.timeout(60)
+def test_while_one_settings_speaker_explains_it_is_a_stop_button_and_the_others_are_greyed_out(tmp_path):
+    server = make(tmp_path)
+    seen = {}
+
+    async def act(page):
+        await open_settings(page)
+        await page.click(section("skin", ".rn-explain"))
+        seen["speakers"] = await page.evaluate("""() => [...document.querySelectorAll('#builtin-settings .rn-explain')]
+          .map(b => [b.closest('.settings-sec') ? b.closest('.settings-sec').dataset.kind : 'defaults', b.classList.contains('stop'), b.disabled])""")
+
+    asyncio.run(run_page(tmp_path, [], act, server))
+    stops = {kind: (stop, disabled) for kind, stop, disabled in seen["speakers"]}
+    assert stops.pop("skin") == (True, False)
+    assert set(stops.values()) == {(False, True)}
+
+
 @pytest.mark.timeout(90)
 def test_adding_then_removing_then_undoing_a_folder_keeps_focus_and_messages_inside_the_one_section(tmp_path):
     server = make(tmp_path)
