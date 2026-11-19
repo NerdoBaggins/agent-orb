@@ -276,3 +276,31 @@ def test_the_mic_is_opened_on_the_system_default_input(tmp_path):
 
     asyncio.run(run_page(tmp_path, [], act, attached(tmp_path)))
     assert seen["device"] == {"exact": "default"}
+
+
+@pytest.mark.timeout(60)
+def test_a_mic_press_while_an_earlier_tap_is_still_opening_the_mic_records(tmp_path):
+    async def tap_mic_then_hold_it_then_open(page):
+        await page.evaluate(CONTROLLED_MIC)
+        await page.locator("#mic").hover()
+        await page.mouse.down()
+        await page.mouse.up()
+        await page.wait_for_function("window.opens.length > 0")
+        await page.mouse.down()
+        await page.evaluate("(async () => { const mic = await real(); for (const o of opens) o.resolve(mic); })()")
+
+    assert state_after(tmp_path, tap_mic_then_hold_it_then_open, listening) == RECORDING
+
+
+@pytest.mark.timeout(60)
+def test_a_finished_mic_press_does_not_let_a_later_mouseup_end_a_key_held_recording(tmp_path):
+    async def press_release_mic_then_hold_key_and_mouseup(page):
+        await page.locator("#mic").dispatch_event("mousedown", {"button": 0, "buttons": 1})
+        await page.wait_for_function("document.body.dataset.state === 'listening'", timeout=MIC_OPENS_S * 1000)
+        await page.evaluate("window.dispatchEvent(new MouseEvent('mouseup', { button: 0 }))")
+        await page.wait_for_function("document.body.dataset.state !== 'listening'", timeout=MIC_OPENS_S * 1000)
+        await page.keyboard.down("Space")
+        await page.wait_for_function("document.body.dataset.state === 'listening'", timeout=MIC_OPENS_S * 1000)
+        await page.evaluate("window.dispatchEvent(new MouseEvent('mouseup', { button: 0 }))")
+
+    assert state_after(tmp_path, press_release_mic_then_hold_key_and_mouseup, listening)["recording"] is True
