@@ -561,7 +561,7 @@ def test_a_server_that_exits_before_answering_names_its_log_and_its_crash_output
         cli.wait_healthy(1, "t", exited, logs.log_path(tmp_path, "claude"), logs.crash_output_path(tmp_path, "claude"))
 
 
-def test_orb_open_reports_a_failed_start_with_the_file_the_server_wrote_its_output_to(tmp_path, monkeypatch):
+def test_orb_open_watches_the_server_start_with_the_same_output_file_it_started_it_with(tmp_path, monkeypatch):
     written, reported = [], []
     monkeypatch.setattr(cli, "stable_port", lambda previous: 4321)
     monkeypatch.setattr(cli, "spawn_detached", lambda command, output, token: written.append(output))
