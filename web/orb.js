@@ -497,7 +497,7 @@
         if (ctx) ctx.close().catch(() => {});
       };
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+        stream = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: { exact: "default" }, channelCount: 1, echoCancellation: true, noiseSuppression: true } });
         if (superseded()) { drop(); return this.ensure(); }
         ctx = new AudioContext({ sampleRate: 16000 });
         await ctx.audioWorklet.addModule(`/static/ptt-worklet.js?token=${encodeURIComponent(token)}`);

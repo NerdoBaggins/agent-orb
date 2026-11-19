@@ -257,3 +257,22 @@ def test_a_key_hold_whose_open_the_orb_starts_speaking_during_is_refused_with_a_
 
     asyncio.run(run_page(tmp_path, [], act, server))
     assert seen == {"starts": 0, "notice": "can't listen: busy: speaking"}
+
+
+@pytest.mark.timeout(60)
+def test_the_mic_is_opened_on_the_system_default_input(tmp_path):
+    seen = {}
+
+    async def act(page):
+        await page.evaluate("""(() => {
+          const devices = navigator.mediaDevices;
+          const open = devices.getUserMedia.bind(devices);
+          window.asked = [];
+          devices.getUserMedia = (constraints) => { window.asked.push(constraints); return open({ audio: true }); };
+        })()""")
+        await page.keyboard.down("Space")
+        await page.wait_for_function("window.asked.length > 0")
+        seen["device"] = await page.evaluate("window.asked[0].audio.deviceId")
+
+    asyncio.run(run_page(tmp_path, [], act, attached(tmp_path)))
+    assert seen["device"] == {"exact": "default"}
