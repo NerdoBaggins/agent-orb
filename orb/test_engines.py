@@ -238,7 +238,7 @@ def test_a_cache_folder_that_cannot_be_made_is_an_engine_error_naming_it(tmp_pat
     folder = cache_dir(tmp_path, "stt", "echo")
     folder.parent.mkdir(parents=True)
     folder.write_text("not a folder")
-    with pytest.raises(EngineError, match=re.escape(str(folder))):
+    with pytest.raises(EngineError, match="could not make its cache folder " + re.escape(str(folder)) + ":"):
         start("stt", {"engine": "echo"}, tmp_path)
 
 

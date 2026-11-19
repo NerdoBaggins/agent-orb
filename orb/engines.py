@@ -178,6 +178,9 @@ class EngineProcess:
         self.manifest = manifest
         try:
             cache.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            raise EngineError(f"{self.label} could not make its cache folder {cache}: {e.strerror}")
+        try:
             own_group = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if sys.platform == "win32" else {"start_new_session": True}
             self.process = subprocess.Popen(manifest.run, cwd=str(manifest.path), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                             stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", bufsize=1, env={**env, CACHE_ENV: str(cache)},
