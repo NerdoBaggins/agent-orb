@@ -1407,7 +1407,7 @@
     divider.addEventListener("pointerup", up);
   });
 
-  async function toggleBuiltin(name, title) {
+  async function toggleBuiltin(name) {
     if (orb.panels.has(name)) {
       send({ type: "panel_close", name });
       panelsUi.close(name);
@@ -1416,13 +1416,13 @@
     const r = await fetch("/panel", {
       method: "POST",
       headers: { "X-Orb-Token": token, "Content-Type": "application/json" },
-      body: JSON.stringify({ name, title }),
+      body: JSON.stringify({ name }),
     });
     if (!r.ok) notice(`${name}: ${await r.text()}`, "error");
   }
-  const toggleTranscript = () => toggleBuiltin("transcript", "Transcript");
-  const toggleReleases = () => toggleBuiltin("releases", "Release notes");
-  const toggleSettings = () => toggleBuiltin("settings", "Settings");
+  const toggleTranscript = () => toggleBuiltin("transcript");
+  const toggleReleases = () => toggleBuiltin("releases");
+  const toggleSettings = () => toggleBuiltin("settings");
   $("transcript-toggle").addEventListener("click", toggleTranscript);
   $("releases-toggle").addEventListener("click", toggleReleases);
   $("settings-toggle").addEventListener("click", toggleSettings);
