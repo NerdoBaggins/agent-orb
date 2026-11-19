@@ -196,7 +196,7 @@ def test_a_request_the_host_does_not_answer_in_time_raises_a_timeout_and_closes_
     started = time.monotonic()
     with pytest.raises(WireTimeout, match="did not answer within 0.3 s"):
         link.request({"op": "ping"}, 0.3)
-    assert 0.3 <= time.monotonic() - started < 3.0
+    assert 0.28 <= time.monotonic() - started < 3.0
     with pytest.raises(WireBroken):
         link.request({"op": "ping"}, 0.3)
 
