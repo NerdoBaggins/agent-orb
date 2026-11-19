@@ -107,3 +107,13 @@ def test_open_folder_opens_the_folder_of_the_row_clicked_when_two_saved_panels_s
             assert (await post({"name": "dup"})).status == 400
         assert opened == [winner, shadowed]
     run(go())
+
+
+def test_a_built_in_panel_shown_without_a_title_is_shown_under_its_own_title(tmp_path):
+    async def go():
+        server = make(tmp_path)
+        async with await client_for(server) as c:
+            for name in ("releases", "settings", "transcript"):
+                assert (await c.post("/panel", params={"token": TOKEN}, json={"name": name})).status == 200
+        return {name: server.panels[name]["title"] for name in server.panels}
+    assert run(go()) == {"releases": "Release notes", "settings": "Settings", "transcript": "Transcript"}

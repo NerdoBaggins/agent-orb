@@ -366,7 +366,7 @@ class OrbServer:
         body = await request.json()
         try:
             found = next((e for e in panels.menu(self.repo_root, self.home)[0] if e.path and str(e.path) == body.get("path")), None)
-            if found is None or not found.path.is_dir():
+            if found is None:
                 raise pages.PageError("no such panel folder")
             await asyncio.to_thread(folders.reveal, found.path)
         except pages.PageError as e:
@@ -444,7 +444,7 @@ class OrbServer:
             raise web.HTTPBadRequest(text=str(e))
         if name not in panels.BUILTIN and "index.html" not in files:
             raise web.HTTPBadRequest(text="a panel needs an index.html")
-        title = str(body.get("title") or (source.title if source else name))[:panels.MAX_TITLE_CHARS]
+        title = str(body.get("title") or (source.title if source else panels.BUILTIN_TITLES.get(name, name)))[:panels.MAX_TITLE_CHARS]
         self.drop_panel(name)
         self.panels[name] = self.page_entry(files, source) | {"title": title}
         if name == "releases":
