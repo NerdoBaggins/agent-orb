@@ -239,7 +239,7 @@ def copilot_log(tmp_path, session, events):
     from orb import copilot
     log = copilot.events_path(tmp_path, session)
     log.parent.mkdir(parents=True, exist_ok=True)
-    log.write_text("".join(json.dumps(e) + "\n" for e in events), encoding="utf-8")
+    log.write_text("".join(json.dumps(e) + "\n" for e in events), encoding="utf-8", newline="")
     return log
 
 
@@ -255,7 +255,7 @@ def feed_texts(link):
 
 
 def appended(log, text):
-    with log.open("a", encoding="utf-8") as f:
+    with log.open("a", encoding="utf-8", newline="") as f:
         f.write(text)
 
 
