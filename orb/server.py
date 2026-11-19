@@ -164,19 +164,21 @@ class ClaudeLink:
             return "Not attached: start Claude Code in this repo with " + agents.restart_command()
         return f"Attached: Claude Code · {self.session_name}" if self.session_name else "Attached: Claude Code"
 
-    def type_command(self, command: commands.Command) -> None:
+    def send_command(self, command: commands.Command) -> datetime:
         target = terminal.target_for(self.info.session_pid if self.info else None)
         if not target:
             raise terminal.NoAdapter("no session process recorded by the channel")
+        sent = datetime.now(timezone.utc)
         terminal.send_line(target, command.parts)
+        return sent
 
     def unconfirmed(self, name: str) -> str:
         return (f"/{name} was typed into the session's terminal, but its transcript does not show it ran; "
                 "if its prompt already held text, the command was typed after that text")
 
-    def ran_since(self, name: str, since: datetime) -> bool:
+    def command_ran(self, name: str, sent: datetime) -> bool:
         self.refresh()
-        return command_ran_since(self.transcript, name, since)
+        return command_ran_since(self.transcript, name, sent)
 
     def turn_open(self) -> bool:
         self.refresh()
@@ -666,16 +668,15 @@ class OrbServer:
                 self.spawn(self.send_queued())
 
     async def type_and_confirm(self, command: commands.Command) -> str | None:
-        since = datetime.now(timezone.utc)
         try:
-            await asyncio.to_thread(self.link.type_command, command)
+            sent = await asyncio.to_thread(self.link.send_command, command)
         except (terminal.NoAdapter, agents.LinkError) as e:
             return str(e)
         log.info("command /%s sent to the session", command.name)
         confirm_until = time.monotonic() + COMMAND_CONFIRM_S.get(command.name, COMMAND_CONFIRM_DEFAULT_S)
         while time.monotonic() < confirm_until:
             await asyncio.sleep(COMMAND_POLL_S)
-            if await asyncio.to_thread(self.link.ran_since, command.name, since):
+            if await asyncio.to_thread(self.link.command_ran, command.name, sent):
                 log.info("command /%s ran", command.name)
                 return None
         return self.link.unconfirmed(command.name)
