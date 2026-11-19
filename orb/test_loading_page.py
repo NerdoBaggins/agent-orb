@@ -103,3 +103,33 @@ def test_the_how_to_says_the_wake_word_is_still_loading_while_speech_is_ready(tm
     asyncio.run(run_page(tmp_path, [], act, server))
     assert seen["during"] == "or hold Space while this window has focus; loading the wake word (loading the fake vad engine)"
     assert seen["shown"] is True
+
+
+@pytest.mark.timeout(60)
+@pytest.mark.parametrize("loading, load_failures, expected", [
+    ({"stt": "downloading the model, 12 of 310 MB"}, {}, "loading speech engines (stt: downloading the model, 12 of 310 MB)"),
+    ({}, {"tts": "tts engine 'kokoro' did not start"}, "speech off: tts engine 'kokoro' did not start"),
+])
+def test_a_window_opened_while_the_engines_load_shows_them_in_its_first_hint(tmp_path, loading, load_failures, expected):
+    server = attached_loading(tmp_path, {})
+    server.loading, server.load_failures = dict(loading), dict(load_failures)
+    seen = {}
+
+    async def act(page):
+        seen["hint"] = await hint(page)
+
+    asyncio.run(run_page(tmp_path, [], act, server))
+    assert seen["hint"] == expected
+
+
+@pytest.mark.timeout(60)
+def test_the_speech_hint_leaves_out_what_the_wake_word_is_saying(tmp_path):
+    server = attached_loading(tmp_path, {})
+    server.loading = {"stt": "downloading the model, 12 of 310 MB", "wake": "loading the fake vad engine"}
+    seen = {}
+
+    async def act(page):
+        seen["hint"] = await hint(page)
+
+    asyncio.run(run_page(tmp_path, [], act, server))
+    assert seen["hint"] == "loading speech engines (stt: downloading the model, 12 of 310 MB)"
