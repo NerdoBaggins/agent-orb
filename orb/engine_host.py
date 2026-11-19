@@ -108,13 +108,14 @@ class Host:
         return {"ok": True, "pid": os.getpid()}
 
     def stop(self, session: Session, message: dict) -> dict:
+        closed = self.listing(session, message)["engines"]
         with self.lock:
             self.closing = True
             self.stop_asked = True
         self.request_stop()
         if not self.stopped.wait(HOST_STOP_REPLY_S):
             return {"error": "the engine host did not finish closing its engines"}
-        return {"ok": True}
+        return {"ok": True, "closed": closed}
 
     def request_stop(self) -> None:
         self.stop_requests.put(None)

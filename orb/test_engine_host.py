@@ -655,7 +655,14 @@ def test_a_stop_is_answered_once_the_host_has_closed_its_engines_and_told_to_exi
     assert answers == []
     host.stopped.set()
     thread.join(10)
-    assert answers == [{"ok": True}]
+    assert answers == [{"ok": True, "closed": []}]
+
+
+def test_a_stop_reply_names_the_engines_it_closed(host):
+    session, _ = join(host)
+    host.stopped.set()
+    listed = host.listing(session, {})["engines"]
+    assert listed and host.handle(session, {"op": "stop"}) == {"ok": True, "closed": listed}
 
 
 def test_a_stop_the_host_does_not_finish_in_time_is_an_error_reply(host, monkeypatch):
@@ -675,7 +682,7 @@ def test_a_stop_on_the_wire_leaves_the_connection_answering_other_ops_and_marks_
     wire.send({"op": "ping"})
     assert json.loads(wire.client.recv(1024))["ok"] is True and not host.replied.is_set()
     host.stopped.set()
-    assert json.loads(wire.client.recv(1024)) == {"ok": True}
+    assert json.loads(wire.client.recv(1024)) == {"ok": True, "closed": []}
     assert host.replied.wait(10)
 
 

@@ -332,20 +332,22 @@ def cmd_engines(args) -> int:
     except engine_client.HostDown as e:
         print(f"orb: {e}", file=sys.stderr)
         return 1
-    if not running:
-        print("no shared speech engines are running" if running is None else "the engine host is running no engines")
-        return 0
-    print("\n".join(engine_client.describe(running)))
+    print("\n".join(engine_client.describe(running)) if running else "no shared speech engines are running")
     return 0
 
 
 def cmd_engines_stop(home: Path) -> int:
     try:
-        stopped = engine_client.stop_engines(home)
+        closed = engine_client.stop_engines(home)
     except EngineError as e:
         print(f"orb: {e}", file=sys.stderr)
         return 1
-    print("stopped the engine host and its engines" if stopped else "no shared speech engines are running")
+    if closed is None:
+        print("no shared speech engines are running")
+        return 0
+    for engine in engine_client.in_listing_order(closed):
+        print(f"closed {engine_client.engine_line(engine)}")
+    print("stopped the engine host and its engines")
     return 0
 
 

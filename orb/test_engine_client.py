@@ -253,9 +253,11 @@ def test_a_stop_gives_its_reply_and_its_lock_one_limit_between_them(tmp_path, mo
     assert waited == [pytest.approx(engine_client.HOST_STOP_WAIT_S - 4.0)]
 
 
-def test_a_stop_that_answers_ok_and_frees_the_lock_succeeds_and_sends_one_stop(tmp_path, monkeypatch):
-    link, root, stop = stopping(tmp_path, monkeypatch, {"ok": True})
-    stop()
+@pytest.mark.parametrize("reply, closed", [({"ok": True, "closed": [{"kind": "stt"}]}, [{"kind": "stt"}]), ({"ok": True}, [])],
+                         ids=["naming what it closed", "from a host that names nothing"])
+def test_a_stop_that_answers_ok_and_frees_the_lock_returns_what_it_closed_and_sends_one_stop(tmp_path, monkeypatch, reply, closed):
+    link, root, stop = stopping(tmp_path, monkeypatch, reply)
+    assert stop() == closed
     assert link.sent == [{"op": "stop"}] and link.closed
 
 
@@ -275,7 +277,7 @@ def test_a_host_recorded_with_another_version_whose_pid_now_belongs_to_another_p
 
 def test_stopping_engines_with_no_host_recorded_says_so_and_asks_nothing(tmp_path, monkeypatch):
     monkeypatch.setattr(engine_client, "stop_host", lambda *args: pytest.fail("stopped a host that was not there"))
-    assert engine_client.stop_engines(tmp_path) is False
+    assert engine_client.stop_engines(tmp_path) is None
 
 
 def test_stopping_engines_whose_recorded_host_process_is_gone_says_there_is_none_and_asks_nothing(tmp_path, monkeypatch):
@@ -284,15 +286,15 @@ def test_stopping_engines_whose_recorded_host_process_is_gone_says_there_is_none
     gone.wait()
     record_host(tmp_path, root, pid=gone.pid)
     monkeypatch.setattr(engine_client, "stop_host", lambda *args: pytest.fail("stopped a host that was gone"))
-    assert engine_client.stop_engines(tmp_path, root) is False
+    assert engine_client.stop_engines(tmp_path, root) is None
 
 
 def test_stopping_engines_stops_the_recorded_host_of_this_plugin_copy(tmp_path, monkeypatch):
     root = make_copy(tmp_path / "checkout", "1.0.0", git="folder")
     record_host(tmp_path, root)
     stopped = []
-    monkeypatch.setattr(engine_client, "stop_host", lambda home, host_identity, record: stopped.append((host_identity, record.pid)))
-    assert engine_client.stop_engines(tmp_path, root) is True
+    monkeypatch.setattr(engine_client, "stop_host", lambda home, host_identity, record: stopped.append((host_identity, record.pid)) or ["closed"])
+    assert engine_client.stop_engines(tmp_path, root) == ["closed"]
     assert stopped == [(engine_wire.identity(root), os.getpid())]
 
 
