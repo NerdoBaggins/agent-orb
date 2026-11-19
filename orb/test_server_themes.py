@@ -411,7 +411,7 @@ def test_a_theme_naming_a_speech_engine_that_fails_to_load_keeps_the_voice_and_s
         async with await client_for(server) as c:
             await switch_to_hud(c)
             note = server.snapshot()["theme"]["note"]
-            assert server.tts is old and not old.closed and "broken speech engine, which did not load" in note and "'broken' failed to load" in note
+            assert server.tts is old and not old.closed and "broken speech engine, which did not load" in note and "'broken' failed to load" in note and "told to fail" in note
             saved = json.loads(private_config_path(tmp_path / "home", server.repo_root).read_text(encoding="utf-8"))
             assert "tts" not in saved
     run(go())

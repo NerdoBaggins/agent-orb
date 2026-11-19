@@ -978,7 +978,7 @@ def test_a_transcription_engine_that_fails_to_load_leaves_the_current_one_listen
             await ws.send_json({"type": "stt_engine", "name": "broken"})
             await ws.receive_json()
             notice = await ws.receive_json()
-            assert notice["type"] == "notice" and "transcription broken" in notice["text"] and "'broken' failed to load" in notice["text"]
+            assert notice["type"] == "notice" and "transcription broken" in notice["text"] and "'broken' failed to load" in notice["text"] and "told to fail" in notice["text"]
             assert server.stt is old and not private_config_path(tmp_path / "home", server.repo_root).exists()
     run(go())
 
