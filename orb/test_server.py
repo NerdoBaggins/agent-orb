@@ -1014,10 +1014,11 @@ def test_switching_the_voice_loads_the_engine_saves_it_for_this_repo_and_tells_e
 
 
 @pytest.mark.timeout(60)
-def test_a_voice_that_fails_to_load_leaves_the_current_one_speaking_and_says_why(tmp_path, monkeypatch):
+@pytest.mark.parametrize("default", ["standin", "broken"], ids=["with a default to fall back on", "when it is the default"])
+def test_a_new_engine_that_fails_to_load_leaves_the_old_in_place_with_the_reason(tmp_path, monkeypatch, default):
     user_tts_engine(tmp_path, "standin")
-    monkeypatch.setitem(engines.DEFAULT, "tts", "standin")
     user_tts_engine(tmp_path, "broken")
+    monkeypatch.setitem(engines.DEFAULT, "tts", default)
     (tmp_path / "home" / ".config" / "orb").mkdir(parents=True)
     (tmp_path / "home" / ".config" / "orb" / "config.json").write_text(
         json.dumps({"tts": {"broken": {"fail": True}}}), encoding="utf-8")
@@ -1032,7 +1033,8 @@ def test_a_voice_that_fails_to_load_leaves_the_current_one_speaking_and_says_why
             await ws.receive_json()
             notice = await ws.receive_json()
             assert notice["type"] == "notice" and "voice broken" in notice["text"] and "told to fail" in notice["text"]
-            assert server.tts is old and not private_config_path(tmp_path / "home", server.repo_root).exists()
+            assert server.tts is old and not hasattr(old, "closed") and server.config["tts"]["engine"] != "broken"
+            assert not private_config_path(tmp_path / "home", server.repo_root).exists()
     run(go())
 
 
