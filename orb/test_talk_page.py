@@ -195,3 +195,38 @@ def test_a_mic_click_while_the_key_hold_is_still_opening_the_mic_does_not_cancel
         await page.evaluate("(async () => { const mic = await real(); for (const o of opens) o.resolve(mic); })()")
 
     assert state_after(tmp_path, hold_key_click_mic_then_open, listening) == RECORDING
+
+
+def notice_text(page):
+    return page.evaluate("document.getElementById('notice').textContent")
+
+
+@pytest.mark.timeout(60)
+def test_a_key_hold_whose_open_a_device_change_superseded_records_on_the_new_open(tmp_path):
+    async def hold_through_a_device_change_then_fail_the_old_open(page):
+        await page.evaluate(CONTROLLED_MIC)
+        await page.keyboard.down("Space")
+        await page.wait_for_function("window.opens.length > 0")
+        await page.evaluate("navigator.mediaDevices.dispatchEvent(new Event('devicechange'))")
+        await page.evaluate("opens[0].reject(new Error('gone'))")
+        await page.wait_for_function("window.opens.length > 1", timeout=MIC_OPENS_S * 1000)
+        await page.evaluate("(async () => { opens[1].resolve(await real()); })()")
+
+    assert state_after(tmp_path, hold_through_a_device_change_then_fail_the_old_open, listening) == RECORDING
+
+
+@pytest.mark.timeout(60)
+def test_a_superseded_open_that_fails_shows_no_error_during_the_recording(tmp_path):
+    seen = {}
+
+    async def act(page):
+        await page.evaluate(CONTROLLED_MIC)
+        await page.keyboard.press("Space")
+        await page.evaluate("navigator.mediaDevices.dispatchEvent(new Event('devicechange'))")
+        await page.keyboard.down("Space")
+        await page.evaluate("(async () => { opens[0].reject(new Error('gone')); await tick(); opens[1].resolve(await real()); })()")
+        await page.wait_for_function("document.body.dataset.state === 'listening'", timeout=MIC_OPENS_S * 1000)
+        seen["notice"] = await notice_text(page)
+
+    asyncio.run(run_page(tmp_path, [], act, attached(tmp_path)))
+    assert seen["notice"] == ""
