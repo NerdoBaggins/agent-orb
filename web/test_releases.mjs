@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
-const { explainChange, explainRelease, releaseRows, TEXT_SIZES, clampTextSize, nextTextSize, storedTextSize } = createRequire(import.meta.url)("./releases.js");
+const { explainChange, explainRelease, releaseRows, TEXT_SIZES, nextTextSize, storedTextSize } = createRequire(import.meta.url)("./releases.js");
 
 const released = { version: "0.4.0", date: "2026-10-30", sections: [
   { heading: "Changed", entries: ["The orb opens only in Chrome (#97)."] },
@@ -59,10 +59,6 @@ test("a saved size that is missing, empty, zero, negative or not a number reads 
 
 test("a saved size out of range reads as the nearest size in range", () => {
   assert.deepEqual(["40", "5", "20"].map(storedTextSize), [28, 12, 20]);
-});
-
-test("a size is brought between 12 and 28", () => {
-  assert.deepEqual([40, 5, 20].map(clampTextSize), [28, 12, 20]);
 });
 
 test("every other change within a section is striped, starting plain, and the striping starts over in the next section", () => {
