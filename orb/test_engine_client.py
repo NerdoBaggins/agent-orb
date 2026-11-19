@@ -78,6 +78,14 @@ def test_a_missing_uv_names_the_fix(tmp_path, monkeypatch):
         engine_client.spawn_host(tmp_path, "0123456789ab", "1.0.0")
 
 
+def test_a_launch_from_a_removed_plugin_folder_says_to_reopen_the_orb_for_a_host_spawn(tmp_path, monkeypatch):
+    monkeypatch.setattr(engine_client, "PLUGIN_ROOT", tmp_path / "swept")
+    monkeypatch.setattr(engine_client.subprocess, "Popen", lambda *args, **kwargs: pytest.fail("started a host from a removed folder"))
+    with pytest.raises(EngineError) as e:
+        attach(attachment(tmp_path))
+    assert str(e.value) == "stt engine 'fake' cannot start: its plugin folder was removed by an update; reopen the orb"
+
+
 def test_the_engine_host_is_started_with_the_uv_that_was_found(tmp_path, monkeypatch):
     started = []
     monkeypatch.setattr(engine_client.shutil, "which", lambda name: "/found/bin/uv")
