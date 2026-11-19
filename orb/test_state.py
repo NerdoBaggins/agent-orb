@@ -161,6 +161,7 @@ def test_running_server_is_none_when_the_pid_is_dead_or_the_record_is_malformed(
 def test_pid_alive_sees_this_process_and_not_a_dead_one():
     assert pid_alive(os.getpid())
     assert not pid_alive(0)
+    assert not pid_alive(2**31)
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Windows only: a held handle of an exited process")

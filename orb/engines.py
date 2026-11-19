@@ -23,7 +23,7 @@ import numpy as np
 from orb import PLUGIN_ROOT
 from orb.audio import SAMPLE_RATE
 from orb.pages import plain_name
-from orb.state import kill_pid
+from orb.state import PID_LIMIT, kill_pid
 
 log = logging.getLogger("orb")
 ANSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
@@ -370,9 +370,6 @@ class EngineProcess:
             log.warning("%s did not exit within %.0f s of its input closing and was killed", self.label, EXIT_WAIT_S)
             return False
         return True
-
-
-PID_LIMIT = 2**31
 
 
 def names_one_process(pid: object) -> bool:

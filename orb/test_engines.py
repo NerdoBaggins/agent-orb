@@ -692,7 +692,7 @@ time.sleep(3600)
 """
 
 
-@pytest.mark.parametrize("reported", ["0", "1", "-1", "-4242", "OWN", str(2**31 + 5)], ids=["its process group", "the first process", "every process", "a process group", "the host itself", "beyond any pid"])
+@pytest.mark.parametrize("reported", ["0", "1", "-1", "-4242", "OWN", str(2**31)], ids=["its process group", "the first process", "every process", "a process group", "the host itself", "beyond any pid"])
 def test_a_load_reply_naming_a_pid_that_is_not_one_engine_fails_the_load_and_kills_only_the_launcher(tmp_path, monkeypatch, reported):
     reported = str(os.getpid()) if reported == "OWN" else reported
     write_engine(tmp_path / ".config" / "voice-engines", "tts", "liar", HOLDS_AFTER_REPORTING.replace("PID", reported),

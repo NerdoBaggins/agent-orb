@@ -36,7 +36,7 @@ def port_free(port: int) -> bool:
 
 def stable_port(last: dict | None) -> int:
     """The port the last server for this repo and agent used, so Chrome keeps the mic permission for the origin."""
-    if last and isinstance(last.get("port"), int) and port_free(last["port"]):
+    if last and type(last.get("port")) is int and 0 < last["port"] < 65536 and port_free(last["port"]):
         return last["port"]
     return free_port()
 

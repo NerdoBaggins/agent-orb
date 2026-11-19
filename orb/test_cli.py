@@ -545,3 +545,9 @@ def test_orb_engines_fails_loudly_when_a_recorded_host_does_not_answer(tmp_path,
     monkeypatch.setattr(cli.engine_client, "running_engines", down)
     assert cli.main(["engines", "--home", str(tmp_path)]) == 1
     assert "does not answer" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("port", [70000, 0, True], ids=["above the last port", "no port", "a boolean"])
+def test_a_last_port_no_socket_can_use_is_replaced_by_a_free_one(monkeypatch, port):
+    monkeypatch.setattr(cli, "free_port", lambda: 4321)
+    assert cli.stable_port({"port": port}) == 4321

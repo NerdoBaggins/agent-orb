@@ -122,7 +122,7 @@ def test_a_record_that_is_not_the_current_shape_is_no_record(tmp_path, record):
     assert engine_wire.read_record(tmp_path, "abc123") is None
 
 
-@pytest.mark.parametrize("pid", [0, -1, 1, True, 2**31 + 5], ids=["its process group", "every process", "the first process", "a boolean", "beyond any pid"])
+@pytest.mark.parametrize("pid", [0, -1, 1, True, 2**31], ids=["its process group", "every process", "the first process", "a boolean", "beyond any pid"])
 def test_a_record_whose_pid_cannot_name_one_process_is_no_record(tmp_path, pid):
     engine_wire.record_file(tmp_path, "abc123").parent.mkdir(parents=True)
     engine_wire.record_file(tmp_path, "abc123").write_text(

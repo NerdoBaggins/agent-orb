@@ -218,8 +218,11 @@ def user_only(path: Path) -> None:
         os.chmod(path, stat.S_IRWXU if path.is_dir() else stat.S_IRUSR | stat.S_IWUSR)
 
 
+PID_LIMIT = 2**31
+
+
 def pid_alive(pid: int) -> bool:
-    if pid <= 0:
+    if not 0 < pid < PID_LIMIT:
         return False
     if sys.platform == "win32":
         import ctypes
