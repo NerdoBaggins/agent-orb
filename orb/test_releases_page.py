@@ -94,6 +94,17 @@ def test_every_release_and_change_has_a_speaker_button_and_a_heading_has_none(tm
 
 
 @pytest.mark.timeout(60)
+def test_the_text_size_controls_carry_no_speaker_button(tmp_path):
+    async def count(page, base):
+        await page.keyboard.press("r")
+        await page.wait_for_selector("#builtin-releases .rn-zoom button")
+        return await page.evaluate("() => document.querySelectorAll('#builtin-releases .rn-zoom .rn-explain').length")
+
+    _, speakers = asyncio.run(releases_page(tmp_path, count))
+    assert speakers == 0
+
+
+@pytest.mark.timeout(60)
 def test_every_speaker_button_has_an_accessible_name(tmp_path):
     async def names(page, base):
         await page.keyboard.press("r")
