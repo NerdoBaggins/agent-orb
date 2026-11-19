@@ -143,7 +143,7 @@ if __name__ == "__main__":
             if req["op"] == "load":
                 progress("loading the transcription model")
                 from moonshine_onnx import MoonshineOnnxModel, load_tokenizer
-                with ticking("downloading the model"):
+                with ticking("loading the model, downloading it on the first run"):
                     model = MoonshineOnnxModel(model_name=req["settings"].get("model", DEFAULT_MODEL))
                     tokenizer = load_tokenizer()
                 out = {"ok": True, "pid": os.getpid()}
