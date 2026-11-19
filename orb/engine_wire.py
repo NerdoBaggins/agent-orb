@@ -91,7 +91,7 @@ class HostRecord:
 def read_record(home: Path, host_identity: str) -> HostRecord | None:
     data = read_json(record_file(home, host_identity))
     try:
-        if data and isinstance(data["port"], int) and isinstance(data["token"], str) and names_one_process(data["pid"]) \
+        if data and type(data["port"]) is int and 0 < data["port"] < 65536 and isinstance(data["token"], str) and names_one_process(data["pid"]) \
                 and (data["version"] is None or isinstance(data["version"], str)):
             return HostRecord(data["port"], data["token"], data["pid"], data["version"])
     except KeyError:

@@ -372,8 +372,11 @@ class EngineProcess:
         return True
 
 
+PID_LIMIT = 2**31
+
+
 def names_one_process(pid: object) -> bool:
-    return type(pid) is int and pid > 1
+    return type(pid) is int and 1 < pid < PID_LIMIT
 
 
 def killable(pid: object) -> bool:
