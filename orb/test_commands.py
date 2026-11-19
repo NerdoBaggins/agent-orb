@@ -59,10 +59,12 @@ def test_an_argument_that_is_not_text_is_refused():
 README = (PLUGIN_ROOT / "README.md").read_text(encoding="utf-8")
 
 
-def test_the_commands_the_readme_says_take_an_argument_are_the_ones_the_code_lets_take_one():
+def test_the_commands_the_readme_says_take_an_argument_are_the_ones_that_do():
     listed = re.search(r"Only ((?:`[a-z-]+`(?:, | and ))+`[a-z-]+`) are passed one", README).group(1)
     named = re.findall(r"`([a-z-]+)`", listed)
     assert set(named) == TAKES_ARGUMENT
+    for name in named:
+        assert parse(name, "x", [name]).line == f"/{name} x"
 
 
 def test_the_readme_states_the_argument_limit_the_hold_and_the_default_commands_the_code_uses():
