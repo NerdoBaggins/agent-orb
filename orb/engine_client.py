@@ -61,16 +61,17 @@ def reach_host(home: Path, host_identity: str) -> Link | None:
     return None if record is None else answering_link(record)
 
 
-def stop_host(home: Path, host_identity: str, record: engine_wire.HostRecord) -> None:
-    """Asks the recorded host to stop and returns once it has replied, which it does after every engine process is gone,
-    and released its lifetime lock, within HOST_STOP_WAIT_S of the call. Where nothing accepts the connection there is
-    nothing to ask, and only the lifetime lock is waited for."""
+def stop_host(home: Path, host_identity: str, record: engine_wire.HostRecord) -> list[dict]:
+    """Asks the recorded host to stop and returns the engines it closed once it has replied, which it does after every
+    engine process is gone, and released its lifetime lock, within HOST_STOP_WAIT_S of the call. Where nothing accepts
+    the connection there is nothing to ask, and only the lifetime lock is waited for."""
     deadline = time.monotonic() + HOST_STOP_WAIT_S
     failure = EngineError(f"the engine host did not stop; see {engine_wire.log_file(home, host_identity)}")
     try:
         link = engine_wire.connect(record)
     except WireError:
         link = None
+    closed = []
     if link is not None:
         try:
             reply = link.request({"op": "stop"}, max(deadline - time.monotonic(), 0.01))
@@ -80,10 +81,12 @@ def stop_host(home: Path, host_identity: str, record: engine_wire.HostRecord) ->
             link.close()
         if "error" in reply:
             raise failure
+        closed = reply.get("closed", [])
     gone = engine_wire.hold_lock(engine_wire.lock_file(home, host_identity), max(deadline - time.monotonic(), 0.01))
     if gone is None:
         raise failure
     gone.close()
+    return closed
 
 
 def replace_outdated_host(home: Path, host_identity: str, version: str) -> None:
@@ -290,24 +293,31 @@ def running_engines(home: Path, plugin_root: Path = PLUGIN_ROOT) -> list[dict] |
         link.close()
 
 
-def stop_engines(home: Path, plugin_root: Path = PLUGIN_ROOT) -> bool:
-    """Stops this plugin copy's engine host and every engine it runs; False when no host is recorded alive."""
+def stop_engines(home: Path, plugin_root: Path = PLUGIN_ROOT) -> list[dict] | None:
+    """Stops this plugin copy's engine host and every engine it runs, returning those it closed; None when no host is
+    recorded alive."""
     host_identity = engine_wire.identity(plugin_root)
     record = engine_wire.read_record(home, host_identity)
     if record is None or not pid_alive(record.pid):
-        return False
-    stop_host(home, host_identity, record)
-    return True
+        return None
+    return stop_host(home, host_identity, record)
 
 
 def describe(running: list[dict]) -> list[str]:
     lines = []
-    for engine in sorted(running, key=lambda e: (e["kind"], e["name"], settings_text(e["settings"]))):
+    for engine in in_listing_order(running):
         owners = engine["owners"]
-        lines.append(f"{engine['kind']} {engine['name']} {settings_text(engine['settings'])}  engine pid {engine['pid']}  "
-                     + orbs_text(owners, engine["grace_left"]))
+        lines.append(f"{engine_line(engine)}  {orbs_text(owners, engine['grace_left'])}")
         lines += [f"  {o['agent']} in {o['repo']} (orb pid {o['pid']})" for o in sorted(owners, key=lambda o: (o["repo"], o["agent"]))]
     return lines
+
+
+def in_listing_order(running: list[dict]) -> list[dict]:
+    return sorted(running, key=lambda e: (e["kind"], e["name"], settings_text(e["settings"])))
+
+
+def engine_line(engine: dict) -> str:
+    return f"{engine['kind']} {engine['name']} {settings_text(engine['settings'])}  engine pid {engine['pid']}"
 
 
 def orbs_text(owners: list[dict], grace_left: float | None) -> str:

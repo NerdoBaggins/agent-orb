@@ -502,10 +502,10 @@ def test_orb_engines_says_so_when_no_host_runs(tmp_path, capsys):
     assert "no shared speech engines are running" in capsys.readouterr().out
 
 
-def test_orb_engines_says_so_when_the_host_runs_nothing(tmp_path, monkeypatch, capsys):
+def test_orb_engines_with_a_host_running_nothing_says_no_engines_are_running(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(cli.engine_client, "running_engines", lambda home: [])
     assert cli.main(["engines", "--home", str(tmp_path)]) == 0
-    assert "the engine host is running no engines" in capsys.readouterr().out
+    assert capsys.readouterr().out == "no shared speech engines are running\n"
 
 
 def test_orb_engines_stop_says_so_when_no_host_runs(tmp_path, capsys):
@@ -513,8 +513,18 @@ def test_orb_engines_stop_says_so_when_no_host_runs(tmp_path, capsys):
     assert capsys.readouterr().out == "no shared speech engines are running\n"
 
 
-def test_orb_engines_stop_says_it_stopped_the_host_when_one_ran(tmp_path, monkeypatch, capsys):
-    monkeypatch.setattr(cli.engine_client, "stop_engines", lambda home: True)
+def test_orb_engines_stop_prints_each_engine_it_closed_then_that_it_stopped_the_host(tmp_path, monkeypatch, capsys):
+    running = [{"kind": "tts", "name": "kokoro", "settings": {}, "pid": 4160, "owners": [], "grace_left": 81},
+               {"kind": "stt", "name": "moonshine", "settings": {"model": "base"}, "pid": 4121, "owners": [], "grace_left": None}]
+    monkeypatch.setattr(cli.engine_client, "stop_engines", lambda home: running)
+    assert cli.main(["engines", "stop", "--home", str(tmp_path)]) == 0
+    assert capsys.readouterr().out == ('closed stt moonshine {"model": "base"}  engine pid 4121\n'
+                                       "closed tts kokoro {}  engine pid 4160\n"
+                                       "stopped the engine host and its engines\n")
+
+
+def test_orb_engines_stop_of_a_host_running_nothing_says_only_that_it_stopped_the_host(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(cli.engine_client, "stop_engines", lambda home: [])
     assert cli.main(["engines", "stop", "--home", str(tmp_path)]) == 0
     assert capsys.readouterr().out == "stopped the engine host and its engines\n"
 
