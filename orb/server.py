@@ -2113,9 +2113,7 @@ def page_sender(message: dict) -> str:
     return f'[sent by the orb {kind} "{name}", not spoken]'
 
 
-def engine_launcher(config, repo: Path, agent: str):
-    if not config["engines"]["shared"]:
-        return start
+def engine_launcher(repo: Path, agent: str):
     return engine_client.launcher({"pid": os.getpid(), "repo": str(repo), "agent": agent})
 
 
@@ -2180,7 +2178,7 @@ def main(argv=None) -> None:
     config = load_for(repo, args.home)
     for warning in config.warnings:
         log.warning(warning)
-    launch = engine_launcher(config, repo, args.agent)
+    launch = engine_launcher(repo, args.agent)
     capture, capture_off = start_capture(config["capture"], args.home)
     link = make_link(args.agent, state_dir(args.home, repo), config)
     server = OrbServer(repo, args.agent, args.port, token, args.home, link, capture=capture, capture_off=capture_off, launch=launch,

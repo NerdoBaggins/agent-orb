@@ -437,17 +437,13 @@ def test_a_command_written_with_its_slash_is_refused(tmp_path):
         load_layers(tmp_path, user={"commands": ["/compact"]})
 
 
-def test_engines_are_shared_unless_a_layer_says_otherwise(tmp_path):
-    assert load_layers(tmp_path)["engines"] == {"shared": True}
-    assert load_layers(tmp_path, user={"engines": {"shared": False}})["engines"] == {"shared": False}
+def test_a_leftover_engines_key_in_a_user_file_is_an_unknown_key_warning(tmp_path):
+    cfg = load_layers(tmp_path, user={"engines": {"shared": False}})
+    assert "engines" not in cfg.values
+    assert [w for w in cfg.warnings if "unknown key 'engines' ignored" in w and "user" in w]
 
 
-@pytest.mark.parametrize("value, problem", [({"shared": "no"}, "engines.shared must be true or false"),
-                                            ({"share": True}, "engines.share is not a setting")])
-def test_a_bad_engines_section_is_refused(tmp_path, value, problem):
-    with pytest.raises(ConfigError, match=problem):
-        load_layers(tmp_path, user={"engines": value})
-
-
-def test_a_repo_cannot_turn_engine_sharing_off(tmp_path):
-    assert load_layers(tmp_path, repo={"engines": {"shared": False}})["engines"] == {"shared": True}
+def test_the_example_config_loads_without_warnings(tmp_path):
+    example = Path(__file__).resolve().parent.parent / "config.example.json"
+    cfg = load(example, tmp_path / "repo.json", tmp_path / "private.json")
+    assert cfg.warnings == []
