@@ -61,14 +61,14 @@ def test_load_for_reads_the_private_file_under_the_repo_id(tmp_path):
 # ---- per-engine settings ----
 
 def test_a_layer_naming_only_the_engine_inherits_that_engines_block_from_below(tmp_path):
-    cfg = load_layers(tmp_path, user={"tts": {"voxtral": {"voice": "v1"}, "kokoro": {"lang": "en-us"}}},
-                      private={"tts": {"engine": "voxtral"}})
-    assert engine_settings(cfg["tts"]) == {"engine": "voxtral", "voice": "v1"}
+    cfg = load_layers(tmp_path, user={"tts": {"cloud": {"voice": "v1"}, "kokoro": {"lang": "en-us"}}},
+                      private={"tts": {"engine": "cloud"}})
+    assert engine_settings(cfg["tts"]) == {"engine": "cloud", "voice": "v1"}
 
 
 def test_the_selected_engine_gets_no_key_from_another_engines_block(tmp_path):
-    cfg = load_layers(tmp_path, private={"tts": {"engine": "voxtral", "voxtral": {"voice": "v1"}}})
-    assert tts_call_settings(cfg["tts"], "claude", "voxtral") == {"speed": DEFAULTS["tts"]["speed"], "voice": "v1"}
+    cfg = load_layers(tmp_path, private={"tts": {"engine": "cloud", "cloud": {"voice": "v1"}}})
+    assert tts_call_settings(cfg["tts"], "claude", "cloud") == {"speed": DEFAULTS["tts"]["speed"], "voice": "v1"}
 
 
 def test_tts_call_settings_carry_the_orbs_speed_and_the_engines_voice_and_lang():

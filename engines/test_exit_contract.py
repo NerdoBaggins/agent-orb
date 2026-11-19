@@ -165,6 +165,11 @@ def test_every_request_reply_engine_carries_the_exit_shim_verbatim():
         assert "sys.stdin" not in text.replace(EXIT_CONTRACT, ""), script
 
 
+def test_the_readme_quotes_the_exit_shim_verbatim():
+    readme = (ENGINES.parent / "README.md").read_text(encoding="utf-8")
+    assert f"```python\n{EXIT_CONTRACT}```" in readme
+
+
 SCRIPTS = sorted(path for kind in KINDS for path in (ENGINES / kind).glob("*/engine.py"))
 
 
