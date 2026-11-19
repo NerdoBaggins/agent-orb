@@ -96,7 +96,7 @@ class Host:
         """The reply, or None when the connection was answered through `session.send` or is being ended instead."""
         op = message.get("op")
         handler = {"attach": self.attach, "ready": self.ready, "call": self.call, "list": self.listing, "ping": self.ping,
-                   "stop": self.stop}.get(op)
+                   "stop": self.stop}.get(op) if isinstance(op, str) else None
         if handler is None:
             return {"error": f"unknown op {op!r}"}
         try:
