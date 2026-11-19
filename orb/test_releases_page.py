@@ -89,8 +89,8 @@ def test_every_release_and_change_has_a_speaker_button_and_a_heading_has_none(tm
           row => [row.classList[0], row.querySelectorAll('.rn-explain').length])""")
 
     _, rows = asyncio.run(releases_page(tmp_path, count))
-    assert rows and {kind: n for kind, n in rows if kind != "rn-section"} == {"rn-release": 1, "rn-entry": 1}
-    assert all(n == 0 for kind, n in rows if kind == "rn-section")
+    assert {kind for kind, _ in rows} == {"rn-release", "rn-section", "rn-entry"}
+    assert all(n == (0 if kind == "rn-section" else 1) for kind, n in rows)
 
 
 @pytest.mark.timeout(60)
