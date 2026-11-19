@@ -103,6 +103,13 @@ def check_engine(kind: str, settings: dict, home: Path) -> Check:
         return Check(f"{kind} engine", False, str(e))
 
 
+def check_engine_protocol(home: Path) -> Check:
+    read, refused = engines.refusals(home)
+    if refused:
+        return Check("engine protocol", False, "; ".join(f"{r.kind} engine {r.name!r} ({r.folder}): {r.text}" for r in refused))
+    return Check("engine protocol", True, f"{read} engines, all protocol {engines.PROTOCOL}")
+
+
 def check_engine_host(home: Path) -> Check:
     try:
         running = engine_client.running_engines(home)
@@ -150,6 +157,7 @@ def run(repo: Path, home: Path, engines: bool = True) -> list[Check]:
     checks.append(check_channel(repo, home))
     checks.append(check_copilot(repo, home))
     checks.append(check_engine_host(home))
+    checks.append(check_engine_protocol(home))
     if engines:
         checks.append(check_engine("stt", engine_settings(config["stt"]), home))
         checks.append(check_engine("tts", engine_settings(config["tts"]), home))

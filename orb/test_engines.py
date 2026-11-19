@@ -202,6 +202,14 @@ def test_a_folder_without_a_manifest_or_with_bad_json_is_refused(tmp_path):
         read_manifest(folder, "tts")
 
 
+def test_a_manifest_that_cannot_be_decoded_is_refused_as_unreadable_not_as_missing(tmp_path):
+    folder = tmp_path / "tts" / "a"
+    folder.mkdir(parents=True)
+    (folder / "engine.json").write_bytes(b"\xff\xfe{")
+    with pytest.raises(EngineError, match=r"engine.json cannot be read: "):
+        read_manifest(folder, "tts")
+
+
 def test_the_builtin_manifests_validate():
     for kind in engines.KINDS:
         for folder in sorted(f for f in (BUILTIN_DIR / kind).iterdir() if f.is_dir()):

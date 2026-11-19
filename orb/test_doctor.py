@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from orb import doctor
+from orb import doctor, engines
 from orb.copilot import CopilotLink
 from orb import capture as capture_module
 from orb.doctor import Check, check_capture, report, run
@@ -15,7 +15,7 @@ def test_run_covers_tools_browser_config_skin_links_and_engines(tmp_path, monkey
     (home / ".config" / "orb").mkdir(parents=True)
     (home / ".config" / "orb" / "config.json").write_text(json.dumps({"stt": {"engine": "fake"}, "tts": {"engine": "fake"}, "skin": "nope"}), encoding="utf-8")
     names = [c.name for c in run(repo, home)]
-    assert names == ["uv", "node", "browser", "config", "skin", "theme", "theme speech", "panel actions", "widgets", "claude channel", "copilot door", "engine host", "stt engine", "tts engine"]
+    assert names == ["uv", "node", "browser", "config", "skin", "theme", "theme speech", "panel actions", "widgets", "claude channel", "copilot door", "engine host", "engine protocol", "stt engine", "tts engine"]
     by = {c.name: c for c in run(repo, home)}
     assert by["skin"].ok is False and "no skin named 'nope'" in by["skin"].detail
     assert by["claude channel"].ok is False and "dangerously-load-development-channels" in by["claude channel"].detail
@@ -282,3 +282,84 @@ def test_a_recorded_host_that_does_not_answer_fails(tmp_path, monkeypatch):
     monkeypatch.setattr(doctor.engine_client, "running_engines", down)
     check = doctor.check_engine_host(tmp_path)
     assert not check.ok and "does not answer" in check.detail
+
+
+BUILTIN_ENGINES = len([m for m in engines.BUILTIN_DIR.glob("*/*/engine.json") if m.parent.name not in engines.FIXTURES])
+OLD = {"name": "old", "version": "1", "kind": "tts"}
+
+
+def users_engine(home, kind, name, manifest=None):
+    folder = home / ".config" / "voice-engines" / kind / name
+    folder.mkdir(parents=True)
+    if manifest is not None:
+        (folder / "engine.json").write_text(manifest if isinstance(manifest, str) else json.dumps(manifest), encoding="utf-8")
+    return folder
+
+
+def test_engine_protocol_fails_on_a_refused_engine_in_the_users_folder_even_when_no_config_names_it(tmp_path):
+    folder = users_engine(tmp_path, "tts", "old", OLD)
+    check = {c.name: c for c in run(tmp_path / "repo", tmp_path, engines=False)}["engine protocol"]
+    assert not check.ok
+    assert check.detail == f"tts engine 'old' ({folder}): {folder / 'engine.json'} has no \"protocol\": 2. This orb speaks engine protocol 2: update the engine to it (README, Speech engines, Writing one), then add \"protocol\": 2 to engine.json."
+
+
+def test_engine_protocol_passes_with_none_and_counts_the_engines(tmp_path):
+    assert doctor.check_engine_protocol(tmp_path) == Check("engine protocol", True, f"{BUILTIN_ENGINES} engines, all protocol 2")
+    users_engine(tmp_path, "tts", "mine", {**OLD, "protocol": 2, "share": False})
+    users_engine(tmp_path, "stt", "mine", {**OLD, "kind": "stt", "protocol": 2})
+    assert doctor.check_engine_protocol(tmp_path).detail == f"{BUILTIN_ENGINES + 2} engines, all protocol 2"
+
+
+def test_engine_protocol_runs_under_no_engines(tmp_path):
+    users_engine(tmp_path, "tts", "old", {**OLD, "protocol": 1})
+    by = {c.name: c for c in run(tmp_path / "repo", tmp_path, engines=False)}
+    assert "stt engine" not in by and not by["engine protocol"].ok
+
+
+@pytest.mark.parametrize("skipped", [
+    pytest.param(("tts", "fake", OLD), id="a fixture"),
+    pytest.param(("tts", "Not Plain", OLD), id="a name that is not plain"),
+    pytest.param(("tts", "empty", None), id="a folder with no engine.json"),
+])
+def test_engine_protocol_skips_what_is_not_an_engine_to_read(tmp_path, skipped):
+    users_engine(tmp_path, *skipped)
+    assert doctor.check_engine_protocol(tmp_path) == Check("engine protocol", True, f"{BUILTIN_ENGINES} engines, all protocol 2")
+
+
+def test_engine_protocol_names_an_old_engine_that_also_has_another_fault(tmp_path):
+    users_engine(tmp_path, "tts", "old", {"name": "old", "version": 1, "kind": "tts", "protocol": 1})
+    check = doctor.check_engine_protocol(tmp_path)
+    assert not check.ok and "says \"protocol\": 1" in check.detail
+
+
+@pytest.mark.parametrize("manifest, text", [
+    pytest.param("{nope", "is not valid JSON: Expecting property name enclosed in double quotes", id="invalid json"),
+    pytest.param("[]", "must hold a JSON object", id="not an object"),
+    pytest.param(b"\xff\xfe{", "cannot be read: ", id="invalid utf-8"),
+    pytest.param(None, "cannot be read: ", id="a folder named engine.json"),
+])
+def test_engine_protocol_refuses_a_manifest_that_cannot_be_read_as_an_object(tmp_path, manifest, text):
+    folder = users_engine(tmp_path, "tts", "broken")
+    if manifest is None:
+        (folder / "engine.json").unlink(missing_ok=True)
+        (folder / "engine.json").mkdir()
+    else:
+        (folder / "engine.json").write_bytes(manifest if isinstance(manifest, bytes) else manifest.encode())
+    check = doctor.check_engine_protocol(tmp_path)
+    assert not check.ok and f"tts engine 'broken' ({folder}): {folder / 'engine.json'} {text}" in check.detail
+
+
+def test_engine_protocol_names_an_engine_with_several_faults_once(tmp_path):
+    folder = users_engine(tmp_path, "tts", "both", {**OLD, "protocol": 1, "share": "no"})
+    detail = doctor.check_engine_protocol(tmp_path).detail
+    manifest = folder / "engine.json"
+    assert detail == (f"tts engine 'both' ({folder}): {manifest} says \"protocol\": 1; this orb speaks engine protocol 2. Update agent-orb or the engine."
+                      f"; {manifest} 'share' must be true or false.")
+
+
+def test_engine_protocol_names_a_share_that_is_not_a_boolean_and_every_refused_engine(tmp_path):
+    users_engine(tmp_path, "tts", "loose", {**OLD, "protocol": 2, "share": "no"})
+    users_engine(tmp_path, "stt", "older", {**OLD, "kind": "stt", "protocol": "2"})
+    detail = doctor.check_engine_protocol(tmp_path).detail
+    assert "tts engine 'loose'" in detail and "'share' must be true or false." in detail
+    assert "stt engine 'older'" in detail and "'protocol' must be the number 2." in detail
