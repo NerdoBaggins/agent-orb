@@ -8,7 +8,6 @@ import urllib.error
 import urllib.request
 from collections import deque
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
 
 from orb import agents
@@ -255,7 +254,6 @@ class CopilotLink:
         self.orb_messages: set[str] = set()  # ids of the messages the orb sent, so the feed can mark them
         self.let_go: set[str] = set()  # those Stop stopped waiting for: their replies are spoken like any other
         self.answer_ids: dict[str, str] = {}  # orb message id -> the id its replies carry
-        self.command_from: tuple[Path, int] | None = None
         self.pending: dict | None = None  # the request in flight: its log, offset, message id, whether aborted
         self.feed_tail: EventTail | None = None
         self.turn_tail: EventTail | None = None
@@ -327,29 +325,30 @@ class CopilotLink:
             time.sleep(POLL_S)
         raise agents.LinkError("Copilot has not answered after 30 minutes; it is still working in its own window")
 
-    def type_command(self, command: commands.Command) -> None:
+    def send_command(self, command: commands.Command) -> tuple[Path, int]:
         if command.name not in COMMANDS_COPILOT_LOGS:
             raise agents.LinkError(f"Copilot's event log keeps no trace of /{command.name}, so the orb runs only "
                                    + ", ".join(f"/{name}" for name in sorted(COMMANDS_COPILOT_LOGS)) + " there")
         if not self.session_id and not self.probe():
             raise agents.LinkError(self.describe(False))
         try:
-            self._queue(command)
+            return self._queue(command)
         except SessionMoved:
             if not self.probe():
                 raise agents.LinkError(self.describe(False))
-            self._queue(command)
+            return self._queue(command)
 
-    def _queue(self, command: commands.Command) -> None:
+    def _queue(self, command: commands.Command) -> tuple[Path, int]:
         log = events_path(self.home, self.session_id)
-        self.command_from = (log, log_size(log))
+        sent = (log, log_size(log))
         self._run("command", SEND_TIMEOUT_S, command.line)
+        return sent
 
     def unconfirmed(self, name: str) -> str:
         return f"/{name} was queued in Copilot, but its event log does not show it ran"
 
-    def ran_since(self, name: str, since: datetime) -> bool:
-        return bool(self.command_from) and copilot_compacted(read_events(*self.command_from))
+    def command_ran(self, name: str, sent: tuple[Path, int]) -> bool:
+        return copilot_compacted(read_events(*sent))
 
     def turn_open(self) -> bool:
         if not self.session_id:
