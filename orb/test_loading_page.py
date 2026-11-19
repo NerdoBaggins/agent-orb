@@ -50,6 +50,26 @@ def test_the_hint_shows_what_the_engines_are_doing_and_gives_way_to_the_how_to_w
 
 
 @pytest.mark.timeout(60)
+def test_the_hint_is_larger_while_the_speech_engines_load_than_after(tmp_path):
+    loaders = speech(stt_says=["downloading the model, 12 of 310 MB"])
+    server = attached_loading(tmp_path, loaders)
+    size = 'parseFloat(getComputedStyle(document.getElementById("hint")).fontSize)'
+    seen = {}
+
+    async def act(page):
+        server.begin_loading()
+        await page.wait_for_function(f'{HINT}.includes("downloading the model")', timeout=10000)
+        seen["during"] = await page.evaluate(size)
+        for loader in loaders.values():
+            loader.release.set()
+        await page.wait_for_function(f'{HINT}.startsWith("or hold")', timeout=10000)
+        seen["after"] = await page.evaluate(size)
+
+    asyncio.run(run_page(tmp_path, [], act, server))
+    assert seen["during"] >= 1.4 * seen["after"]
+
+
+@pytest.mark.timeout(60)
 def test_a_failed_load_shows_its_reason_in_the_hint(tmp_path):
     reason = "tts engine 'kokoro' failed to load: tts engine 'kokoro' did not start within 300 s"
     loaders = speech(tts=EngineError(reason))
