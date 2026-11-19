@@ -1,3 +1,4 @@
+import json
 import re
 
 import pytest
@@ -71,3 +72,9 @@ def test_the_readme_states_the_argument_limit_the_hold_and_the_default_commands_
     assert f"at most {MAX_ARGUMENT} characters" in README
     assert f"up to {COMMAND_HOLD_S // 60} minutes" in README
     assert f"(`{first}` and `{second}` unless you say otherwise" in README
+    assert f'| `commands` | `{json.dumps(DEFAULTS["commands"])}` ' in README
+
+
+def test_the_orb_skill_names_the_default_commands_the_code_uses():
+    first, second = DEFAULTS["commands"]
+    assert f"(`{first}` and `{second}` unless they set more)" in (PLUGIN_ROOT / "skills" / "orb" / "SKILL.md").read_text(encoding="utf-8")
