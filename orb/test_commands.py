@@ -1,6 +1,11 @@
+import re
+
 import pytest
 
-from orb.commands import MAX_ARGUMENT, CommandError, parse
+from orb import PLUGIN_ROOT
+from orb.commands import MAX_ARGUMENT, TAKES_ARGUMENT, CommandError, parse
+from orb.config import DEFAULTS
+from orb.server import COMMAND_HOLD_S
 
 ALLOWED = ["compact", "context"]
 
@@ -48,3 +53,21 @@ def test_a_command_that_takes_no_argument_is_refused_one():
 def test_an_argument_that_is_not_text_is_refused():
     with pytest.raises(CommandError, match="is text"):
         parse("compact", ["keep"], ALLOWED)
+
+
+README = (PLUGIN_ROOT / "README.md").read_text(encoding="utf-8")
+
+
+def test_the_commands_the_readme_says_take_an_argument_are_the_ones_that_do():
+    listed = re.search(r"Only ((?:`[a-z-]+`(?:, | and ))+`[a-z-]+`) are passed one", README).group(1)
+    named = re.findall(r"`([a-z-]+)`", listed)
+    assert set(named) == TAKES_ARGUMENT
+    for name in named:
+        assert parse(name, "x", [name]).line == f"/{name} x"
+
+
+def test_the_readme_states_the_argument_limit_the_hold_and_the_default_commands_the_code_uses():
+    first, second = DEFAULTS["commands"]
+    assert f"at most {MAX_ARGUMENT} characters" in README
+    assert f"up to {COMMAND_HOLD_S // 60} minutes" in README
+    assert f"(`{first}` and `{second}` unless you say otherwise" in README
