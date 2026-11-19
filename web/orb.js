@@ -490,23 +490,18 @@
     async open() {
       this.release_mic();
       const generation = this.generation;
-      let stream;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
-      } catch (err) {
-        notice(`microphone not available: ${err.message}`, "error");
-        return false;
-      }
-      let ctx = null, node;
+      const superseded = () => generation !== this.generation;
+      let stream = null, ctx = null, node;
       const drop = () => {
-        stream.getTracks().forEach((t) => t.stop());
+        if (stream) stream.getTracks().forEach((t) => t.stop());
         if (ctx) ctx.close().catch(() => {});
       };
       try {
-        if (generation !== this.generation) { drop(); return this.ensure(); }
+        stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+        if (superseded()) { drop(); return this.ensure(); }
         ctx = new AudioContext({ sampleRate: 16000 });
         await ctx.audioWorklet.addModule(`/static/ptt-worklet.js?token=${encodeURIComponent(token)}`);
-        if (generation !== this.generation) { drop(); return this.ensure(); }
+        if (superseded()) { drop(); return this.ensure(); }
         const source = ctx.createMediaStreamSource(stream);
         node = new AudioWorkletNode(ctx, "ptt");
         node.port.onmessage = (ev) => {
@@ -518,6 +513,7 @@
       } catch (err) {
         // Nothing is committed yet, so release_mic() would not reach these; left open, every retry leaked one.
         drop();
+        if (superseded()) return this.ensure();
         notice(`microphone not available: ${err.message}`, "error");
         return false;
       }
