@@ -322,3 +322,15 @@ def test_the_extension_and_the_orb_name_the_same_record(tmp_path):
              "process.stdout.write(RECORD_NAME);"
     named = subprocess.run(["node", "--input-type=module", "-e", script], capture_output=True, text=True, check=True).stdout
     assert named == copilot_channel_file(tmp_path).name
+
+
+def test_a_compaction_logged_while_the_door_is_still_answering_shows_the_command_ran(tmp_path):
+    link = linked(tmp_path)
+    log = write_log(tmp_path)
+    compacted = {"type": "session.compaction_complete", "data": {"success": True, "trigger": "manual"}}
+
+    def door_compacts_before_it_answers(mode, timeout, prompt=""):
+        with log.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(compacted) + "\n")
+    link._run = door_compacts_before_it_answers
+    assert link.command_ran("compact", link.send_command(commands.Command("compact", "")))
