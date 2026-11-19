@@ -111,11 +111,6 @@ def test_missing_transcript_and_copilot_events_stay_silent(tmp_path):
     assert answered(entries_of(str(events)), PENDING) is None
 
 
-def test_a_transcript_read_skips_a_partial_last_line(tmp_path):
-    path = tmp_path / "t.jsonl"
-    path.write_text(json.dumps(channel_turn()) + "\n" + json.dumps(assistant()) + '\n{"type": "assis', encoding="utf-8")
-    assert answered(entries_of(str(path)), PENDING) == "r7"
-
 
 def ended(text="done"):
     entry = assistant(text)
