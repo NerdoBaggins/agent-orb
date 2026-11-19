@@ -38,7 +38,8 @@ that has one adds it under Unreleased.
 - Engines now speak protocol 2, with no way back: `engine.json` needs `"protocol": 2`, an engine's `load` reply carries
   its own `pid`, `render` takes `voice` and `lang` with each call, and `voices` lists the default voice first and no
   longer has `current` or a `voice` op. An engine without `"protocol": 2` is refused with a message naming its file; the
-  orb uses the built-in default instead and `orb doctor` names it. Kokoro's voice setting is now `"default"`, the
+  orb uses the built-in default instead (a refused wake or capture engine turns that feature off) and `orb doctor` names
+  it. Kokoro's voice setting is now `"default"`, the
   first entry in its voice list, so the voice menu marks it.
 - Every engine now exits within 5 s of its standard input closing, even in the middle of a call, and whatever started it kills one
   that does not, by the `pid` it reported.

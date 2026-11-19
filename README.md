@@ -581,8 +581,8 @@ other way is neither listed nor loaded.
 
 **Writing one.** The host or the orb starts the engine, keeps it warm, and talks JSON lines on its standard input and
 output. `engine.json` needs `"protocol": 2`, an integer; an engine without it is refused, with the reason, by `orb
-doctor` and by the orb that tries to start it, which uses the built-in default instead. It may also say `"share":
-false` (see [Shared engines](#shared-engines)). Every reply is an object, and one carrying `error` is a failure.
+doctor` and by the orb that tries to start it, which uses the built-in default instead for `stt`, `tts`, `vad` and
+`voiceprint` and turns the feature off with the reason for `wake` and `capture`. It may also say `"share": false` (see [Shared engines](#shared-engines)). Every reply is an object, and one carrying `error` is a failure.
 
 | Kind | Request | Reply |
 |---|---|---|
@@ -614,8 +614,9 @@ false` (see [Shared engines](#shared-engines)). Every reply is an object, and on
 - **The exit contract.** Every engine exits within 5 seconds of its standard input closing, whatever it is doing. The
   host or the orb closes the input, waits 5 s, and kills the pid from the load reply. An engine busy in a call it
   cannot interrupt must end itself a little under that limit instead of waiting for the call. A `capture` engine streams
-  until its input closes. A Python engine takes this block as it stands, right after its imports, and reads its
-  requests with `for line in requests():` where it would read `sys.stdin`:
+  until its input closes and arms its own 4 s timer when it does. A Python request/reply engine takes this block as it
+  stands, right after its imports, and reads its requests with `for line in requests():` where it would read
+  `sys.stdin`:
 
 ```python
 # ---- exit contract: the same in every engine (engines/test_exit_contract.py) ----
