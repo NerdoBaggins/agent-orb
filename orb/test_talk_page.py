@@ -230,3 +230,30 @@ def test_a_superseded_open_that_fails_shows_no_error_during_the_recording(tmp_pa
 
     asyncio.run(run_page(tmp_path, [], act, attached(tmp_path)))
     assert seen["notice"] == ""
+
+
+@pytest.mark.timeout(60)
+def test_a_key_hold_whose_open_the_orb_starts_speaking_during_is_refused_with_a_notice(tmp_path):
+    server = attached(tmp_path)
+    seen = {}
+    starts = []
+    start = server.ptt_start
+
+    async def counted_start():
+        starts.append(True)
+        await start()
+
+    server.ptt_start = counted_start
+
+    async def act(page):
+        await page.evaluate(CONTROLLED_MIC)
+        await page.keyboard.down("Space")
+        await page.wait_for_function("window.opens.length > 0")
+        await server.set_state("speaking")
+        await page.wait_for_function("document.body.dataset.state === 'speaking'")
+        await page.evaluate("(async () => { opens[0].resolve(await real()); })()")
+        await page.wait_for_timeout(800)
+        seen.update(starts=len(starts), notice=await notice_text(page))
+
+    asyncio.run(run_page(tmp_path, [], act, server))
+    assert seen == {"starts": 0, "notice": "can't listen: busy: speaking"}

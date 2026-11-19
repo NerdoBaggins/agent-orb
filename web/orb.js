@@ -522,16 +522,20 @@
       this.node = node;
       return true;
     },
-    async hold() {
-      if (this.holding) return;
-      const refusal = !orb.voice ? "speech engines are not loaded"
+    refusal() {
+      return !orb.voice ? "speech engines are not loaded"
         : !orb.attached && !orb.enrolling ? orb.attachMessage || "not attached to an agent session"
         : orb.state !== "idle" && orb.state !== "thinking" ? `busy: ${orb.state}` : null;
-      if (refusal) { notice(`can't listen: ${refusal}`, "error"); return; }
+    },
+    async hold() {
+      if (this.holding) return;
+      const refuse = (refusal) => notice(`can't listen: ${refusal}`, "error");
+      if (this.refusal()) { refuse(this.refusal()); return; }
       this.wanted = true;
       if (!(await this.ensure())) return;
       if (this.ctx && this.ctx.state === "suspended") await this.ctx.resume();
       if (!this.wanted || this.holding) return;
+      if (this.refusal()) { refuse(this.refusal()); return; }
       this.holding = true;
       send({ type: "ptt_start" });
     },
