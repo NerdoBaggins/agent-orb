@@ -70,7 +70,7 @@ for line in requests():
             progress("loading the voice detection model")
             from openwakeword import utils
             from openwakeword.vad import VAD
-            with ticking("downloading the model"):
+            with ticking("loading the model, downloading it on the first run"):
                 utils.download_models(model_names=[])
             vad = VAD()
             out = {"ok": True, "pid": os.getpid()}

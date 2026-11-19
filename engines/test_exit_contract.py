@@ -317,7 +317,7 @@ def test_a_download_inside_the_models_library_is_ticked_until_the_library_return
         assert engine.proc.stdout.read() == ""
     finally:
         engine.kill()
-    assert engine.progress[0].startswith("loading the") and engine.progress.count("downloading the model") >= 3
+    assert engine.progress[0].startswith("loading the") and engine.progress.count("loading the model, downloading it on the first run") >= 3
 
 
 def test_a_slow_tokenizer_download_is_ticked_while_the_model_is_already_loaded():
@@ -326,7 +326,7 @@ def test_a_slow_tokenizer_download_is_ticked_while_the_model_is_already_loaded()
         assert engine.call(load())["ok"] is True
     finally:
         engine.kill()
-    assert engine.progress.count("downloading the model") >= 3
+    assert engine.progress.count("loading the model, downloading it on the first run") >= 3
 
 
 @pytest.mark.parametrize("kind", LOGGING)
