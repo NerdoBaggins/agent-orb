@@ -38,13 +38,9 @@ def links(monkeypatch, *made):
     monkeypatch.setattr(engine_client, "open_link", lambda home, plugin_root, spawn: queue.pop(0))
 
 
-# ---- what makes two servers' load identical ----
-
 def test_a_speed_setting_an_stt_engine_has_stays_in_its_load_settings():
     assert load_settings("stt", {"engine": "x", "speed": 2}) == {"speed": 2}
 
-
-# ---- reaching the host ----
 
 class FakeClock:
     def __init__(self):
@@ -265,8 +261,6 @@ def test_a_host_lost_while_the_engine_loads_is_an_engine_error_naming_the_engine
         attach(attachment(tmp_path))
 
 
-# ---- one attachment ----
-
 def test_a_call_waits_longer_than_the_limit_the_host_is_given_so_the_hosts_reply_comes_first(tmp_path):
     link = FakeLink({"reply": {"ok": True}})
     RemoteEngine(attachment(tmp_path), link, {}).call({"op": "transcribe"}, 7)
@@ -329,8 +323,6 @@ def test_closing_closes_the_connection_and_sends_nothing(tmp_path):
     RemoteEngine(attachment(tmp_path), link, {}).close()
     assert link.sent == [] and link.closed
 
-
-# ---- reporting ----
 
 def row(kind="stt", name="parakeet", owners=(), grace_left=None, pid=9):
     return {"kind": kind, "name": name, "pid": pid, "alive": True, "grace_left": grace_left,

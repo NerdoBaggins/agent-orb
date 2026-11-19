@@ -30,8 +30,6 @@ def key(settings=None, env=None, kind="stt", name="fake", connection=None):
     return make_key(kind, name, settings or {}, env or {}, connection)
 
 
-# ---- keying ----
-
 def test_the_key_ignores_setting_order_and_splits_on_kind_name_settings_env_and_connection():
     base = key({"a": 1, "b": 2})
     splits = [key({"a": 1, "b": 3}), key({"a": 1, "b": 2}, kind="tts"), key({"a": 1, "b": 2}, name="other"),
@@ -43,8 +41,6 @@ def test_two_credentials_with_different_values_never_share_a_key_and_the_key_doe
     one, two = key(env={"API_KEY": "secret-one"}), key(env={"API_KEY": "secret-two"})
     assert one != two and "secret-one" not in repr(one)
 
-
-# ---- owners and grace ----
 
 def test_a_key_stays_while_any_owner_remains(registry, clock):
     k = key()
@@ -94,8 +90,6 @@ def test_a_connection_cannot_be_attached_twice(registry):
     with pytest.raises(ValueError):
         registry.attach("a", key(name="other"), OWNER)
 
-
-# ---- the host's own exit ----
 
 def test_a_host_nobody_attached_to_is_done_after_the_idle_time(registry, clock):
     clock.advance(9.9)
