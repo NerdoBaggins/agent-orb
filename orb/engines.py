@@ -119,16 +119,66 @@ def find(kind: str, name: str, home: Path) -> Path:
     raise EngineError(f"no {kind} engine named {name!r}; looked in {', '.join(looked)}")
 
 
-def read_manifest(folder: Path, kind: str) -> Manifest:
-    manifest = folder / "engine.json"
+def read_data(manifest: Path) -> dict | str:
+    """The manifest's JSON object, or the text that refuses it."""
     try:
         data = json.loads(manifest.read_text(encoding="utf-8"))
-    except OSError:
-        raise EngineError(f"{folder} has no engine.json")
     except json.JSONDecodeError as e:
-        raise EngineError(f"{manifest} is not valid JSON: {e}")
-    if not isinstance(data, dict):
-        raise EngineError(f"{manifest} must hold a JSON object")
+        return f"{manifest} is not valid JSON: {e}"
+    except (OSError, UnicodeDecodeError) as e:
+        return f"{manifest} cannot be read: {e}"
+    return data if isinstance(data, dict) else f"{manifest} must hold a JSON object"
+
+
+def protocol_refusal(manifest: Path, data: dict) -> str | None:
+    if "protocol" not in data:
+        return (f'{manifest} has no "protocol": {PROTOCOL}. This orb speaks engine protocol {PROTOCOL}: '
+                f'update the engine to it (README, Speech engines, Writing one), then add "protocol": {PROTOCOL} to engine.json.')
+    protocol = data["protocol"]
+    if type(protocol) is not int:
+        return f"{manifest} 'protocol' must be the number {PROTOCOL}."
+    if protocol != PROTOCOL:
+        return f'{manifest} says "protocol": {protocol}; this orb speaks engine protocol {PROTOCOL}. Update agent-orb or the engine.'
+    return None
+
+
+def share_refusal(manifest: Path, data: dict) -> str | None:
+    return None if type(data.get("share", True)) is bool else f"{manifest} 'share' must be true or false."
+
+
+@dataclass(frozen=True)
+class Refusal:
+    kind: str
+    name: str
+    folder: Path
+    text: str
+
+
+def refusals(home: Path) -> tuple[int, list[Refusal]]:
+    """How many engine folders with an `engine.json` were read, and each engine refused, once, for a manifest that
+    cannot be read or parsed as an object, its protocol or its `share`; its texts are joined with "; "."""
+    read, refused = 0, []
+    for root in engine_dirs(home):
+        for kind in KINDS:
+            for folder in sorted((root / kind).iterdir()) if (root / kind).is_dir() else ():
+                manifest = folder / "engine.json"
+                if folder.name in FIXTURES or not folder.is_dir() or not plain_name(folder.name) or not manifest.exists():
+                    continue
+                read += 1
+                data = read_data(manifest)
+                faults = [data] if isinstance(data, str) else [t for t in (protocol_refusal(manifest, data), share_refusal(manifest, data)) if t]
+                if faults:
+                    refused.append(Refusal(kind, folder.name, folder, "; ".join(faults)))
+    return read, refused
+
+
+def read_manifest(folder: Path, kind: str) -> Manifest:
+    manifest = folder / "engine.json"
+    if not manifest.exists():
+        raise EngineError(f"{folder} has no engine.json")
+    data = read_data(manifest)
+    if isinstance(data, str):
+        raise EngineError(data)
     for key in ("name", "version", "kind"):
         if not isinstance(data.get(key), str) or not data[key]:
             raise EngineError(f"{manifest} needs a string {key!r}")
@@ -146,17 +196,9 @@ def read_manifest(folder: Path, kind: str) -> Manifest:
     frame_samples = data.get("frame_samples")
     if frame_samples is not None and not (isinstance(frame_samples, int) and frame_samples > 0):
         raise EngineError(f"{manifest} 'frame_samples' must be a positive integer")
-    protocol = data.get("protocol")
-    if "protocol" not in data:
-        raise EngineError(f'{manifest} has no "protocol": {PROTOCOL}. This orb speaks engine protocol {PROTOCOL}: '
-                          f'update the engine to it (README, Speech engines, Writing one), then add "protocol": {PROTOCOL} to engine.json.')
-    if type(protocol) is not int:
-        raise EngineError(f"{manifest} 'protocol' must be the number {PROTOCOL}.")
-    if protocol != PROTOCOL:
-        raise EngineError(f'{manifest} says "protocol": {protocol}; this orb speaks engine protocol {PROTOCOL}. Update agent-orb or the engine.')
+    if refusal := protocol_refusal(manifest, data) or share_refusal(manifest, data):
+        raise EngineError(refusal)
     share = data.get("share", True)
-    if type(share) is not bool:
-        raise EngineError(f"{manifest} 'share' must be true or false.")
     return Manifest(data["name"], data["version"], kind, tuple(run), tuple(env), folder, max_seconds, frame_samples, share)
 
 
