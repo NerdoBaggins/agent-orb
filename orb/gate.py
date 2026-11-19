@@ -201,5 +201,4 @@ def custom_title(entries: list[dict] | None) -> str | None:
 
 
 def answers(turn: Walk, pending: set[str]) -> str | None:
-    """The pending request id the walked turn answers, or None for every turn that is not the orb's."""
     return turn.request_id if turn.request_id in pending else None
