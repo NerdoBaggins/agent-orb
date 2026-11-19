@@ -7,7 +7,6 @@ ENGINE = Path(__file__).with_name("engine.py")
 
 
 def converse(settings, *requests):
-    """The replies to a load with `settings` and then each request, from one engine process."""
     lines = [{"op": "load", "settings": settings}, *requests]
     done = subprocess.run([sys.executable, str(ENGINE)], input="".join(json.dumps(r) + "\n" for r in lines),
                           capture_output=True, text=True, timeout=30)

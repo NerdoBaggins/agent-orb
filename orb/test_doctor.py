@@ -272,8 +272,6 @@ def test_doctor_attaches_as_the_agent_doctor_with_its_own_pid_and_the_repo(tmp_p
 
 
 class Attached:
-    """What the host gives an orb for an engine: its manifest, its load reply, and the voices it offers."""
-
     def __init__(self, voices):
         self.voices, self.closed = voices, False
         self.manifest = Manifest("mine", "1", "tts", ("run",), (), Path("engines") / "mine")

@@ -307,7 +307,6 @@ class Host:
 
 
 def close_together(processes: list[engines.EngineProcess]) -> None:
-    """Closes every engine's input at once and gives all of them one EXIT_WAIT_S between them, then kills the survivors."""
     running = [process for process in processes if process.process.poll() is None]
     for process in running:
         process.close_input()

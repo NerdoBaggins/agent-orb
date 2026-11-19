@@ -104,8 +104,6 @@ def check_engine(kind: str, settings: dict, home: Path) -> Check:
 
 
 def stale_voice(settings: dict, remote: engine_client.RemoteEngine) -> str | None:
-    """What is wrong with the voice the config holds for the engine, or None: a voice that is a weights table, an unset
-    one, and any voice of an engine that offers no choice are not checked."""
     voice = settings.get("voice")
     catalogue = engines.catalogue(remote)
     if not isinstance(voice, str) or catalogue is None or voice in [v["id"] for v in catalogue]:
@@ -115,8 +113,6 @@ def stale_voice(settings: dict, remote: engine_client.RemoteEngine) -> str | Non
 
 
 def check_hosted_engine(kind: str, settings: dict, home: Path, launch) -> Check:
-    """Attaches to the engine host as an orb, which starts the host when none runs, and lets go again: the engine stays
-    for its grace. Never loads a private copy beside the orbs' engine."""
     try:
         remote = launch(kind, settings, home)
     except EngineError as e:
