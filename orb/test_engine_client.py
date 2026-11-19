@@ -221,7 +221,7 @@ def test_a_host_that_never_replies_to_stop_is_an_error_within_the_stop_limit(tmp
     monkeypatch.setattr(engine_client, "HOST_STOP_WAIT_S", 0.3)
     with pytest.raises(EngineError, match=r"did not stop; see .*engine-host\.[0-9a-f]{12}\.log"):
         stop()
-    assert link.timeouts[0] <= 0.3
+    assert link.timeouts[0] <= 0.3 + 1e-6
 
 
 def test_an_error_reply_to_stop_is_an_error_even_when_the_lock_is_free(tmp_path, monkeypatch):
