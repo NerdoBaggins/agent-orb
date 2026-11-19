@@ -592,6 +592,49 @@ def test_a_connection_that_sends_nothing_is_closed_after_5_s(host, monkeypatch):
     silent.client.close()
 
 
+def ended(client):
+    try:
+        return client.recv(1024) == b""
+    except ConnectionError:
+        return True
+
+
+def test_a_first_message_that_trickles_in_is_closed_when_the_limit_has_passed_since_the_connection_opened(host, monkeypatch):
+    monkeypatch.setattr(engine_host, "FIRST_MESSAGE_TIMEOUT_S", 0.4)
+    trickling = Wire(host)
+    trickling.client.settimeout(1.5)
+
+    def trickle():
+        try:
+            for _ in range(30):
+                trickling.client.sendall(b" ")
+                time.sleep(0.1)
+        except OSError:
+            pass
+
+    threading.Thread(target=trickle, daemon=True).start()
+    assert ended(trickling.client)
+    trickling.client.close()
+
+
+def test_a_first_message_longer_than_the_size_limit_is_closed_before_the_time_limit(host, monkeypatch):
+    hello = json.dumps({"op": "hello", "token": TOKEN}).encode("utf-8")
+    monkeypatch.setattr(engine_host, "FIRST_MESSAGE_MAX_BYTES", len(hello) + 8)
+    wordy = Wire(host)
+    wordy.client.sendall(hello + b" " * 8 + b"\n")
+    assert ended(wordy.client)
+    wordy.client.close()
+
+
+def test_a_first_message_of_exactly_the_size_limit_is_read(host, monkeypatch):
+    hello = json.dumps({"op": "hello", "token": TOKEN}).encode("utf-8")
+    monkeypatch.setattr(engine_host, "FIRST_MESSAGE_MAX_BYTES", len(hello) + 8)
+    roomy = Wire(host)
+    roomy.client.sendall(hello + b" " * 7 + b"\n")
+    assert roomy.client.recv(1024) == b'{"ok": true}\n'
+    roomy.client.close()
+
+
 def test_a_connection_that_gave_the_secret_may_then_stay_silent_past_the_first_message_limit(host, monkeypatch):
     monkeypatch.setattr(engine_host, "FIRST_MESSAGE_TIMEOUT_S", 0.2)
     trusted = Wire(host)

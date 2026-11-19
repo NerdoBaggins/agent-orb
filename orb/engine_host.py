@@ -26,6 +26,7 @@ log = logging.getLogger("orb")
 SHARED_KINDS = ("stt", "tts")
 TICK_S = 1.0
 FIRST_MESSAGE_TIMEOUT_S = 5.0
+FIRST_MESSAGE_MAX_BYTES = 1024
 LOCK_WAIT_S = 3.0
 BLOCKING_OPS = ("ready", "call")
 
@@ -286,6 +287,23 @@ class Host:
             process.close()
 
 
+def first_line(conn: socket.socket, reader, within_s: float, max_bytes: int) -> bytes:
+    """The connection's first line. Raises ValueError unless the whole line arrives within `within_s` of this call and
+    is at most `max_bytes` long, however steadily its bytes come."""
+    deadline = time.monotonic() + within_s
+    line = bytearray()
+    while not line.endswith(b"\n"):
+        left = deadline - time.monotonic()
+        if left <= 0 or len(line) == max_bytes:
+            raise ValueError("the first message is late or too long")
+        conn.settimeout(left)
+        byte = reader.read1(1)
+        if not byte:
+            raise ValueError("the connection ended before its first message")
+        line += byte
+    return bytes(line)
+
+
 def serve_connection(host: Host, conn: socket.socket, token: str) -> None:
     session = Session()
     reader = conn.makefile("rb")
@@ -311,8 +329,7 @@ def serve_connection(host: Host, conn: socket.socket, token: str) -> None:
 
     session.send, session.hang_up = send, hang_up
     try:
-        conn.settimeout(FIRST_MESSAGE_TIMEOUT_S)
-        hello = json.loads(reader.readline() or "null")
+        hello = json.loads(first_line(conn, reader, FIRST_MESSAGE_TIMEOUT_S, FIRST_MESSAGE_MAX_BYTES))
         sent = hello.get("token") if isinstance(hello, dict) else None
         if not isinstance(sent, str) or not hmac.compare_digest(sent, token):
             return
