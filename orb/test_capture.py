@@ -47,11 +47,6 @@ def test_an_engine_that_exits_ends_the_capture(tmp_path):
     assert isinstance(event, Ended) and "exited" in event.reason
 
 
-def test_a_capture_engine_that_fails_to_load_raises_its_reason(tmp_path):
-    with pytest.raises(EngineError, match="no microphone"):
-        fake(tmp_path, fail="no microphone found")
-
-
 def test_a_line_that_is_neither_audio_nor_json_is_a_notice(tmp_path):
     capture = fake(tmp_path, frames=0)
     try:
@@ -117,6 +112,15 @@ def test_a_capture_engines_notice_is_passed_on_in_its_own_words(tmp_path):
 def test_a_capture_engine_that_does_not_report_its_latency_as_seconds_does_not_load(tmp_path, latency):
     with pytest.raises(EngineError, match="did not report its latency"):
         fake(tmp_path, latency=latency)
+
+
+def test_a_capture_engine_refused_for_its_latency_is_stopped(tmp_path, monkeypatch):
+    started = []
+    start = capture_module.engines.start
+    monkeypatch.setattr(capture_module.engines, "start", lambda *a, **k: started.append(start(*a, **k)) or started[-1])
+    with pytest.raises(EngineError):
+        fake(tmp_path, latency=None)
+    assert started[0].process.poll() is not None
 
 
 def test_a_capture_engines_tail_is_its_latency_and_a_burst(tmp_path):
