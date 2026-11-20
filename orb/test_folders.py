@@ -1,12 +1,15 @@
+import json
+import shutil
+import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
-from orb.pages import PageError
-
-from types import SimpleNamespace
-
+from orb import PLUGIN_ROOT, folders
+from orb.config import FOLDER_KEYS
 from orb.folders import browse_folder
+from orb.pages import PageError
 
 
 BS = chr(92)
@@ -55,7 +58,6 @@ def test_a_dialog_that_cannot_start_is_reported_as_a_page_error():
 
 
 def test_the_kdialog_command_asks_for_an_existing_directory_and_a_dialog_that_times_out_is_reported(monkeypatch):
-    import subprocess
     seen = {}
 
     def spy(command, **kwargs):
@@ -74,7 +76,6 @@ def test_the_kdialog_command_asks_for_an_existing_directory_and_a_dialog_that_ti
 
 
 def test_a_file_manager_that_cannot_start_is_reported_as_a_page_error_and_the_right_one_is_asked(monkeypatch):
-    from orb import folders
     asked = []
     monkeypatch.setattr(folders.sys, "platform", "linux")
     folders.reveal(Path("/some/folder"), run=asked.append)
@@ -88,3 +89,38 @@ def test_a_file_manager_that_cannot_start_is_reported_as_a_page_error_and_the_ri
     monkeypatch.setattr(folders.sys, "platform", "linux")
     with pytest.raises(PageError, match="file manager did not open"):
         folders.reveal(Path("/some/folder"), run=missing)
+
+
+def test_a_folder_dialog_that_answers_bytes_that_are_not_utf8_still_chooses_a_folder():
+    assert browse_folder("darwin", answered(b"/Users/a/caf\xe9\n")) == "/Users/a/caf�"
+
+
+def test_the_folder_dialog_is_given_a_time_limit_long_enough_for_a_person_to_choose():
+    seen = {}
+
+    def spy(command, **kwargs):
+        seen.update(kwargs)
+        return SimpleNamespace(stdout=b"", returncode=1)
+    browse_folder("darwin", spy)
+    assert seen["timeout"] >= 60
+
+
+@pytest.mark.parametrize("kind", [["panel"], {"panel": 1}])
+def test_a_kind_sent_as_a_list_or_an_object_is_a_page_error(kind):
+    with pytest.raises(PageError, match="kind must be one of"):
+        folders.kind_named(kind)
+
+
+def test_a_folder_typed_with_spaces_around_it_is_kept_without_them():
+    assert folders.written_form("  /Users/a/panels \t") == "/Users/a/panels"
+
+
+def test_the_config_names_a_folder_list_for_every_kind_of_folder():
+    assert sorted(kind.key for kind in folders.KINDS.values()) == sorted(FOLDER_KEYS)
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not installed")
+def test_the_settings_page_has_a_section_for_every_kind_of_folder():
+    script = "console.log(JSON.stringify(require(process.argv[1]).FOLDER_SECTIONS.map((s) => s.kind)))"
+    out = subprocess.run(["node", "-e", script, str(PLUGIN_ROOT / "web" / "folders.js")], capture_output=True, text=True, timeout=30)
+    assert sorted(json.loads(out.stdout)) == sorted(folders.KINDS)

@@ -28,6 +28,11 @@ test("a shadowed row says which way showing its name resolves", () => {
   assert.doesNotMatch(row(entry(), new Set()).tip, /earlier folder/);
 });
 
+test("the repo's own folder and a custom folder are named as the panels menu promises", () => {
+  assert.equal(scopeLabel("mine"), "yours, this repo");
+  assert.equal(scopeLabel("custom"), "custom folder");
+});
+
 test("an unknown scope is shown as the server wrote it", () => {
   assert.equal(scopeLabel("brand-new"), "brand-new");
 });

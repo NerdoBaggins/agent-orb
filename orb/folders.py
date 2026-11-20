@@ -1,4 +1,3 @@
-import json
 import os
 import shutil
 import subprocess
@@ -7,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 from orb import skins, themes
-from orb.config import ConfigError, expand_dirs, insert_dir, load_for, own_dirs, remove_dir, repo_config_path, user_config_path
+from orb.config import ConfigError, expand_dirs, insert_dir, load_for, own_dirs, remove_dir, user_config_path
 from orb.pages import PageError
 from orb.state import private_root
 
@@ -56,20 +55,12 @@ def extra_dirs(kind: Kind, repo_root: Path, home: Path) -> list[DirEntry]:
     except ConfigError as e:
         raise PageError(str(e))
     own = set(own_dirs(kind.key, home, repo_root))
-    return [DirEntry(d, p, p.is_dir(), d in own, "" if d in own else setting_file(kind, d, repo_root, home))
+    return [DirEntry(d, p, p.is_dir(), d in own, "" if d in own else user_config_shown(home))
             for d, p in zip(listed, expand_dirs(listed, home))]
 
 
-def setting_file(kind: Kind, folder: str, repo_root: Path, home: Path) -> str:
-    """The config file, as a user would write its path, that lists a folder this page cannot remove."""
-    for path in (user_config_path(home), repo_config_path(repo_root)):
-        try:
-            listed = json.loads(path.read_text(encoding="utf-8")).get(kind.key, [])
-        except (OSError, json.JSONDecodeError, AttributeError):
-            continue
-        if isinstance(listed, list) and folder in listed:
-            return f"~/{path.relative_to(home).as_posix()}" if path.is_relative_to(home) else str(path)
-    return ""
+def user_config_shown(home: Path) -> str:
+    return f"~/{user_config_path(home).relative_to(home).as_posix()}"
 
 
 def written_form(raw: str) -> str:
