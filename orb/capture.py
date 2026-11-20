@@ -30,10 +30,18 @@ class Ended:
     reason: str
 
 
+def reported_latency(process: engines.EngineProcess) -> float:
+    latency = process.loaded.get("latency")
+    if isinstance(latency, bool) or not isinstance(latency, (int, float)) or not latency >= 0:
+        process.close()
+        raise engines.EngineError(f"{process.label} did not report its latency as a number of seconds: {latency!r}")
+    return float(latency)
+
+
 class Capture:
     def __init__(self, settings: dict, home: Path, env=os.environ):
         self.process = engines.start("capture", settings, home, env)
-        self.latency = float(self.process.loaded.get("latency", 0.0))
+        self.latency = reported_latency(self.process)
         self.device = str(self.process.loaded.get("device", ""))
         self.last_frame = time.monotonic()
 

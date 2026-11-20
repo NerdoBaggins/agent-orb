@@ -447,3 +447,8 @@ def test_the_example_config_loads_without_warnings(tmp_path):
     example = Path(__file__).resolve().parent.parent / "config.example.json"
     cfg = load(example, tmp_path / "repo.json", tmp_path / "private.json")
     assert cfg.warnings == []
+
+
+def test_a_capture_setting_in_this_repos_own_file_keeps_the_engine_the_users_file_chose(tmp_path):
+    cfg = load_layers(tmp_path, user={"capture": {"engine": "livekit", "buffer_ms": 500}}, private={"capture": {"buffer_ms": 200}})
+    assert cfg["capture"] == {"engine": "livekit", "buffer_ms": 200}
