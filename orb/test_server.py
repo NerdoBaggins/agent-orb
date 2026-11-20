@@ -11,10 +11,10 @@ from aiohttp.test_utils import TestClient, TestServer
 
 from orb import PLUGIN_ROOT, agents, engines
 from orb.audio import SAMPLE_RATE
-from orb.capture import Ended, Frame
+from orb.capture import Ended, Frame, Notice
 from orb.config import private_config_path
 from orb.engines import EngineError
-from orb.server import SERVER_STATES, OrbServer, audio_frame, page_sender
+from orb.server import SERVER_STATES, OrbServer, audio_frame, page_sender, start_capture
 from orb.skins import STATES as SKIN_STATES
 
 TOKEN = "t0k3n-abc"
@@ -598,6 +598,89 @@ def test_the_mic_level_is_sent_while_a_captured_recording_runs(tmp_path):
             await until_state(ws, "listening")
             capture.frame(0.08, value=0.25)
             assert (await ws.receive_json()) == {"type": "level", "level": 0.25}
+        finish(capture, pump)
+    run(go())
+
+
+def test_a_press_while_a_captured_recording_runs_after_the_orb_went_idle_keeps_what_was_recorded(tmp_path):
+    async def go():
+        server, capture, pump = await captured_server(tmp_path)
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            await ws.send_json({"type": "ptt_start"})
+            await until_state(ws, "listening")
+            for _ in range(6):
+                capture.frame(0.1)
+            await wait_for(lambda: len(server.recording) == 6)
+            await server.set_state("idle")
+            await ws.send_json({"type": "ptt_start"})
+            await asyncio.sleep(0.35)
+            await ws.send_json({"type": "ptt_stop"})
+            await wait_for(lambda: server.stt.received)
+            assert server.stt.received == [int(0.6 * SAMPLE_RATE)]
+        finish(capture, pump)
+    run(go())
+
+
+def test_a_captured_recording_starts_with_the_last_four_frames_before_the_press(tmp_path):
+    async def go():
+        server, capture, pump = await captured_server(tmp_path)
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            for _ in range(6):
+                capture.frame(0.05)
+            await wait_for(lambda: len(server.preroll) == 4)
+            await ws.send_json({"type": "ptt_start"})
+            await until_state(ws, "listening")
+            await asyncio.sleep(0.35)
+            await ws.send_json({"type": "ptt_stop"})
+            await wait_for(lambda: server.stt.received)
+            assert server.stt.received == [4 * int(0.05 * SAMPLE_RATE)]
+        finish(capture, pump)
+    run(go())
+
+
+def test_a_captured_tap_is_answered_without_waiting_for_the_tail(tmp_path):
+    async def go():
+        server, capture, pump = await captured_server(tmp_path)
+        capture.tail_s = 5.0
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            await ws.send_json({"type": "ptt_start"})
+            await until_state(ws, "listening")
+            await ws.send_json({"type": "ptt_stop"})
+            notice = await asyncio.wait_for(ws.receive_json(), 2)
+            assert notice["type"] == "notice" and "heard nothing" in notice["text"]
+        finish(capture, pump)
+    run(go())
+
+
+def test_no_mic_level_is_sent_while_nothing_is_being_recorded(tmp_path):
+    async def go():
+        server, capture, pump = await captured_server(tmp_path)
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            capture.frame(0.08, value=0.25)
+            await wait_for(lambda: server.preroll)
+            await ws.send_json({"type": "ptt_start"})
+            assert (await ws.receive_json())["type"] == "state"
+        finish(capture, pump)
+    run(go())
+
+
+def test_a_capture_engines_notice_reaches_the_page(tmp_path):
+    async def go():
+        server, capture, pump = await captured_server(tmp_path)
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            capture.events.put(Notice("fake: the microphone is warming up"))
+            notice = await ws.receive_json()
+            assert (notice["type"], notice["level"], notice["text"]) == ("notice", "info", "fake: the microphone is warming up")
         finish(capture, pump)
     run(go())
 
@@ -2013,3 +2096,12 @@ def test_a_request_is_not_overtaken_while_its_wait_notice_is_still_going_out(tmp
 
 def test_the_servers_state_tuple_is_within_the_states_a_skin_may_declare():
     assert set(SERVER_STATES) <= set(SKIN_STATES)
+
+
+def test_a_capture_engine_that_fails_to_load_leaves_the_browsers_microphone_with_the_reason(tmp_path):
+    capture, reason = start_capture({"engine": "fake", "fail": "no microphone found"}, tmp_path)
+    assert capture is None and "no microphone found" in reason
+
+
+def test_no_capture_section_means_the_browsers_microphone_and_no_reason(tmp_path):
+    assert start_capture(None, tmp_path) == (None, None)
