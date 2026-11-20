@@ -432,3 +432,72 @@ def test_a_transcript_that_cannot_be_read_at_a_stop_forgets_the_turn_the_last_st
     stop_at(tmp_path, monkeypatch, transcript, ["r1"], [])
     transcript.unlink()
     assert stop_at(tmp_path, monkeypatch, transcript, ["r1"], []) == ("not-ours", [])
+
+
+def test_the_stop_hook_makes_no_request_once_its_budget_is_spent(monkeypatch):
+    requested = []
+    monkeypatch.setattr("urllib.request.urlopen", lambda request, timeout: requested.append(timeout))
+    with pytest.raises(TimeoutError):
+        stop_hook._call({"port": 1, "token": "t"}, "GET", "/pending", until=time.monotonic() - 1)
+    assert requested == []
+
+
+def hook_main(monkeypatch, tmp_path, module, stdin):
+    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path / "home")
+    monkeypatch.delenv("CLAUDE_PROJECT_DIR", raising=False)
+    monkeypatch.delenv("COPILOT_PLUGIN_ROOT", raising=False)
+    monkeypatch.setattr("sys.stdin", io.StringIO(stdin))
+    return module.main()
+
+
+def claude_payload(tmp_path):
+    return json.dumps({"hook_event_name": "Stop", "cwd": str(tmp_path / "repo"), "session_id": "s1", "transcript_path": "/t.jsonl"})
+
+
+@pytest.mark.parametrize("module", [stop_hook, session_hook, turn_hook])
+def test_a_hook_given_a_payload_that_is_not_json_exits_0(tmp_path, monkeypatch, module):
+    assert hook_main(monkeypatch, tmp_path, module, "{not json") == 0
+
+
+@pytest.mark.parametrize("module", [stop_hook, session_hook, turn_hook])
+def test_a_hook_given_a_payload_that_is_not_an_object_exits_0(tmp_path, monkeypatch, module):
+    assert hook_main(monkeypatch, tmp_path, module, json.dumps([str(tmp_path / "repo")])) == 0
+
+
+def test_the_stop_hook_exits_0_when_its_run_raises(tmp_path, monkeypatch):
+    def fail(*args):
+        raise RuntimeError("broken")
+    monkeypatch.setattr(stop_hook, "run", fail)
+    assert hook_main(monkeypatch, tmp_path, stop_hook, claude_payload(tmp_path)) == 0
+
+
+def test_the_session_hook_exits_0_when_recording_the_session_raises(tmp_path, monkeypatch):
+    def fail(*args):
+        raise RuntimeError("broken")
+    monkeypatch.setattr(session_hook, "record_session", fail)
+    assert hook_main(monkeypatch, tmp_path, session_hook, claude_payload(tmp_path)) == 0
+
+
+def test_the_stop_hook_asks_nothing_of_a_server_whose_process_has_exited(tmp_path, monkeypatch):
+    exited = subprocess.Popen([sys.executable, "-c", "pass"])
+    exited.wait()
+    home, repo = tmp_path / "home", tmp_path / "repo"
+    write_json(server_file(state_dir(home, repo), "claude"), {"pid": exited.pid, "port": 1, "token": "t"})
+    asked = []
+    monkeypatch.setattr(stop_hook, "_call", lambda server, method, path, body=None, **_: asked.append(path) or {})
+    assert (stop_hook.run({"hook_event_name": "Stop", "session_id": "s1"}, repo, home), asked) == ("no-orb", [])
+
+
+def test_the_stop_hook_treats_a_pending_list_it_cannot_parse_as_no_orb(tmp_path, monkeypatch):
+    def unparsable(server, method, path, body=None, **_):
+        raise json.JSONDecodeError("Expecting value", "<html>", 0)
+    monkeypatch.setattr(stop_hook, "_call", unparsable)
+    home, repo = tmp_path / "home", tmp_path / "repo"
+    write_json(server_file(state_dir(home, repo), "claude"), {"pid": os.getpid(), "port": 1, "token": "t"})
+    assert stop_hook.run({"hook_event_name": "Stop", "session_id": "s1"}, repo, home) == "no-orb"
+
+
+def test_the_stop_hook_reports_a_reply_whose_answer_it_cannot_parse_as_a_failed_post(tmp_path, monkeypatch):
+    def unparsable(path, body):
+        raise json.JSONDecodeError("Expecting value", "<html>", 0)
+    assert stop_hook_with(tmp_path, monkeypatch, ["r7"], [orb_message("r7")], unparsable)[0] == "post-failed"

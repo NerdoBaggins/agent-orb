@@ -10,6 +10,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import NamedTuple
 
+from orb.gate import Walk
+
 AGENTS = ("claude", "copilot")
 
 
@@ -94,7 +96,7 @@ def stop_file(state: Path) -> Path:
 class StopProgress(NamedTuple):
     offset: int = 0
     delivered: frozenset[str] = frozenset()
-    walk: tuple[str | None, bool, bool] = (None, False, False)
+    walk: Walk = Walk()
     mark: str | None = None
 
 
@@ -106,23 +108,23 @@ def read_stop_progress(state: Path, session_id: str | None, transcript: str | No
             or record.get("transcriptPath") != transcript or type(offset) is not int or offset < 0
             or not isinstance(ids, list) or not _is_walk(turn) or not isinstance(mark, str)):
         return StopProgress()
-    return StopProgress(offset, frozenset(i for i in ids if isinstance(i, str)),
-                        (turn["requestId"], turn["running"], turn["replyContinues"]), mark)
+    return StopProgress(offset, frozenset(i for i in ids if isinstance(i, str)), Walk(*(turn[key] for key in WALK_KEYS)), mark)
+
+
+WALK_KEYS = ("requestId", "running", "replyContinues")
 
 
 def _is_walk(turn) -> bool:
-    return (isinstance(turn, dict) and (turn.get("requestId") is None or isinstance(turn.get("requestId"), str))
-            and type(turn.get("running")) is bool and type(turn.get("replyContinues")) is bool)
+    request_id, running, reply_continues = WALK_KEYS
+    return (isinstance(turn, dict) and (turn.get(request_id) is None or isinstance(turn.get(request_id), str))
+            and type(turn.get(running)) is bool and type(turn.get(reply_continues)) is bool)
 
 
 def record_stop_progress(state: Path, session_id: str | None, transcript: str | None, progress: StopProgress) -> None:
     if session_id and transcript:
-        request_id, running, reply_continues = progress.walk
         write_json(stop_file(state), {
             "sessionId": session_id, "transcriptPath": transcript, "offset": progress.offset,
-            "delivered": sorted(progress.delivered),
-            "walk": {"requestId": request_id, "running": running, "replyContinues": reply_continues},
-            "mark": progress.mark})
+            "delivered": sorted(progress.delivered), "walk": dict(zip(WALK_KEYS, progress.walk)), "mark": progress.mark})
 
 
 SESSION_ID = re.compile(r"[A-Za-z0-9-]+")

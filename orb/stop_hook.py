@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from orb.hook_deadline import deadline  # noqa: E402
-from orb.gate import Walk, delivered, read_transcript_after, walk  # noqa: E402
+from orb.gate import answers, delivered, read_transcript_after, walk  # noqa: E402
 from orb.state import (  # noqa: E402
     StopProgress, hook_agent, pid_alive, project_root, read_json, read_stop_progress, record_session, record_stop_progress,
     server_file, state_dir)
@@ -49,31 +49,29 @@ def run(payload: dict, project: Path, home: Path) -> str:
         pending = set(_call(server, "GET", "/pending", until=until).get("pending", []))
     except (urllib.error.URLError, OSError, ValueError):
         return "no-orb"
-    turn, seen = _new_entries(payload, state)
-    request_id = turn.request_id if turn.request_id in pending else None
+    session, path = payload.get("session_id"), payload.get("transcript_path")
+    progress = _progress_after_reading(state, session, path)
+    try:
+        record_stop_progress(state, session, path, progress)
+    except OSError:
+        pass
+    request_id = answers(progress.walk, pending)
     if request_id:
         return _post(server, "/reply", {"req": request_id, "text": payload.get("last_assistant_message") or ""}, "posted", until)
-    unanswered = sorted(pending & seen)
+    unanswered = sorted(pending & progress.delivered)
     if not unanswered:
         return "not-ours"
     outcomes = [_post(server, "/ended", {"req": request_id}, "ended", until) for request_id in unanswered]
     return "post-failed" if "post-failed" in outcomes else "ended"
 
 
-def _new_entries(payload: dict, state: Path) -> tuple[Walk, set[str]]:
-    path, session = payload.get("transcript_path"), payload.get("session_id")
+def _progress_after_reading(state: Path, session: str | None, path: str | None) -> StopProgress:
     progress = read_stop_progress(state, session, path)
     read = read_transcript_after(path, progress.offset, progress.mark)
     if read is None or read.restarted:
         progress = StopProgress()
     entries, end, mark = (read.entries, read.end, read.mark) if read else ([], 0, None)
-    turn = walk(entries, Walk(*progress.walk))
-    seen = progress.delivered | delivered(entries)
-    try:
-        record_stop_progress(state, session, path, StopProgress(end, frozenset(seen), tuple(turn), mark))
-    except OSError:
-        pass
-    return turn, seen
+    return StopProgress(end, progress.delivered | delivered(entries), walk(entries, progress.walk), mark)
 
 
 def _post(server: dict, path: str, body: dict, outcome: str, until: float) -> str:

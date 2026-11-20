@@ -5,9 +5,18 @@ import sys
 import pytest
 
 from orb import gate as gate_module
-from orb.gate import CHANNEL_SERVER, delivered, gate, read_transcript, read_transcript_from
+from orb.gate import CHANNEL_SERVER, Walk, answers, delivered, read_transcript_after, read_transcript_from, walk
 
 PENDING = {"r7"}
+
+
+def answered(entries, pending, server=CHANNEL_SERVER, start=Walk()):
+    return answers(walk(entries, start, server), pending)
+
+
+def entries_of(path):
+    read = read_transcript_after(path, 0, None)
+    return read.entries if read else None
 
 
 def channel_turn(req="r7", server=CHANNEL_SERVER, text="What time is it?"):
@@ -39,73 +48,68 @@ def test_custom_title_is_none_without_a_rename():
 
 
 def test_channel_turn_with_a_pending_request_id_speaks():
-    assert gate([channel_turn(), assistant()], PENDING) == "r7"
+    assert answered([channel_turn(), assistant()], PENDING) == "r7"
 
 
 def test_channel_turn_as_claude_code_writes_it_is_meta_and_still_speaks():
     live = {"parentUuid": None, "isSidechain": False, "type": "user", "isMeta": True, "promptSource": "system",
             "turnOrigin": "peer", "origin": {"kind": "channel", "server": CHANNEL_SERVER},
             "message": {"role": "user", "content": f'<channel source="{CHANNEL_SERVER}" req="r7">\nWhat is 17 times 23?\n</channel>'}}
-    assert gate([live, assistant("391.")], PENDING) == "r7"
+    assert answered([live, assistant("391.")], PENDING) == "r7"
 
 
 def test_other_meta_user_entries_are_skipped():
     meta = {"type": "user", "isMeta": True, "message": {"role": "user", "content": "injected context"}}
-    assert gate([channel_turn(), assistant(), meta, assistant()], PENDING) == "r7"
+    assert answered([channel_turn(), assistant(), meta, assistant()], PENDING) == "r7"
 
 
 def test_walk_goes_back_past_tool_results_skill_injections_and_attachments():
     skill = {"type": "user", "message": {"role": "user", "content": "Base directory for this skill: C:/x\n\nDo things."}}
     entries = [channel_turn(), assistant(), tool_result(), skill,
                {"type": "attachment", "attachment": {"type": "environment"}}, assistant("final")]
-    assert gate(entries, PENDING) == "r7"
+    assert answered(entries, PENDING) == "r7"
 
 
 def test_queued_command_attachment_from_the_channel_speaks():
     attachment = {"type": "attachment", "attachment": {"type": "queued_command", "origin": {"kind": "channel", "server": CHANNEL_SERVER},
                                                          "content": f'<channel source="{CHANNEL_SERVER}" req="r7">later</channel>'}}
-    assert gate([typed_turn(), assistant(), attachment, assistant()], PENDING) == "r7"
+    assert answered([typed_turn(), assistant(), attachment, assistant()], PENDING) == "r7"
 
 
 def test_typed_turn_stays_silent():
-    assert gate([channel_turn(), assistant(), typed_turn(), assistant()], PENDING) is None
+    assert answered([channel_turn(), assistant(), typed_turn(), assistant()], PENDING) is None
 
 
 def test_channel_turn_without_a_request_id_stays_silent():
     turn = channel_turn()
     turn["message"]["content"] = f'<channel source="{CHANNEL_SERVER}">no id</channel>'
-    assert gate([turn, assistant()], PENDING) is None
+    assert answered([turn, assistant()], PENDING) is None
 
 
 def test_turn_from_another_channel_stays_silent():
-    assert gate([channel_turn(server="plugin:other:chat"), assistant()], PENDING) is None
+    assert answered([channel_turn(server="plugin:other:chat"), assistant()], PENDING) is None
 
 
 def test_request_that_is_not_pending_stays_silent():
-    assert gate([channel_turn(req="r1"), assistant()], PENDING) is None
-    assert gate([channel_turn(), assistant()], set()) is None
+    assert answered([channel_turn(req="r1"), assistant()], PENDING) is None
+    assert answered([channel_turn(), assistant()], set()) is None
 
 
 def test_local_command_echo_is_not_a_user_turn():
     echo = typed_turn("<local-command-caveat>…</local-command-caveat>")
     cmd = typed_turn("<command-name>/compact</command-name>")
-    assert gate([channel_turn(), assistant(), echo, cmd], PENDING) == "r7"
+    assert answered([channel_turn(), assistant(), echo, cmd], PENDING) == "r7"
 
 
 def test_missing_transcript_and_copilot_events_stay_silent(tmp_path):
-    assert gate(read_transcript(str(tmp_path / "nope.jsonl")), PENDING) is None
-    assert gate(read_transcript(None), PENDING) is None
+    assert answered(entries_of(str(tmp_path / "nope.jsonl")), PENDING) is None
+    assert answered(entries_of(None), PENDING) is None
     events = tmp_path / "events.jsonl"
     events.write_text("\n".join(json.dumps(e) for e in [
         {"type": "user.message", "data": {"content": "hi"}},
         {"type": "assistant.message", "data": {"content": "hello"}}]), encoding="utf-8")
-    assert gate(read_transcript(str(events)), PENDING) is None
+    assert answered(entries_of(str(events)), PENDING) is None
 
-
-def test_read_transcript_skips_a_partial_last_line(tmp_path):
-    path = tmp_path / "t.jsonl"
-    path.write_text(json.dumps(channel_turn()) + "\n" + json.dumps(assistant()) + '\n{"type": "assis', encoding="utf-8")
-    assert gate(read_transcript(str(path)), PENDING) == "r7"
 
 
 def ended(text="done"):
@@ -127,13 +131,13 @@ def notification_attachment():
 
 
 def test_a_notification_after_the_orbs_turn_ended_opens_a_turn_that_is_not_the_orbs():
-    assert gate([channel_turn(), ended("Started it."), notification_turn(), ended("It finished.")], PENDING) is None
+    assert answered([channel_turn(), ended("Started it."), notification_turn(), ended("It finished.")], PENDING) is None
 
 
 def test_a_notification_that_lands_mid_turn_leaves_the_turn_to_whoever_opened_it():
     for notice in (notification_attachment(), notification_turn()):
         entries = [channel_turn(), assistant(), tool_result(), notice, ended("All done.")]
-        assert gate(entries, PENDING) == "r7"
+        assert answered(entries, PENDING) == "r7"
 
 
 def test_reading_from_an_offset_returns_only_what_was_written_since(tmp_path):
@@ -170,7 +174,7 @@ def typed_mid_turn_queued_command():
 
 def test_a_message_typed_while_the_orbs_turn_runs_leaves_the_turn_to_the_orb():
     for typed in (typed_mid_turn_queued_command(), typed_between_steps()):
-        assert gate([channel_turn(), assistant(), tool_result(), typed, ended("All done.")], PENDING) == "r7"
+        assert answered([channel_turn(), assistant(), tool_result(), typed, ended("All done.")], PENDING) == "r7"
 
 
 def typed_between_steps(text="typed while busy"):
@@ -180,7 +184,7 @@ def typed_between_steps(text="typed while busy"):
 def test_a_message_typed_while_the_agent_is_still_writing_leaves_the_turn_to_the_orb():
     writing = assistant("Building the deck now.")
     writing["message"]["stop_reason"] = None
-    assert gate([channel_turn(), writing, typed_between_steps(), ended("All done.")], PENDING) == "r7"
+    assert answered([channel_turn(), writing, typed_between_steps(), ended("All done.")], PENDING) == "r7"
 
 
 def test_messages_typed_in_a_row_between_steps_leave_the_turn_to_the_orb():
@@ -189,44 +193,44 @@ def test_messages_typed_in_a_row_between_steps_leave_the_turn_to_the_orb():
     calling = {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "t1"}], "stop_reason": "tool_use"}}
     entries = [channel_turn(), calling, skill, snapshot, typed_between_steps("No"),
                typed_between_steps("Computer is under heavy load"), tool_result(), ended("All done.")]
-    assert gate(entries, PENDING) == "r7"
+    assert answered(entries, PENDING) == "r7"
 
 
 def test_another_channels_message_mid_turn_leaves_the_turn_to_the_orb():
     voice = {"type": "attachment", "attachment": {"type": "queued_command", "origin": {"kind": "channel", "server": "jarvis-channel"},
                                                   "content": '<channel source="jarvis-channel">turn the lights off</channel>'}}
-    assert gate([channel_turn(), assistant(), tool_result(), voice, ended("All done.")], PENDING) == "r7"
+    assert answered([channel_turn(), assistant(), tool_result(), voice, ended("All done.")], PENDING) == "r7"
 
 
 def test_a_message_typed_after_the_orbs_turn_ended_opens_a_turn_that_is_not_the_orbs():
-    assert gate([channel_turn(), ended("Started it."), typed_mid_turn_queued_command(), ended("Answered.")], PENDING) is None
+    assert answered([channel_turn(), ended("Started it."), typed_mid_turn_queued_command(), ended("Answered.")], PENDING) is None
 
 
-def test_a_transcript_cut_mid_character_still_reads(tmp_path):
+def test_a_transcript_line_holding_bytes_that_are_not_utf8_still_reads(tmp_path):
     path = tmp_path / "t.jsonl"
-    path.write_bytes(json.dumps(channel_turn()).encode() + b"\n" + '{"t": "é'.encode()[:-1])
-    assert gate(read_transcript(str(path)), PENDING) == "r7"
+    path.write_bytes(json.dumps(channel_turn()).encode().replace(b"time", b"t\xffme") + b"\n")
+    assert answered(entries_of(str(path)), PENDING) == "r7"
 
 
-def test_the_gate_answers_for_the_channel_it_is_given():
+def test_a_walk_for_another_channel_answers_that_channels_request():
     other = "plugin:other:chat"
     ours_mid_turn = {"type": "attachment", "attachment": {"type": "queued_command", "origin": {"kind": "channel", "server": CHANNEL_SERVER},
                                                           "content": f'<channel source="{CHANNEL_SERVER}" req="r8">later</channel>'}}
     entries = [channel_turn(server=other), assistant(), ours_mid_turn, ended("All done.")]
-    assert gate(entries, {"r7", "r8"}, server=other) == "r7"
+    assert answered(entries, {"r7", "r8"}, server=other) == "r7"
 
 
 def test_another_channels_new_turn_after_an_unclosed_orb_turn_is_not_the_orbs():
     voice = {"type": "user", "promptSource": "system", "isMeta": True, "origin": {"kind": "channel", "server": "jarvis-channel"},
              "message": {"role": "user", "content": '<channel source="jarvis-channel">turn the lights off</channel>'}}
-    assert gate([channel_turn(), assistant(), voice, ended("Lights are off.")], PENDING) is None
+    assert answered([channel_turn(), assistant(), voice, ended("Lights are off.")], PENDING) is None
 
 
 def test_a_queued_prompt_after_an_unclosed_orb_turn_is_not_the_orbs():
     refused = assistant("I can't help with that.")
     refused["message"]["stop_reason"] = "refusal"
     fresh = {"type": "user", "promptSource": "queued", "origin": {"kind": "human"}, "message": {"role": "user", "content": "a new question"}}
-    assert gate([channel_turn(), refused, {"type": "file-history-snapshot"}, fresh, ended("An answer.")], PENDING) is None
+    assert answered([channel_turn(), refused, {"type": "file-history-snapshot"}, fresh, ended("An answer.")], PENDING) is None
 
 
 def test_delivered_names_the_channel_requests_the_session_was_handed_not_ones_only_enqueued():
@@ -255,9 +259,9 @@ SPLIT_TRANSCRIPTS = [
 
 def test_a_walk_resumed_from_where_an_earlier_one_ended_answers_as_a_walk_over_the_whole_transcript():
     for entries, whole in SPLIT_TRANSCRIPTS:
-        assert gate(entries, PENDING) == whole
+        assert answered(entries, PENDING) == whole
         for k in range(len(entries) + 1):
-            assert gate(entries[k:], PENDING, start=gate_module.walk(entries[:k])) == whole, (entries, k)
+            assert answered(entries[k:], PENDING, start=walk(entries[:k])) == whole, (entries, k)
 
 
 def resumed(path, first, rewritten):
