@@ -1,9 +1,10 @@
 import json
+import subprocess
 import sys
 
 import pytest
 
-from orb import cli, pages, panels
+from orb import cli, logs, pages, panels
 
 
 def test_showing_a_saved_panel_sends_its_name_and_its_files(tmp_path, monkeypatch):
@@ -455,3 +456,20 @@ def test_a_command_sends_every_word_after_its_name_as_its_argument(tmp_path, mon
     monkeypatch.setattr(cli, "post", lambda server, path, body: sent.append((path, body)) or {"queued": "/compact"})
     assert cli.main(["command", "--repo", str(tmp_path / "repo"), "--home", str(tmp_path / "home"), *words]) == 0
     assert sent == [("/command", {"name": "compact", "argument": argument})]
+
+
+def test_a_server_that_exits_before_answering_names_its_log_and_its_crash_output(tmp_path):
+    exited = subprocess.Popen([sys.executable, "-c", "raise SystemExit(3)"])
+    exited.wait()
+    with pytest.raises(SystemExit, match=r"exited with 3; see .*server\.claude\.log and .*server\.claude\.out"):
+        cli.wait_healthy(1, "t", exited, logs.log_path(tmp_path, "claude"), logs.crash_output_path(tmp_path, "claude"))
+
+
+def test_orb_open_watches_the_server_start_with_the_same_output_file_it_started_it_with(tmp_path, monkeypatch):
+    written, reported = [], []
+    monkeypatch.setattr(cli, "stable_port", lambda previous: 4321)
+    monkeypatch.setattr(cli, "spawn_detached", lambda command, output, token: written.append(output))
+    monkeypatch.setattr(cli, "wait_healthy", lambda port, token, proc, log_path, crash_path: reported.append(crash_path) or {"attach_text": "attached"})
+    monkeypatch.setattr(cli.browser, "open_app_window", lambda url, profile: "Chrome")
+    cli.main(["open", "--agent", "claude", "--repo", str(tmp_path / "repo"), "--home", str(tmp_path / "home")])
+    assert reported == written and written

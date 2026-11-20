@@ -3,6 +3,8 @@ import sys
 
 import pytest
 
+from orb import engines
+
 
 @pytest.fixture
 def lock():
@@ -36,3 +38,11 @@ def case_blind(tmp_path):
     if not (tmp_path / "probe").is_dir():
         pytest.skip("the temporary folder's filesystem tells names apart by case")
     (tmp_path / "Probe").rmdir()
+
+
+NO_ENGINE = "no-default-engine-in-tests"
+
+
+@pytest.fixture(autouse=True)
+def no_default_engine(monkeypatch):
+    monkeypatch.setattr(engines, "DEFAULT", dict.fromkeys(engines.DEFAULT, NO_ENGINE))

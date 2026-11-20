@@ -1,11 +1,13 @@
 import json
 import logging
 import os
+import time
 
 import numpy as np
 import pytest
 
 from orb import engines
+from orb.conftest import NO_ENGINE
 from orb.audio import SAMPLE_RATE
 from orb.engines import (BUILTIN_DIR, EngineError, available, EngineProcess, Manifest, Stt, Tts, cache_dir, check, find,
                          missing_env, read_manifest, split_at_quiet_points, start)
@@ -114,20 +116,44 @@ for line in sys.stdin:
     process.close()
 
 
-def test_an_engines_utf16_stderr_with_color_codes_reaches_the_log_as_plain_text(tmp_path, caplog):
-    write_engine(tmp_path / ".config" / "voice-engines", "stt", "noisy", '''
+def engine_writing_to_stderr(tmp_path, name, stderr_bytes):
+    write_engine(tmp_path / ".config" / "voice-engines", "stt", name, f'''
 import json, sys
-sys.stderr.buffer.write(b"\\xff\\xfe" + "\\x1b[?25l\\x1b[33mgpu warning: low memory\\x1b[0m\\x1b[2K\\n".encode("utf-16-le"))
+sys.stderr.buffer.write({stderr_bytes!r})
 sys.stderr.buffer.flush()
 for line in sys.stdin:
-    sys.stdout.write(json.dumps({"ok": True}) + "\\n"); sys.stdout.flush()
+    sys.stdout.write(json.dumps({{"ok": True}}) + "\\n"); sys.stdout.flush()
 ''')
-    with caplog.at_level(logging.WARNING, logger="orb"):
-        process = start("stt", {"engine": "noisy"}, tmp_path)
+
+
+def logged_once(caplog, count=1, within_s=10.0):
+    deadline = time.monotonic() + within_s
+    while len(caplog.records) < count and time.monotonic() < deadline:
+        time.sleep(0.01)
+    return [(r.levelname, r.getMessage()) for r in caplog.records]
+
+
+def logged_from(tmp_path, name, caplog):
+    with caplog.at_level(logging.DEBUG, logger="orb"):
+        process = start("stt", {"engine": name}, tmp_path)
         process.call({"op": "transcribe", "pcm": ""})
         process.close()
-        process._stderr_pump.join(10)
-    assert [r.getMessage() for r in caplog.records] == ["stt engine 'noisy': gpu warning: low memory"]
+        return logged_once(caplog)
+
+
+def test_a_line_an_engine_writes_to_stderr_is_logged_as_a_warning_naming_the_engine(tmp_path, caplog):
+    engine_writing_to_stderr(tmp_path, "noisy", b"gpu warning: low memory\n")
+    assert logged_from(tmp_path, "noisy", caplog) == [("WARNING", "stt engine 'noisy': gpu warning: low memory")]
+
+
+def test_an_engines_utf16_stderr_reaches_the_log_decoded(tmp_path, caplog):
+    engine_writing_to_stderr(tmp_path, "wide", b"\xff\xfe" + "gpu warning: low memory\n".encode("utf-16-le"))
+    assert [message for _, message in logged_from(tmp_path, "wide", caplog)] == ["stt engine 'wide': gpu warning: low memory"]
+
+
+def test_an_engines_stderr_reaches_the_log_without_its_color_codes(tmp_path, caplog):
+    engine_writing_to_stderr(tmp_path, "colored", b"\x1b[?25l\x1b[33mgpu warning: low memory\x1b[0m\x1b[2K\n")
+    assert [message for _, message in logged_from(tmp_path, "colored", caplog)] == ["stt engine 'colored': gpu warning: low memory"]
 
 
 def test_an_engine_that_writes_more_stderr_than_a_pipe_holds_is_still_answered_and_logged_to_the_end(tmp_path, caplog):
@@ -143,8 +169,8 @@ for line in sys.stdin:
         process = start("stt", {"engine": "chatty"}, tmp_path)
         process.call({"op": "transcribe", "pcm": ""}, timeout=30)
         process.close()
-        process._stderr_pump.join(10)
-    assert len(caplog.records) == 3000 and caplog.records[-1].getMessage().startswith("stt engine 'chatty': warning 2999 ")
+        logged = logged_once(caplog, 3000)
+    assert len(logged) == 3000 and logged[-1][1].startswith("stt engine 'chatty': warning 2999 ")
 
 
 def test_an_engine_that_refuses_to_load_names_the_engine_and_its_reason(tmp_path):
@@ -373,3 +399,8 @@ def test_a_name_with_a_trailing_newline_is_not_a_plain_folder_name(tmp_path, nam
 
 def test_the_orbs_sample_rate_is_the_16_khz_every_speech_engine_expects():
     assert SAMPLE_RATE == 16_000
+
+
+def test_an_engine_that_fails_in_a_test_that_set_no_stand_in_names_the_missing_default_instead_of_loading_one(tmp_path):
+    with pytest.raises(EngineError, match=NO_ENGINE):
+        engines.Tts(settings(engine="missing"), tmp_path)
