@@ -426,6 +426,6 @@ def test_a_command_written_with_its_slash_is_refused(tmp_path):
         load_layers(tmp_path, user={"commands": ["/compact"]})
 
 
-def test_a_capture_setting_in_this_repos_own_file_keeps_the_engine_the_users_file_chose(tmp_path):
+def test_a_capture_setting_in_the_private_file_for_this_repo_keeps_the_engine_the_users_file_chose(tmp_path):
     cfg = load_layers(tmp_path, user={"capture": {"engine": "livekit", "buffer_ms": 500}}, private={"capture": {"buffer_ms": 200}})
     assert cfg["capture"] == {"engine": "livekit", "buffer_ms": 200}

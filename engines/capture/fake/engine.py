@@ -14,7 +14,10 @@ settings = request.get("settings", {})
 if settings.get("fail"):
     sys.stdout.write(json.dumps({"error": settings["fail"]}) + "\n")
     sys.exit(1)
-sys.stdout.write(json.dumps({"ok": True, "device": "fake", "rate": 16000, "latency": settings.get("latency", 0.0)}) + "\n")
+loaded = {"ok": True, "device": "fake", "rate": 16000, "latency": settings.get("latency", 0.0)}
+if settings.get("omit_latency"):
+    del loaded["latency"]
+sys.stdout.write(json.dumps(loaded) + "\n")
 sys.stdout.flush()
 closed = threading.Event()
 threading.Thread(target=lambda: (sys.stdin.read(), closed.set()), daemon=True).start()

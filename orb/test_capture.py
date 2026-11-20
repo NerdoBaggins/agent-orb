@@ -129,3 +129,8 @@ def test_a_capture_engines_tail_is_its_latency_and_a_burst(tmp_path):
         assert capture.tail_s == pytest.approx(0.12 + capture_module.BURST_S)
     finally:
         capture.close()
+
+
+def test_a_capture_engine_that_leaves_its_latency_out_does_not_load(tmp_path):
+    with pytest.raises(EngineError, match="did not report its latency"):
+        fake(tmp_path, omit_latency=True)
