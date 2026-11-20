@@ -804,3 +804,7 @@ first use, under its own license:
 | `moonshine` (hearing) | [Moonshine](https://github.com/moonshine-ai/moonshine), English | useful-moonshine-onnx | MIT |
 | `silero` (voice activity) | [Silero VAD](https://github.com/snakers4/silero-vad) | [openWakeWord](https://github.com/dscripka/openWakeWord) (Apache 2.0) | MIT |
 | `resemblyzer` (voiceprint) | [Resemblyzer](https://github.com/resemble-ai/Resemblyzer) | itself | Apache 2.0 |
+
+The `livekit` capture engine downloads no model. It runs on the [LiveKit Python SDK](https://github.com/livekit/python-sdks)
+(Apache 2.0), whose WebRTC audio processing is BSD 3-Clause, and reads the microphone through
+[sounddevice](https://github.com/spatialaudio/python-sounddevice) (MIT).
