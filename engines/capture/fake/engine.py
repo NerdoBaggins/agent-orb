@@ -18,7 +18,10 @@ sys.stdout.write(json.dumps({"progress": "opening the fake microphone"}) + "\n")
 if settings.get("fail"):
     sys.stdout.write(json.dumps({"error": settings["fail"]}) + "\n")
     sys.exit(1)
-sys.stdout.write(json.dumps({"ok": True, "pid": os.getpid(), "device": "fake", "rate": 16000, "latency": settings.get("latency", 0.0)}) + "\n")
+loaded = {"ok": True, "pid": os.getpid(), "device": "fake", "rate": 16000, "latency": settings.get("latency", 0.0)}
+if settings.get("omit_latency"):
+    del loaded["latency"]
+sys.stdout.write(json.dumps(loaded) + "\n")
 sys.stdout.flush()
 closed = threading.Event()
 
