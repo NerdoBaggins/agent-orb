@@ -229,7 +229,7 @@ the way Stop sends Escape, and then watches the session's transcript for the com
 - The argument is one line of text, at most 4000 characters, with no control or line-break characters, so it cannot
   add a keystroke of its own. Only `color`, `compact`, `effort`, `fast`, `model` and `rename` are passed one; any
   other command refuses it, since Claude Code can hand the whole line to the agent as your own words.
-- The command waits for the session's turn to end, up to ten minutes, so the agent can ask for a compaction in the
+- The command waits for the session's turn to end, up to 10 minutes, so the agent can ask for a compaction in the
   middle of its own reply. One waits at a time.
 - It is typed after anything already in the terminal's prompt, so a half-typed line goes with it; the transcript
   check then reports that it did not run. Its Return answers a dialog Claude Code has open in that terminal, such as
