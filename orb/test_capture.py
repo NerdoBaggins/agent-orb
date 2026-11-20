@@ -5,7 +5,6 @@ import pytest
 from orb import capture as capture_module
 from orb.capture import Capture, Ended, Frame, Notice
 from orb.engines import EngineError
-from orb.server import start_capture
 
 
 def fake(tmp_path, **settings):
@@ -19,6 +18,14 @@ def test_a_capture_engine_streams_frames_after_it_loads(tmp_path):
         assert all(isinstance(e, Frame) for e in events)
         assert [e.samples.size for e in events] == [1280, 1280] and events[0].samples[0] == pytest.approx(0.25)
         assert capture.device == "fake"
+    finally:
+        capture.close()
+
+
+def test_a_captured_frame_carries_the_level_the_engine_measured(tmp_path):
+    capture = fake(tmp_path, frames=1, value=0.25)
+    try:
+        assert capture.next_event().level == pytest.approx(0.25)
     finally:
         capture.close()
 
@@ -40,15 +47,9 @@ def test_an_engine_that_exits_ends_the_capture(tmp_path):
     assert isinstance(event, Ended) and "exited" in event.reason
 
 
-def test_a_capture_engine_that_fails_to_load_leaves_the_browsers_microphone_with_the_reason(tmp_path):
+def test_a_capture_engine_that_fails_to_load_raises_its_reason(tmp_path):
     with pytest.raises(EngineError, match="no microphone"):
         fake(tmp_path, fail="no microphone found")
-    capture, reason = start_capture({"engine": "fake", "fail": "no microphone found"}, tmp_path)
-    assert capture is None and "no microphone found" in reason
-
-
-def test_no_capture_section_means_the_browsers_microphone_and_no_reason(tmp_path):
-    assert start_capture(None, tmp_path) == (None, None)
 
 
 def test_a_line_that_is_neither_audio_nor_json_is_a_notice(tmp_path):
@@ -100,5 +101,27 @@ def test_an_engine_that_sends_only_notices_still_ends_the_capture(tmp_path, monk
     try:
         events = [capture.next_event() for _ in range(20)]
         assert isinstance(events[0], Notice) and any(isinstance(e, Ended) and "no audio" in e.reason for e in events)
+    finally:
+        capture.close()
+
+
+def test_a_capture_engines_notice_is_passed_on_in_its_own_words(tmp_path):
+    capture = fake(tmp_path, frames=0, notice="the microphone is warming up")
+    try:
+        assert capture.next_event() == Notice("capture engine 'fake': the microphone is warming up")
+    finally:
+        capture.close()
+
+
+@pytest.mark.parametrize("latency", [None, "0.1", -0.5, True])
+def test_a_capture_engine_that_does_not_report_its_latency_as_seconds_does_not_load(tmp_path, latency):
+    with pytest.raises(EngineError, match="did not report its latency"):
+        fake(tmp_path, latency=latency)
+
+
+def test_a_capture_engines_tail_is_its_latency_and_a_burst(tmp_path):
+    capture = fake(tmp_path, latency=0.12)
+    try:
+        assert capture.tail_s == pytest.approx(0.12 + capture_module.BURST_S)
     finally:
         capture.close()
