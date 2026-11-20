@@ -4,7 +4,6 @@ import shutil
 import socket
 import subprocess
 import time
-from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -153,14 +152,14 @@ def test_a_command_meant_for_a_session_the_door_no_longer_serves_is_not_compacte
 
 def test_a_command_sent_after_the_session_moved_follows_it_to_the_new_one(door, tmp_path):
     link = linked(tmp_path, session="before-clear")
-    link.type_command(commands.Command("compact", "keep the plan"))
-    assert link.session_id == "s1" and door.said() == {"compacted": {"trigger": "manual", "customInstructions": "keep the plan"}}
+    sent = link.send_command(commands.Command("compact", "keep the plan"))
+    assert sent[0] == events_path(tmp_path, "s1") and link.session_id == "s1" and door.said() == {"compacted": {"trigger": "manual", "customInstructions": "keep the plan"}}
 
 
 def test_a_command_copilot_does_not_log_is_refused_before_it_is_sent(door, tmp_path):
     with pytest.raises(agents.LinkError, match="keeps no trace of /context"):
-        linked(tmp_path).type_command(commands.Command("context", ""))
-    linked(tmp_path).type_command(commands.Command("compact", ""))
+        linked(tmp_path).send_command(commands.Command("context", ""))
+    linked(tmp_path).send_command(commands.Command("compact", ""))
     assert door.said() == {"compacted": {"trigger": "manual"}}
 
 
@@ -172,18 +171,14 @@ def test_copilots_unconfirmed_notice_names_its_event_log_not_a_terminal(tmp_path
 def test_a_command_with_no_door_serving_is_refused_without_reaching_one(tmp_path):
     link = CopilotLink(tmp_path / "copilot-channel.json", home=tmp_path)
     with pytest.raises(agents.LinkError, match="Not attached"):
-        link.type_command(commands.Command("compact", ""))
+        link.send_command(commands.Command("compact", ""))
 
 
 def test_a_command_whose_session_moved_to_none_is_refused_rather_than_resent(tmp_path):
     link = linked(tmp_path, session="before-clear")
     link._run = lambda mode, timeout, prompt="": (_ for _ in ()).throw(SessionMoved("moved"))
     with pytest.raises(agents.LinkError, match="Not attached"):
-        link.type_command(commands.Command("compact", ""))
-
-
-def test_nothing_has_run_before_any_command_was_sent(tmp_path):
-    assert not linked(tmp_path).ran_since("compact", datetime.now(timezone.utc))
+        link.send_command(commands.Command("compact", ""))
 
 
 def test_no_turn_is_open_before_the_link_has_found_a_session(tmp_path):
@@ -231,11 +226,11 @@ def test_only_a_compaction_after_the_command_was_sent_shows_it_ran(door, tmp_pat
     compacted = {"type": "session.compaction_complete", "data": {"success": True, "trigger": "manual"}}
     log = write_log(tmp_path, compacted)
     done = json.dumps(compacted) + "\n"
-    link.type_command(commands.Command("compact", "keep the plan"))
-    assert not link.ran_since("compact", datetime.now(timezone.utc))
+    sent = link.send_command(commands.Command("compact", "keep the plan"))
+    assert not link.command_ran("compact", sent)
     with log.open("a", encoding="utf-8") as f:
         f.write(done)
-    assert link.ran_since("compact", datetime.now(timezone.utc))
+    assert link.command_ran("compact", sent)
 
 
 def test_the_link_follows_the_door_to_a_new_secret_after_copilot_restarts_the_extension(tmp_path):
@@ -327,3 +322,15 @@ def test_the_extension_and_the_orb_name_the_same_record(tmp_path):
              "process.stdout.write(RECORD_NAME);"
     named = subprocess.run(["node", "--input-type=module", "-e", script], capture_output=True, text=True, check=True).stdout
     assert named == copilot_channel_file(tmp_path).name
+
+
+def test_a_compaction_logged_while_the_door_is_still_answering_shows_the_command_ran(tmp_path):
+    link = linked(tmp_path)
+    log = write_log(tmp_path)
+    compacted = {"type": "session.compaction_complete", "data": {"success": True, "trigger": "manual"}}
+
+    def door_compacts_before_it_answers(mode, timeout, prompt=""):
+        with log.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(compacted) + "\n")
+    link._run = door_compacts_before_it_answers
+    assert link.command_ran("compact", link.send_command(commands.Command("compact", "")))

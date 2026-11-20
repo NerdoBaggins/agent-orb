@@ -1,13 +1,16 @@
 import asyncio
 import json
 import threading
+import time
 import types
+from datetime import datetime, timezone
 
 import pytest
 
 from orb import agents, commands, server as server_module, terminal
 from orb.state import session_file, write_json
 from orb.test_server import TOKEN, FakeLink, client_for, make, run, wait_for
+from orb.test_feed import _echo
 from orb.test_server_side import next_json, of_type
 
 
@@ -23,13 +26,14 @@ class CommandLink(FakeLink):
             return True
         return False
 
-    def type_command(self, command):
+    def send_command(self, command):
         if self.fails:
             raise self.failure(self.fails)
         self.typed.append((command.line, self.open_turns))
+        return len(self.typed)
 
-    def ran_since(self, name, since):
-        return self.runs and bool(self.typed)
+    def command_ran(self, name, sent):
+        return self.runs and sent == len(self.typed)
 
     def unconfirmed(self, name):
         return f"/{name} went in, but the fake shows no run"
@@ -206,7 +210,7 @@ class SlowLink(CommandLink):
         super().__init__()
         self.looks = 0
 
-    def ran_since(self, name, since):
+    def command_ran(self, name, sent):
         self.looks += 1
         return self.looks >= 5
 
@@ -247,14 +251,34 @@ def test_the_session_link_types_the_commands_parts_into_the_sessions_terminal(tm
     monkeypatch.setattr(terminal, "send_line", lambda target, parts: sent.append((target.pid, parts)))
     link = server_module.ClaudeLink(tmp_path)
     link.info = types.SimpleNamespace(session_pid=4242)
-    link.type_command(commands.Command("compact", "keep the plan"))
+    link.send_command(commands.Command("compact", "keep the plan"))
     assert sent == [(4242, ("/compact ", "keep the plan"))]
+
+
+def test_the_session_links_mark_for_a_command_is_taken_before_the_command_is_typed(tmp_path, monkeypatch):
+    typed_at = []
+    monkeypatch.setattr(terminal, "target_for", lambda pid: terminal.Target(pid, "claude"))
+    monkeypatch.setattr(terminal, "send_line", lambda target, parts: time.sleep(0.05) or typed_at.append(datetime.now(timezone.utc)))
+    link = server_module.ClaudeLink(tmp_path)
+    link.info = types.SimpleNamespace(session_pid=4242)
+    before = datetime.now(timezone.utc)
+    assert before <= link.send_command(commands.Command("context", "")) <= typed_at[0]
+
+
+def test_the_session_link_counts_only_a_run_echoed_after_its_mark(tmp_path, monkeypatch):
+    link = server_module.ClaudeLink(tmp_path)
+    monkeypatch.setattr(link, "refresh", lambda: None)
+    link.transcript = [_echo("/context", "2026-11-06T09:00:00Z")]
+    mark = datetime(2026, 11, 6, 9, 0, 1, tzinfo=timezone.utc)
+    assert not link.command_ran("context", mark)
+    link.transcript.append(_echo("/context", "2026-11-06T09:00:02Z"))
+    assert link.command_ran("context", mark)
 
 
 def test_the_session_link_without_a_session_process_types_nothing(tmp_path, monkeypatch):
     monkeypatch.setattr(terminal, "send_line", lambda target, parts: pytest.fail("typed"))
     with pytest.raises(terminal.NoAdapter, match="no session process"):
-        server_module.ClaudeLink(tmp_path).type_command(commands.Command("context", ""))
+        server_module.ClaudeLink(tmp_path).send_command(commands.Command("context", ""))
 
 
 def test_two_threads_reading_the_transcript_at_once_take_its_new_entries_once(tmp_path, monkeypatch):
@@ -290,7 +314,7 @@ class HeldLink(CommandLink):
         super().__init__()
         self.done = False
 
-    def ran_since(self, name, since):
+    def command_ran(self, name, sent):
         return self.done
 
 
