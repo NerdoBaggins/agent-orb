@@ -85,12 +85,23 @@ def test_every_release_and_change_has_a_speaker_button_and_a_heading_has_none(tm
     async def count(page, base):
         await page.keyboard.press("r")
         await page.wait_for_selector("#builtin-releases h3")
-        return await page.evaluate("""() => [...document.querySelectorAll('#builtin-releases > div')].map(
+        return await page.evaluate("""() => [...document.querySelectorAll('#builtin-releases > div:not(.rn-zoom)')].map(
           row => [row.classList[0], row.querySelectorAll('.rn-explain').length])""")
 
     _, rows = asyncio.run(releases_page(tmp_path, count))
-    assert rows and {kind: n for kind, n in rows if kind not in ("rn-section", "rn-zoom")} == {"rn-release": 1, "rn-entry": 1}
-    assert all(n == 0 for kind, n in rows if kind in ("rn-section", "rn-zoom"))
+    assert {kind for kind, _ in rows} == {"rn-release", "rn-section", "rn-entry"}
+    assert all(n == (0 if kind == "rn-section" else 1) for kind, n in rows)
+
+
+@pytest.mark.timeout(60)
+def test_the_text_size_controls_carry_no_speaker_button(tmp_path):
+    async def count(page, base):
+        await page.keyboard.press("r")
+        await page.wait_for_selector("#builtin-releases .rn-zoom button")
+        return await page.evaluate("() => document.querySelectorAll('#builtin-releases .rn-zoom .rn-explain').length")
+
+    _, speakers = asyncio.run(releases_page(tmp_path, count))
+    assert speakers == 0
 
 
 @pytest.mark.timeout(60)

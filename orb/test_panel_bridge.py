@@ -5,6 +5,7 @@ import pytest
 from aiohttp import ClientSession, web
 
 from orb.test_server import TOKEN, make
+from orb.test_server_widgets import installed_widget
 
 pytestmark = pytest.mark.browser
 
@@ -93,6 +94,7 @@ def test_a_click_in_one_panel_lets_that_panel_send_and_no_other_send_or_speak(tm
     server = asyncio.run(run_page(tmp_path, [("scripted", SCRIPTED), ("clicked", CLICKED)], click_the_clicked_panel))
     assert [text for text, _ in server.link.sent] == ['[sent by the orb panel "clicked", not spoken] from the clicked panel']
     assert server.tts.rendered == []
+    assert [entry["speak"] for entry in server.transcript] == [False]
 
 
 @pytest.mark.timeout(60)
@@ -201,3 +203,24 @@ def test_the_launch_file_brings_the_window_to_the_orb_and_connects_it(tmp_path):
             await runner.cleanup()
         return connected
     assert asyncio.run(go()) == 1
+
+
+WIDGET_SENDER = """<!doctype html><body><button id="go" style="width:120px;height:30px"
+  onclick="orb.send('from the widget').catch(() => {})">send</button></body>"""
+
+
+@pytest.mark.timeout(60)
+def test_a_click_in_a_widget_sends_a_request_with_the_widgets_mark_and_asks_for_its_reply_aloud(tmp_path):
+    server = make(tmp_path, voice=True)
+    installed_widget(server, html=WIDGET_SENDER, size={"width": 160, "height": 60})
+
+    async def click_the_widget(page):
+        await page.evaluate(f"""() => fetch("/widget", {{method: "POST", headers: {{"X-Orb-Token": "{TOKEN}", "Content-Type": "application/json"}},
+                                                         body: JSON.stringify({{name: "context", on: true}})}})""")
+        await page.wait_for_timeout(1500)
+        frame = next(f for f in page.frames if f.url.endswith("/context/index.html"))
+        await frame.click("#go")
+
+    asyncio.run(run_page(tmp_path, [], click_the_widget, server))
+    assert [text for text, _ in server.link.sent] == ['[sent by the orb widget "context", not spoken] from the widget']
+    assert [entry["speak"] for entry in server.transcript] == [True]

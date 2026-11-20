@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
-const { explainChange, explainRelease, releaseRows, TEXT_SIZES, clampTextSize, nextTextSize } = createRequire(import.meta.url)("./releases.js");
+const { explainChange, explainRelease, releaseRows, TEXT_SIZES, nextTextSize, storedTextSize } = createRequire(import.meta.url)("./releases.js");
 
 const released = { version: "0.4.0", date: "2026-10-30", sections: [
   { heading: "Changed", entries: ["The orb opens only in Chrome (#97)."] },
@@ -53,11 +53,12 @@ test("the text size steps by two points in either direction and stays between 12
   assert.equal(nextTextSize(12, -1), 12);
 });
 
-test("a saved size that is missing, zero or not a number falls back to the start size, and one out of range is brought in", () => {
-  for (const bad of [NaN, 0, -3, Infinity, undefined]) assert.equal(clampTextSize(bad), TEXT_SIZES.start);
-  assert.equal(clampTextSize(40), 28);
-  assert.equal(clampTextSize(5), 12);
-  assert.equal(clampTextSize(20), 20);
+test("a saved size that is missing, empty, zero, negative or not a number reads as the start size", () => {
+  for (const bad of [null, "", "0", "-3", "Infinity", "big"]) assert.equal(storedTextSize(bad), TEXT_SIZES.start, bad);
+});
+
+test("a saved size out of range reads as the nearest size in range", () => {
+  assert.deepEqual(["40", "5", "20"].map(storedTextSize), [28, 12, 20]);
 });
 
 test("every other change within a section is striped, starting plain, and the striping starts over in the next section", () => {

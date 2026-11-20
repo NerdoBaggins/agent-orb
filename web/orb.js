@@ -586,6 +586,12 @@
   mic.addEventListener("pointercancel", micRelease);
   addEventListener("mouseup", micRelease);
 
+  function userActive() {
+    return !!(navigator.userActivation && navigator.userActivation.isActive);
+  }
+  function ask(text, { kind, page }, { speak, ref, active }) {
+    send({ type: "ask", text, speak, ref, active, kind, page });
+  }
   function inTextField(target) {
     return target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
   }
@@ -629,7 +635,7 @@
       if (!frame) return;
       if (m.orb === "stop") { stopNow(); return; }
       if (m.orb === "key") { if (m.code === "Escape") escapeKey(); return; }
-      const active = !!(navigator.userActivation && navigator.userActivation.isActive) && document.activeElement === frame.iframe;
+      const active = userActive() && document.activeElement === frame.iframe;
       if (m.orb === "action") {
         const ref = `action:${this.window}:${++this.seq}`;
         this.pending.set(ref, { source: ev.source, id: m.id });
@@ -647,7 +653,7 @@
       if (!active) { ev.source.postMessage({ orb: "reject", id: m.id, error: "orb.send works only during a click or key press" }, "*"); return; }
       const ref = `panel:${this.window}:${++this.seq}`;
       this.pending.set(ref, { source: ev.source, id: m.id });
-      send({ type: "ask", text: String(m.text || ""), speak: m.speak !== false, ref, active, kind: frame.kind, page: frame.name });
+      ask(String(m.text || ""), { kind: frame.kind, page: frame.name }, { speak: m.speak !== false, ref, active });
     },
     resolve(ref, text) {
       const p = ref && this.pending.get(ref);
@@ -975,7 +981,7 @@
       try { return JSON.parse(localStorage.getItem(SETTINGS_OPEN_KEY)); } catch (e) { return null; }
     },
     save() {
-      try { localStorage.setItem(SETTINGS_OPEN_KEY, JSON.stringify([...this.open])); } catch (e) { return; }
+      try { localStorage.setItem(SETTINGS_OPEN_KEY, JSON.stringify([...this.open])); } catch {}
     },
     async refresh() {
       try {
@@ -1405,11 +1411,12 @@
   $("releases-toggle").addEventListener("click", toggleReleases);
   $("settings-toggle").addEventListener("click", toggleSettings);
 
+  const RELEASES_TEXT_SIZE_KEY = "orb.releasesTextSize";
   function savedReleasesTextSize() {
-    try { return clampTextSize(Number(localStorage.getItem("orb.releasesTextSize"))); } catch (e) { return TEXT_SIZES.start; }
+    try { return storedTextSize(localStorage.getItem(RELEASES_TEXT_SIZE_KEY)); } catch { return TEXT_SIZES.start; }
   }
   function saveReleasesTextSize(size) {
-    try { localStorage.setItem("orb.releasesTextSize", String(size)); } catch (e) { return; }
+    try { localStorage.setItem(RELEASES_TEXT_SIZE_KEY, String(size)); } catch {}
   }
 
   const releasesUi = {
@@ -1431,7 +1438,7 @@
     controls() {
       const bar = document.createElement("div");
       bar.className = "rn-zoom";
-      for (const [text, direction, name] of [["A−", -1, "Smaller text"], ["A+", 1, "Larger text"]]) {
+      for (const { text, direction, name } of [{ text: "A−", direction: -1, name: "Smaller text" }, { text: "A+", direction: 1, name: "Larger text" }]) {
         const button = document.createElement("button");
         button.type = "button";
         button.textContent = text;
@@ -1479,10 +1486,7 @@
         stopNow();
       } else {
         this.explaining = { id, ref: `${page}:${++this.seq}`, replied: false };
-        send({
-          type: "ask", text: request, speak: true, ref: this.explaining.ref, kind: "panel", page,
-          active: !!(navigator.userActivation && navigator.userActivation.isActive),
-        });
+        ask(request, { kind: "panel", page }, { speak: true, ref: this.explaining.ref, active: userActive() });
       }
       this.syncButtons();
     },
@@ -1765,7 +1769,7 @@
       button.dataset.id = id;
       button.addEventListener("click", () => {
         if (this.saying === id) { stopNow(); return; }
-        send({ type: "speak_text", text, said: id, active: !!(navigator.userActivation && navigator.userActivation.isActive) });
+        send({ type: "speak_text", text, said: id, active: userActive() });
       });
       this.syncSpeaker(button);
       return button;
