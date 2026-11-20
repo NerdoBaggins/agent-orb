@@ -108,7 +108,7 @@ def test_a_capture_engines_notice_is_passed_on_in_its_own_words(tmp_path):
         capture.close()
 
 
-@pytest.mark.parametrize("latency", [None, "0.1", -0.5, True])
+@pytest.mark.parametrize("latency", [None, "0.1", -0.5, True, float("inf"), float("nan")])
 def test_a_capture_engine_that_does_not_report_its_latency_as_seconds_does_not_load(tmp_path, latency):
     with pytest.raises(EngineError, match="did not report its latency"):
         fake(tmp_path, latency=latency)
