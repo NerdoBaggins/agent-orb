@@ -623,6 +623,25 @@ def test_a_press_while_a_captured_recording_runs_after_the_orb_went_idle_keeps_w
     run(go())
 
 
+def test_a_release_whose_recording_was_replaced_during_the_tail_transcribes_nothing(tmp_path):
+    async def go():
+        server, capture, pump = await captured_server(tmp_path)
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            await ws.send_json({"type": "ptt_start"})
+            await until_state(ws, "listening")
+            capture.frame(0.5)
+            await asyncio.sleep(0.35)
+            await ws.send_json({"type": "ptt_stop"})
+            await asyncio.sleep(0.05)
+            replaced = server.recording = []
+            await asyncio.sleep(capture.tail_s + 0.2)
+            assert server.stt.received == [] and server.recording is replaced
+        finish(capture, pump)
+    run(go())
+
+
 def test_a_captured_recording_starts_with_the_last_four_frames_before_the_press(tmp_path):
     async def go():
         server, capture, pump = await captured_server(tmp_path)

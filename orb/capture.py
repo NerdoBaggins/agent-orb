@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import queue
 import time
@@ -32,7 +33,7 @@ class Ended:
 
 def reported_latency(process: engines.EngineProcess) -> float:
     latency = process.loaded.get("latency")
-    if isinstance(latency, bool) or not isinstance(latency, (int, float)) or not latency >= 0:
+    if isinstance(latency, bool) or not isinstance(latency, (int, float)) or not 0 <= latency < math.inf:
         process.close()
         raise engines.EngineError(f"{process.label} did not report its latency as a number of seconds: {latency!r}")
     return float(latency)
