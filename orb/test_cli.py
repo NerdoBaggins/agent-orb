@@ -193,7 +193,7 @@ def test_orb_open_gives_up_on_a_server_that_never_answers_after_60_s(tmp_path, m
     monkeypatch.setattr(cli.urllib.request, "urlopen", refused)
     server = type("Server", (), {"poll": lambda self: None})()
     with pytest.raises(SystemExit, match=r"^orb server did not answer within 60s; see "):
-        cli.wait_healthy(4321, "token", server, tmp_path / "orb.log")
+        cli.wait_healthy(4321, "token", server, tmp_path / "orb.log", tmp_path / "orb.out")
 
 
 @pytest.mark.parametrize("running", [{"port": 4321, "token": "s3cret-token", "pid": 1}, None])
@@ -565,7 +565,7 @@ def test_orb_open_watches_the_server_start_with_the_same_output_file_it_started_
     written, reported = [], []
     monkeypatch.setattr(cli, "stable_port", lambda previous: 4321)
     monkeypatch.setattr(cli, "spawn_detached", lambda command, output, token: written.append(output))
-    monkeypatch.setattr(cli, "wait_healthy", lambda port, token, proc, log_path, crash_path: reported.append(crash_path) or {"attach_text": "attached"})
+    monkeypatch.setattr(cli, "wait_healthy", lambda port, token, proc, log_path, crash_path: reported.append(crash_path) or {"attach_text": "attached", "loading": []})
     monkeypatch.setattr(cli.browser, "open_app_window", lambda url, profile: "Chrome")
     cli.main(["open", "--agent", "claude", "--repo", str(tmp_path / "repo"), "--home", str(tmp_path / "home")])
     assert reported == written and written
