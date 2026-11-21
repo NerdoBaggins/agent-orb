@@ -39,7 +39,6 @@ def spawn_host(home: Path, host_identity: str, version: str | None) -> None:
     uv = shutil.which("uv")
     if uv is None:
         raise EngineError("uv is not on PATH; the engine host cannot start")
-    engine_wire.log_file(home, host_identity).parent.mkdir(parents=True, exist_ok=True)
     flags = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW} if sys.platform == "win32" else {"start_new_session": True}
     subprocess.Popen(host_command(uv, home, host_identity, version), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                      stderr=subprocess.DEVNULL, cwd=str(PLUGIN_ROOT), **flags)
@@ -165,6 +164,7 @@ class RemoteEngine:
         self.attachment, self.link, self.loaded = attachment, link, loaded
         self.manifest = attachment.manifest
         self.lock = threading.Lock()
+        self.closed = False
 
     @property
     def label(self) -> str:
@@ -196,12 +196,15 @@ class RemoteEngine:
                     self._release()
                     if repeat:
                         raise EngineError(f"{self.label}: {e}")
+                    if self.closed:
+                        raise EngineError(f"{self.label} is no longer attached to the engine host")
                     self.link, self.loaded = attach(self.attachment)
         if "error" in reply:
             raise EngineError(reply["error"])
         return reply["reply"]
 
     def close(self) -> None:
+        self.closed = True
         self._release()
 
 
@@ -284,7 +287,7 @@ def running_engines(home: Path, plugin_root: Path = PLUGIN_ROOT) -> list[dict] |
         raise HostDown(f"the engine host (pid {record.pid}) is recorded but does not answer; see {engine_wire.log_file(home, host_identity)}")
     try:
         return link.request({"op": "list"}, SHORT_TIMEOUT_S)["engines"]
-    except (WireError, KeyError) as e:
+    except WireError as e:
         raise HostDown(f"the engine host (pid {record.pid}) answered badly: {e}")
     finally:
         link.close()
