@@ -232,8 +232,6 @@ class Host:
             session.send({"error": str(e)})
             self._retire(key, slot)
             return None
-        except EngineError as e:
-            return {"error": str(e)}
         finally:
             with self.lock:
                 slot.calls -= 1
@@ -248,8 +246,7 @@ class Host:
             self._forget_slot(key, slot)
         for session in sessions:
             session.hang_up()
-        if slot.process is not None:
-            slot.process.close()
+        slot.process.close()
 
     def drop(self, session: Session) -> None:
         with self.lock:

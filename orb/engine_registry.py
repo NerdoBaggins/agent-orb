@@ -45,8 +45,6 @@ class Registry:
         self.empty_since: float | None = self.clock()
 
     def attach(self, conn: object, key: Key, owner: dict) -> None:
-        if conn in self.owners:
-            raise ValueError("this connection is already attached")
         self.owners[conn] = Attached(key, owner)
         self.idle_since.pop(key, None)
         self.empty_since = None
