@@ -105,6 +105,20 @@ def test_the_engine_host_is_started_as_the_leader_of_a_session_of_its_own(tmp_pa
     assert eventually(lambda: leads.exists() and leads.read_text() == "True")
 
 
+def test_the_engine_host_is_started_detached_from_the_orbs_standard_streams(tmp_path, monkeypatch):
+    kwargs = {}
+    monkeypatch.setattr(engine_client.shutil, "which", lambda name: "/found/bin/uv")
+    monkeypatch.setattr(engine_client.subprocess, "Popen", lambda command, **given: kwargs.update(given))
+    engine_client.spawn_host(tmp_path, "0123456789ab", "1.0.0")
+    assert [kwargs[stream] for stream in ("stdin", "stdout", "stderr")] == [subprocess.DEVNULL] * 3
+
+
+def test_a_host_command_names_a_version_only_when_the_copy_has_one(tmp_path):
+    with_version = engine_client.host_command("uv", tmp_path, "0123456789ab", "1.0.0")
+    without = engine_client.host_command("uv", tmp_path, "0123456789ab", None)
+    assert "--version=1.0.0" in with_version and not any(argument.startswith("--version") for argument in without)
+
+
 def test_a_host_that_answers_a_hello_but_not_a_ping_is_not_reached(monkeypatch):
     link = FakeLink(WireError("the engine host did not answer"))
     monkeypatch.setattr(engine_client.engine_wire, "connect", lambda record, timeout: link)
@@ -493,6 +507,45 @@ def test_a_host_that_cannot_be_reached_again_after_a_break_is_an_engine_error(tm
     assert engine.alive is False
 
 
+class BlockingLink(FakeLink):
+    def __init__(self):
+        super().__init__()
+        self.in_flight, self.release = threading.Event(), threading.Event()
+
+    def request(self, message, timeout):
+        self.in_flight.set()
+        self.release.wait(5)
+        raise WireBroken("the engine host closed the connection")
+
+
+def test_an_engine_closed_during_a_call_stays_closed_instead_of_attaching_again(tmp_path, monkeypatch):
+    monkeypatch.setattr(engine_client, "attach", lambda attached: pytest.fail("attached a closed engine again"))
+    link = BlockingLink()
+    engine, raised = RemoteEngine(attachment(tmp_path), link, {}), []
+
+    def call():
+        try:
+            engine.call({"op": "transcribe"})
+        except EngineError as e:
+            raised.append(str(e))
+
+    caller = threading.Thread(target=call)
+    caller.start()
+    assert link.in_flight.wait(5)
+    engine.close()
+    link.release.set()
+    caller.join(5)
+    assert raised == ["stt engine 'fake' is no longer attached to the engine host"] and engine.alive is False
+
+
+def test_closing_an_engine_whose_call_already_ended_the_attachment_is_not_an_error(tmp_path):
+    engine = RemoteEngine(attachment(tmp_path), FakeLink(WireTimeout("no answer")), {})
+    with pytest.raises(EngineTimeout):
+        engine.call({"op": "transcribe"})
+    engine.close()
+    assert engine.alive is False
+
+
 def test_a_call_after_the_attachment_is_over_is_an_engine_error(tmp_path):
     engine = RemoteEngine(attachment(tmp_path), FakeLink({"ok": True}), {})
     engine.close()
@@ -511,6 +564,15 @@ def test_closing_closes_the_connection_and_sends_nothing(tmp_path):
     link = FakeLink()
     RemoteEngine(attachment(tmp_path), link, {}).close()
     assert link.sent == [] and link.closed
+
+
+def test_a_launch_attaches_with_only_the_environment_variables_the_manifest_names(tmp_path, monkeypatch):
+    manifest = Manifest("fake", "1", "stt", ("x",), ("NEEDED",), tmp_path)
+    monkeypatch.setattr(engine_client, "resolve", lambda kind, settings, home, env: manifest)
+    attached = []
+    monkeypatch.setattr(engine_client, "attach", lambda given, report: attached.append(given) or (FakeLink(), {}))
+    launcher(OWNER)("stt", {"engine": "fake"}, tmp_path, env={"NEEDED": "1", "SECRET": "2"})
+    assert attached[0].env == {"NEEDED": "1"}
 
 
 def row(kind="stt", name="moonshine", settings=None, owners=(), grace_left=None, pid=9):

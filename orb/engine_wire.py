@@ -146,10 +146,7 @@ class Link:
 
     def close(self) -> None:
         for closing in (self.reader.close, self.sock.close):
-            try:
-                closing()
-            except OSError:
-                pass
+            closing()
 
 
 def connect(record: HostRecord, timeout: float = CONNECT_TIMEOUT_S) -> Link:
