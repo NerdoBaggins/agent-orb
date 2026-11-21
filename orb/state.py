@@ -108,7 +108,7 @@ def read_stop_progress(state: Path, session_id: str | None, transcript: str | No
             or record.get("transcriptPath") != transcript or type(offset) is not int or offset < 0
             or not isinstance(ids, list) or not _is_walk(turn) or not isinstance(mark, str)):
         return StopProgress()
-    return StopProgress(offset, frozenset(i for i in ids if isinstance(i, str)), Walk(*(turn[key] for key in WALK_KEYS)), mark)
+    return StopProgress(offset, frozenset(ids), Walk(*(turn[key] for key in WALK_KEYS)), mark)
 
 
 WALK_KEYS = ("requestId", "running", "replyContinues")

@@ -206,10 +206,15 @@ def test_a_message_typed_after_the_orbs_turn_ended_opens_a_turn_that_is_not_the_
     assert answered([channel_turn(), ended("Started it."), typed_mid_turn_queued_command(), ended("Answered.")], PENDING) is None
 
 
-def test_a_transcript_line_holding_bytes_that_are_not_utf8_still_reads(tmp_path):
+def test_a_read_resumed_inside_a_character_of_a_replaced_transcript_still_reads_the_lines_after_it(tmp_path):
+    replaced = json.dumps({"type": "user", "message": {"content": "caf\u00e9"}}, ensure_ascii=False).encode() + b"\n"
+    inside = replaced.index("\u00e9".encode()) + 1
     path = tmp_path / "t.jsonl"
-    path.write_bytes(json.dumps(channel_turn()).encode().replace(b"time", b"t\xffme") + b"\n")
-    assert answered(entries_of(str(path)), PENDING) == "r7"
+    path.write_bytes(b" " * (inside - 3) + b"{}\n")
+    _, offset = read_transcript_from(str(path), 0)
+    path.write_bytes(replaced + json.dumps(channel_turn()).encode() + b"\n")
+    entries, _ = read_transcript_from(str(path), offset)
+    assert (offset, entries) == (inside, [channel_turn()])
 
 
 def test_a_walk_for_another_channel_answers_that_channels_request():
