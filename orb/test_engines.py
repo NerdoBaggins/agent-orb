@@ -325,6 +325,11 @@ def test_an_engines_stderr_reaches_the_log_without_its_color_codes(tmp_path, cap
     assert [message for _, message in logged_from(tmp_path, "colored", caplog)] == ["stt engine 'colored': gpu warning: low memory"]
 
 
+def test_an_engines_utf16_stderr_with_color_codes_reaches_the_log_as_plain_text(tmp_path, caplog):
+    engine_writing_to_stderr(tmp_path, "noisy", b"\xff\xfe" + "\x1b[?25l\x1b[33mgpu warning: low memory\x1b[0m\x1b[2K\n".encode("utf-16-le"))
+    assert [message for _, message in logged_from(tmp_path, "noisy", caplog)] == ["stt engine 'noisy': gpu warning: low memory"]
+
+
 def test_an_engine_that_writes_more_stderr_than_a_pipe_holds_is_still_answered_and_logged_to_the_end(tmp_path, caplog):
     write_engine(tmp_path / ".config" / "voice-engines", "stt", "chatty", '''
 import json, os, sys
