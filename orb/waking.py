@@ -8,7 +8,7 @@ import numpy as np
 
 from orb import wake
 from orb.pages import plain_name
-from orb.engines import EngineError, Vad, Voiceprint, Wake
+from orb.engines import EngineError, Vad, Voiceprint, Wake, unreported
 from orb.state import write_json
 from orb.wake import FollowUp, Health, Prebuffer, Recording, Settings, Trigger
 
@@ -121,7 +121,7 @@ class Waker:
                 engine.close()
 
 
-def build(section: dict | None, home: Path, env=None) -> Waker | None:
+def build(section: dict | None, home: Path, env=None, report=unreported) -> Waker | None:
     """The waker for a config, or None when `wake` is absent. Raises WakeOff, naming why, when the settings, an
     engine, or the voiceprint keep it from running."""
     if section is None:
@@ -130,7 +130,7 @@ def build(section: dict | None, home: Path, env=None) -> Waker | None:
         settings = wake.settings(section)
     except wake.WakeConfigError as e:
         raise WakeOff(str(e))
-    kwargs = {} if env is None else {"env": env}
+    kwargs = {"report": report} | ({} if env is None else {"env": env})
     enrolled = None
     if settings.voice_auth:
         enrolled = load_voiceprint(home, settings.voiceprint)

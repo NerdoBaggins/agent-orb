@@ -39,6 +39,14 @@ def test_a_waker_is_built_from_the_fake_engines_and_describes_its_phrase(tmp_pat
         waker.close()
 
 
+def test_building_the_waker_passes_what_each_of_its_engines_says_to_the_report(tmp_path):
+    said = []
+    save_voiceprint(tmp_path, "fake", [1.0, 0.0, 0.0, 0.0])
+    waker = build(fake_section(voice_auth=True), tmp_path, report=said.append)
+    waker.close()
+    assert sorted(said) == ["loading the fake vad engine", "loading the fake voiceprint engine", "loading the fake wake engine"]
+
+
 def test_bad_settings_keep_the_wake_word_off_with_the_reason(tmp_path):
     with pytest.raises(WakeOff, match="wake.threshold must be a non-negative number"):
         build(fake_section(threshold="x"), tmp_path)
@@ -47,6 +55,16 @@ def test_bad_settings_keep_the_wake_word_off_with_the_reason(tmp_path):
 def test_a_missing_wake_engine_keeps_the_wake_word_off_naming_it(tmp_path):
     with pytest.raises(WakeOff, match="no wake engine named 'nope'"):
         build(fake_section(engine="nope"), tmp_path)
+
+
+def test_a_refused_wake_engine_turns_the_wake_word_off_with_the_text(tmp_path):
+    folder = tmp_path / ".config" / "voice-engines" / "wake" / "old"
+    folder.mkdir(parents=True)
+    (folder / "engine.json").write_text(json.dumps({"name": "old", "version": "1", "kind": "wake", "run": ["x"]}), encoding="utf-8")
+    with pytest.raises(WakeOff) as off:
+        build(fake_section(engine="old"), tmp_path)
+    assert str(off.value) == (f'{folder / "engine.json"} has no "protocol": 2. This orb speaks engine protocol 2: update the engine to it '
+                              '(README, Speech engines, Writing one), then add "protocol": 2 to engine.json.')
 
 
 def test_a_wake_engine_that_fails_to_load_is_not_replaced_by_anything(tmp_path):

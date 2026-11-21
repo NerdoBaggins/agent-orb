@@ -1,9 +1,11 @@
 import json
 import sys
+from types import SimpleNamespace
 
 import pytest
 
 from orb import cli, pages, panels
+from orb.engines import EngineError
 
 
 def test_showing_a_saved_panel_sends_its_name_and_its_files(tmp_path, monkeypatch):
@@ -144,7 +146,7 @@ def test_a_fresh_orb_open_prints_no_token(tmp_path, monkeypatch, capsys, browser
     monkeypatch.setattr(cli.secrets, "token_urlsafe", lambda n: token)
     monkeypatch.setattr(cli, "stable_port", lambda previous: 4321)
     monkeypatch.setattr(cli, "spawn_detached", lambda *a: None)
-    monkeypatch.setattr(cli, "wait_healthy", lambda *a: {"attach_text": "attached"})
+    monkeypatch.setattr(cli, "wait_healthy", lambda *a: {"attach_text": "attached", "loading": {}})
     def launch(url, profile):
         if not browser_found:
             raise cli.browser.NoBrowser("no Chrome found")
@@ -155,6 +157,44 @@ def test_a_fresh_orb_open_prints_no_token(tmp_path, monkeypatch, capsys, browser
     assert token not in printed.out + printed.err
 
 
+def open_with_health(tmp_path, monkeypatch, capsys, health):
+    monkeypatch.setattr(cli, "stable_port", lambda previous: 4321)
+    monkeypatch.setattr(cli, "spawn_detached", lambda *a: None)
+    monkeypatch.setattr(cli, "wait_healthy", lambda *a: {"attach_text": "attached"} | health)
+    monkeypatch.setattr(cli.browser, "open_app_window", lambda url, profile: "Chrome")
+    assert cli.main(["open", "--agent", "claude", "--repo", str(tmp_path / "repo"), "--home", str(tmp_path / "home")]) == 0
+    return capsys.readouterr().out
+
+
+def test_orb_open_says_the_speech_engines_are_still_loading_when_the_server_does(tmp_path, monkeypatch, capsys):
+    out = open_with_health(tmp_path, monkeypatch, capsys, {"loading": {"stt": "downloading the model, 12 of 310 MB"}})
+    assert out.splitlines()[-1] == ("speech engines are still loading; the window shows what they are doing "
+                                    "(the first run downloads about 400 MB of models)")
+
+
+def test_orb_open_says_nothing_of_speech_loading_when_only_the_wake_word_is_still_loading(tmp_path, monkeypatch, capsys):
+    out = open_with_health(tmp_path, monkeypatch, capsys, {"loading": {"wake": "loading the wake engine"}})
+    assert "loading" not in out
+
+
+def test_orb_open_says_nothing_of_loading_when_the_speech_engines_have_loaded(tmp_path, monkeypatch, capsys):
+    out = open_with_health(tmp_path, monkeypatch, capsys, {"loading": {}})
+    assert "loading" not in out
+
+
+def test_orb_open_gives_up_on_a_server_that_never_answers_after_60_s(tmp_path, monkeypatch):
+    clock = {"now": 1000.0}
+    monkeypatch.setattr(cli, "time", SimpleNamespace(time=lambda: clock["now"], sleep=lambda seconds: clock.update(now=clock["now"] + seconds)))
+
+    def refused(*args, **kwargs):
+        raise cli.urllib.error.URLError("refused")
+
+    monkeypatch.setattr(cli.urllib.request, "urlopen", refused)
+    server = type("Server", (), {"poll": lambda self: None})()
+    with pytest.raises(SystemExit, match=r"^orb server did not answer within 60s; see "):
+        cli.wait_healthy(4321, "token", server, tmp_path / "orb.log")
+
+
 @pytest.mark.parametrize("running", [{"port": 4321, "token": "s3cret-token", "pid": 1}, None])
 def test_with_no_browser_orb_open_prints_the_launch_file_to_open_and_no_token(tmp_path, monkeypatch, capsys, running):
     monkeypatch.setattr(cli, "running_server", lambda previous: running)
@@ -162,7 +202,7 @@ def test_with_no_browser_orb_open_prints_the_launch_file_to_open_and_no_token(tm
     monkeypatch.setattr(cli.secrets, "token_urlsafe", lambda n: "s3cret-token")
     monkeypatch.setattr(cli, "stable_port", lambda previous: 4321)
     monkeypatch.setattr(cli, "spawn_detached", lambda *a: None)
-    monkeypatch.setattr(cli, "wait_healthy", lambda *a: {"attach_text": "attached"})
+    monkeypatch.setattr(cli, "wait_healthy", lambda *a: {"attach_text": "attached", "loading": {}})
     def launch(url, profile):
         raise cli.browser.NoBrowser("no Chrome found")
     monkeypatch.setattr(cli.browser, "open_app_window", launch)
@@ -455,3 +495,59 @@ def test_a_command_sends_every_word_after_its_name_as_its_argument(tmp_path, mon
     monkeypatch.setattr(cli, "post", lambda server, path, body: sent.append((path, body)) or {"queued": "/compact"})
     assert cli.main(["command", "--repo", str(tmp_path / "repo"), "--home", str(tmp_path / "home"), *words]) == 0
     assert sent == [("/command", {"name": "compact", "argument": argument})]
+
+
+def test_orb_engines_says_so_when_no_host_runs(tmp_path, capsys):
+    assert cli.main(["engines", "--home", str(tmp_path)]) == 0
+    assert "no shared speech engines are running" in capsys.readouterr().out
+
+
+def test_orb_engines_with_a_host_running_nothing_says_no_engines_are_running(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(cli.engine_client, "running_engines", lambda home: [])
+    assert cli.main(["engines", "--home", str(tmp_path)]) == 0
+    assert capsys.readouterr().out == "no shared speech engines are running\n"
+
+
+def test_orb_engines_stop_says_so_when_no_host_runs(tmp_path, capsys):
+    assert cli.main(["engines", "stop", "--home", str(tmp_path)]) == 0
+    assert capsys.readouterr().out == "no shared speech engines are running\n"
+
+
+def test_orb_engines_stop_prints_each_engine_it_closed_then_that_it_stopped_the_host(tmp_path, monkeypatch, capsys):
+    running = [{"kind": "tts", "name": "kokoro", "settings": {}, "pid": 4160, "owners": [], "grace_left": 81},
+               {"kind": "stt", "name": "moonshine", "settings": {"model": "base"}, "pid": 4121, "owners": [], "grace_left": None}]
+    monkeypatch.setattr(cli.engine_client, "stop_engines", lambda home: running)
+    assert cli.main(["engines", "stop", "--home", str(tmp_path)]) == 0
+    assert capsys.readouterr().out == ('closed stt moonshine {"model": "base"}  engine pid 4121\n'
+                                       "closed tts kokoro {}  engine pid 4160\n"
+                                       "stopped the engine host and its engines\n")
+
+
+def test_orb_engines_stop_of_a_host_running_nothing_says_only_that_it_stopped_the_host(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(cli.engine_client, "stop_engines", lambda home: [])
+    assert cli.main(["engines", "stop", "--home", str(tmp_path)]) == 0
+    assert capsys.readouterr().out == "stopped the engine host and its engines\n"
+
+
+def test_orb_engines_stop_names_the_failure_on_stderr_and_exits_1(tmp_path, monkeypatch, capsys):
+    def refuses(home):
+        raise EngineError("the engine host did not stop; see /log")
+
+    monkeypatch.setattr(cli.engine_client, "stop_engines", refuses)
+    assert cli.main(["engines", "stop", "--home", str(tmp_path)]) == 1
+    assert capsys.readouterr().err == "orb: the engine host did not stop; see /log\n"
+
+
+def test_orb_engines_fails_loudly_when_a_recorded_host_does_not_answer(tmp_path, monkeypatch, capsys):
+    def down(home):
+        raise cli.engine_client.HostDown("the engine host (pid 5) is recorded but does not answer")
+
+    monkeypatch.setattr(cli.engine_client, "running_engines", down)
+    assert cli.main(["engines", "--home", str(tmp_path)]) == 1
+    assert "does not answer" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("port", [65536, 0, True], ids=["above the last port", "no port", "a boolean"])
+def test_a_last_port_no_socket_can_use_is_replaced_by_a_free_one(monkeypatch, port):
+    monkeypatch.setattr(cli, "free_port", lambda: 4321)
+    assert cli.stable_port({"port": port}) == 4321

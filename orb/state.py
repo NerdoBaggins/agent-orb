@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import signal
 import stat
 import sys
 from datetime import datetime
@@ -13,9 +14,9 @@ from typing import NamedTuple
 AGENTS = ("claude", "copilot")
 
 
-def normalized_root(repo_root: Path) -> str:
+def normalized_root(repo_root: Path, platform: str = sys.platform) -> str:
     text = str(Path(repo_root).resolve())
-    return text.casefold() if sys.platform == "win32" else text
+    return text.casefold() if platform == "win32" else text
 
 
 def repo_id(repo_root: Path) -> str:
@@ -217,8 +218,11 @@ def user_only(path: Path) -> None:
         os.chmod(path, stat.S_IRWXU if path.is_dir() else stat.S_IRUSR | stat.S_IWUSR)
 
 
+PID_LIMIT = 2**31
+
+
 def pid_alive(pid: int) -> bool:
-    if pid <= 0:
+    if not 0 < pid < PID_LIMIT:
         return False
     if sys.platform == "win32":
         import ctypes
@@ -238,6 +242,16 @@ def pid_alive(pid: int) -> bool:
     except PermissionError:
         return True
     return True
+
+
+def kill_pid(pid: int) -> None:
+    try:
+        os.kill(pid, signal.SIGTERM if sys.platform == "win32" else signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    except OSError:
+        if sys.platform != "win32" or pid_alive(pid):
+            raise
 
 
 def running_server(record: dict | None, alive=pid_alive) -> dict | None:

@@ -110,7 +110,7 @@ def test_switching_engines_waits_for_a_transcription_stop_left_running(tmp_path,
         server = held_server(tmp_path)
         old, new = server.stt, FakeStt("")
         new.name = "other"
-        monkeypatch.setattr(server_module, "Stt", lambda settings_for, home: new)
+        monkeypatch.setattr(server_module, "Stt", lambda settings_for, home, launch: new)
         heard = await stopped_mid_transcription(server)
         switched = asyncio.create_task(server.use_stt(server.config["stt"] | {"engine": "other"}))
         await asyncio.sleep(0.2)

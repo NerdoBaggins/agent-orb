@@ -1,21 +1,30 @@
 import json
+import os
+import sys
 from pathlib import Path
 
 import pytest
 
-from orb import doctor
+from orb import doctor, engine_client, engines
 from orb.copilot import CopilotLink
 from orb import capture as capture_module
-from orb.doctor import Check, check_capture, report, run
+from orb.doctor import Check, check_capture, report
+from orb.doctor import run as run_doctor
+from orb.engines import EngineError, Manifest
+from orb.test_engine_shared import FAST, home, launcher, lines_of, running, spawner, stt, uv_dirs  # noqa: F401  (fixtures)
 
 
-def test_run_covers_tools_browser_config_skin_links_and_engines(tmp_path, monkeypatch):
-    repo, home = tmp_path / "repo", tmp_path / "home"
-    repo.mkdir(), home.mkdir()
+def run(repo, home, engines=True):
+    return run_doctor(repo, home, engines, spawner())
+
+
+def test_run_covers_tools_browser_config_skin_links_and_engines(tmp_path, home):
+    repo = tmp_path / "repo"
+    repo.mkdir()
     (home / ".config" / "orb").mkdir(parents=True)
     (home / ".config" / "orb" / "config.json").write_text(json.dumps({"stt": {"engine": "fake"}, "tts": {"engine": "fake"}, "skin": "nope"}), encoding="utf-8")
     names = [c.name for c in run(repo, home)]
-    assert names == ["uv", "node", "browser", "config", "skin", "theme", "theme speech", "panel actions", "widgets", "claude channel", "copilot door", "stt engine", "tts engine"]
+    assert names == ["uv", "node", "browser", "config", "skin", "theme", "theme speech", "panel actions", "widgets", "claude channel", "copilot door", "engine host", "engine protocol", "stt engine", "tts engine"]
     by = {c.name: c for c in run(repo, home)}
     assert by["skin"].ok is False and "no skin named 'nope'" in by["skin"].detail
     assert by["claude channel"].ok is False and "dangerously-load-development-channels" in by["claude channel"].detail
@@ -39,8 +48,8 @@ def test_config_error_is_a_failing_check(tmp_path):
     assert checks[-1].name == "config" and not checks[-1].ok and "credentials" in checks[-1].detail
 
 
-def test_wake_checks_cover_the_engines_and_the_voiceprint(tmp_path, monkeypatch):
-    repo, home = tmp_path / "repo", tmp_path / "home"
+def test_wake_checks_cover_the_engines_and_the_voiceprint(tmp_path, home):
+    repo = tmp_path / "repo"
     repo.mkdir(), (home / ".config" / "orb").mkdir(parents=True)
     (home / ".config" / "orb" / "config.json").write_text(json.dumps({
         "stt": {"engine": "fake"}, "tts": {"engine": "fake"},
@@ -217,6 +226,11 @@ def test_the_capture_check_does_not_count_the_engines_shutdown_as_missing_audio(
     assert check.ok, check.detail
 
 
+def test_the_doctor_capture_check_fails_when_the_engine_needed_the_kill(tmp_path):
+    check = check_capture({"engine": "fake", "frames": 1000, "every": 0.04, "linger": 30}, tmp_path)
+    assert not check.ok and check.detail == "capture engine 'fake' did not exit within 5 s of its input closing"
+
+
 def test_the_capture_check_ends_when_the_engine_sends_only_notices(tmp_path, monkeypatch):
     monkeypatch.setattr(capture_module, "STALL_S", 0.3)
     check = check_capture({"engine": "fake", "notice": "the microphone is not available", "every": 0.05}, tmp_path)
@@ -233,11 +247,221 @@ def test_a_capture_engine_that_cannot_open_the_mic_on_a_mac_names_the_grant(tmp_
     assert not check.ok and "no microphone found" in check.detail and "Privacy & Security > Microphone" in check.detail
 
 
-def test_the_capture_check_runs_only_when_capture_is_configured(tmp_path):
-    repo, home = tmp_path / "repo", tmp_path / "home"
+def configured(home, **sections):
+    (home / ".config" / "orb").mkdir(parents=True, exist_ok=True)
+    (home / ".config" / "orb" / "config.json").write_text(json.dumps({"stt": {"engine": "fake"}, "tts": {"engine": "fake"}, **sections}), encoding="utf-8")
+
+
+def test_doctor_uses_a_running_host_instead_of_loading_a_second_engine(tmp_path, home):
+    loads = tmp_path / "loads"
+    orb = stt(home, launcher(), log_loads=str(loads))
+    configured(home, stt={"engine": "fake", "fake": {"log_loads": str(loads)}})
+    check = {c.name: c for c in run(tmp_path / "repo", home)}["stt engine"]
+    [engine] = [e for e in running(home) if e["kind"] == "stt"]
+    assert check.ok and check.detail == f"fake 1.0.0 loads from {engines.BUILTIN_DIR / 'stt' / 'fake'}, engine pid {engine['pid']}"
+    assert lines_of(loads) == [str(engine["pid"])]
+    orb.close()
+
+
+def test_doctor_attaches_as_the_agent_doctor_with_its_own_pid_and_the_repo(tmp_path, home, monkeypatch):
+    owners, launcher_for = [], engine_client.launcher
+    monkeypatch.setattr(engine_client, "launcher", lambda owner, spawn: owners.append(owner) or launcher_for(owner, spawn))
+    configured(home)
+    run(tmp_path / "repo", home)
+    assert owners == [{"pid": os.getpid(), "repo": str(tmp_path / "repo"), "agent": "doctor"}]
+
+
+class Attached:
+    def __init__(self, voices):
+        self.voices, self.closed = voices, False
+        self.manifest = Manifest("mine", "1", "tts", ("run",), (), Path("engines") / "mine")
+        self.loaded = {"pid": 7}
+
+    def call(self, request):
+        if self.voices is None:
+            raise EngineError("no such op")
+        return {"voices": [{"id": v} for v in self.voices]}
+
+    def close(self):
+        self.closed = True
+
+
+CATALOGUE = ["default", "af_heart"]
+
+
+@pytest.mark.parametrize("engine", ["kokoro", "mine"])
+def test_the_tts_check_fails_naming_tts_kokoro_voice_for_a_stale_id_and_not_for_a_weights_table(tmp_path, engine):
+    def check(voice):
+        return doctor.check_hosted_engine("tts", {"engine": engine, "voice": voice}, tmp_path, lambda *a: Attached(CATALOGUE))
+
+    stale = check("af_gone")
+    assert not stale.ok and stale.detail.startswith(f"tts.{engine}.voice is 'af_gone'") and "default, af_heart" in stale.detail
+    assert check({"af_heart": 0.5, "af_gone": 0.5}).ok
+    assert check("af_heart").ok
+
+
+def test_the_tts_check_does_not_check_a_voice_against_an_engine_that_offers_no_choice(tmp_path):
+    assert doctor.check_hosted_engine("tts", {"engine": "mine", "voice": "anything"}, tmp_path, lambda *a: Attached(None)).ok
+
+
+def test_the_stt_check_does_not_ask_for_voices(tmp_path):
+    check = doctor.check_hosted_engine("stt", {"engine": "mine", "voice": "af_gone"}, tmp_path, lambda *a: Attached(CATALOGUE))
+    assert check.ok
+
+
+def test_every_hosted_check_lets_go_of_its_engine_even_when_the_voice_fails(tmp_path):
+    attached = Attached(CATALOGUE)
+    assert not doctor.check_hosted_engine("tts", {"engine": "mine", "voice": "af_gone"}, tmp_path, lambda *a: attached).ok
+    assert attached.closed
+
+
+def test_the_exit_check_fails_for_the_holding_capture_fake(tmp_path, home):
+    configured(home, capture={"engine": "fake", "frames": 1000, "every": 0.04, "linger": 30})
+    by = {c.name: c for c in run(tmp_path / "repo", home)}
+    assert not by["capture engine"].ok and by["capture engine"].detail == "capture engine 'fake' did not exit within 5 s of its input closing"
+    assert by["stt engine"].ok and by["tts engine"].ok
+
+
+def test_doctor_starts_the_host_with_the_default_lifetimes(tmp_path, home, monkeypatch):
+    commands, popen = [], engine_client.subprocess.Popen
+
+    def spy(command, *args, **kwargs):
+        if "orb.engine_host" not in command:
+            return popen(command, *args, **kwargs)
+        commands.append(command)
+        shortened = [sys.executable, "-m", "orb.engine_host", *command[command.index("orb.engine_host") + 1:], *FAST]
+        return popen(shortened, *args, **kwargs)
+
+    monkeypatch.setattr(engine_client.subprocess, "Popen", spy)
+    configured(home)
+    check = {c.name: c for c in run_doctor(tmp_path / "repo", home)}["stt engine"]
+    assert check.ok
+    [started] = commands
+    assert [a for a in started if a.startswith("--") and a.split("=")[0] in ("--grace", "--host-idle", "--tick")] == []
+
+
+def test_the_capture_check_runs_only_when_capture_is_configured(tmp_path, home):
+    repo = tmp_path / "repo"
     repo.mkdir(), (home / ".config" / "orb").mkdir(parents=True)
     (home / ".config" / "orb" / "config.json").write_text(json.dumps({"stt": {"engine": "fake"}, "tts": {"engine": "fake"}}), encoding="utf-8")
     assert "capture engine" not in {c.name for c in run(repo, home)}
     (home / ".config" / "orb" / "config.json").write_text(json.dumps({"stt": {"engine": "fake"}, "tts": {"engine": "fake"},
                                                                        "capture": {"engine": "fake", "frames": 1000, "every": 0.04}}), encoding="utf-8")
     assert {c.name: c for c in run(repo, home)}["capture engine"].ok
+
+
+def engine_row(owners=(), grace_left=None, name="moonshine", pid=4242):
+    return {"kind": "stt", "name": name, "settings": {}, "pid": pid, "alive": True, "grace_left": grace_left,
+            "owners": [{"pid": p, "repo": "/r", "agent": "claude"} for p in owners]}
+
+
+def test_no_engine_host_running_is_a_passing_check(tmp_path):
+    check = doctor.check_engine_host(tmp_path)
+    assert check.ok and "not running" in check.detail
+
+
+def test_an_engine_host_with_every_engine_leased_passes_and_counts_them(tmp_path, monkeypatch):
+    monkeypatch.setattr(doctor.engine_client, "running_engines", lambda home: [engine_row([1, 2]), engine_row([3], name="other")])
+    check = doctor.check_engine_host(tmp_path)
+    assert check.ok and "2 engine(s), 3 orb(s)" in check.detail
+
+
+def test_an_engine_in_its_grace_period_is_not_an_orphan(tmp_path, monkeypatch):
+    monkeypatch.setattr(doctor.engine_client, "running_engines", lambda home: [engine_row(grace_left=12.0)])
+    assert doctor.check_engine_host(tmp_path).ok
+
+
+def test_an_engine_with_no_orb_and_no_grace_running_fails_naming_it(tmp_path, monkeypatch):
+    monkeypatch.setattr(doctor.engine_client, "running_engines", lambda home: [engine_row([1]), engine_row(name="orphan", pid=777)])
+    check = doctor.check_engine_host(tmp_path)
+    assert not check.ok and "stt orphan (pid 777)" in check.detail and "moonshine" not in check.detail
+
+
+def test_a_recorded_host_that_does_not_answer_fails(tmp_path, monkeypatch):
+    def down(home):
+        raise doctor.engine_client.HostDown("the engine host (pid 5) is recorded but does not answer")
+
+    monkeypatch.setattr(doctor.engine_client, "running_engines", down)
+    check = doctor.check_engine_host(tmp_path)
+    assert not check.ok and "does not answer" in check.detail
+
+
+BUILTIN_ENGINES = len([m for m in engines.BUILTIN_DIR.glob("*/*/engine.json") if m.parent.name not in engines.FIXTURES])
+OLD = {"name": "old", "version": "1", "kind": "tts"}
+
+
+def users_engine(home, kind, name, manifest=None):
+    folder = home / ".config" / "voice-engines" / kind / name
+    folder.mkdir(parents=True)
+    if manifest is not None:
+        (folder / "engine.json").write_text(manifest if isinstance(manifest, str) else json.dumps(manifest), encoding="utf-8")
+    return folder
+
+
+def test_engine_protocol_fails_on_a_refused_engine_in_the_users_folder_even_when_no_config_names_it(tmp_path):
+    folder = users_engine(tmp_path, "tts", "old", OLD)
+    check = {c.name: c for c in run(tmp_path / "repo", tmp_path, engines=False)}["engine protocol"]
+    assert not check.ok
+    assert check.detail == f"tts engine 'old' ({folder}): {folder / 'engine.json'} has no \"protocol\": 2. This orb speaks engine protocol 2: update the engine to it (README, Speech engines, Writing one), then add \"protocol\": 2 to engine.json."
+
+
+def test_engine_protocol_passes_with_none_and_counts_the_engines(tmp_path):
+    assert doctor.check_engine_protocol(tmp_path) == Check("engine protocol", True, f"{BUILTIN_ENGINES} engines, all protocol 2")
+    users_engine(tmp_path, "tts", "mine", {**OLD, "protocol": 2, "share": False})
+    users_engine(tmp_path, "stt", "mine", {**OLD, "kind": "stt", "protocol": 2})
+    assert doctor.check_engine_protocol(tmp_path).detail == f"{BUILTIN_ENGINES + 2} engines, all protocol 2"
+
+
+def test_engine_protocol_runs_under_no_engines(tmp_path):
+    users_engine(tmp_path, "tts", "old", {**OLD, "protocol": 1})
+    by = {c.name: c for c in run(tmp_path / "repo", tmp_path, engines=False)}
+    assert "stt engine" not in by and not by["engine protocol"].ok
+
+
+@pytest.mark.parametrize("skipped", [
+    pytest.param(("tts", "fake", OLD), id="a fixture"),
+    pytest.param(("tts", "Not Plain", OLD), id="a name that is not plain"),
+    pytest.param(("tts", "empty", None), id="a folder with no engine.json"),
+])
+def test_engine_protocol_skips_what_is_not_an_engine_to_read(tmp_path, skipped):
+    users_engine(tmp_path, *skipped)
+    assert doctor.check_engine_protocol(tmp_path) == Check("engine protocol", True, f"{BUILTIN_ENGINES} engines, all protocol 2")
+
+
+def test_engine_protocol_names_an_old_engine_that_also_has_another_fault(tmp_path):
+    users_engine(tmp_path, "tts", "old", {"name": "old", "version": 1, "kind": "tts", "protocol": 1})
+    check = doctor.check_engine_protocol(tmp_path)
+    assert not check.ok and "says \"protocol\": 1" in check.detail
+
+
+@pytest.mark.parametrize("manifest, text", [
+    pytest.param("{nope", "is not valid JSON: Expecting property name enclosed in double quotes", id="invalid json"),
+    pytest.param("[]", "must hold a JSON object", id="not an object"),
+    pytest.param(b"\xff\xfe{", "cannot be read: ", id="invalid utf-8"),
+    pytest.param(None, "cannot be read: ", id="a folder named engine.json"),
+])
+def test_engine_protocol_refuses_a_manifest_that_cannot_be_read_as_an_object(tmp_path, manifest, text):
+    folder = users_engine(tmp_path, "tts", "broken")
+    if manifest is None:
+        (folder / "engine.json").unlink(missing_ok=True)
+        (folder / "engine.json").mkdir()
+    else:
+        (folder / "engine.json").write_bytes(manifest if isinstance(manifest, bytes) else manifest.encode())
+    check = doctor.check_engine_protocol(tmp_path)
+    assert not check.ok and f"tts engine 'broken' ({folder}): {folder / 'engine.json'} {text}" in check.detail
+
+
+def test_engine_protocol_names_an_engine_with_several_faults_once(tmp_path):
+    folder = users_engine(tmp_path, "tts", "both", {**OLD, "protocol": 1, "share": "no"})
+    detail = doctor.check_engine_protocol(tmp_path).detail
+    manifest = folder / "engine.json"
+    assert detail == (f"tts engine 'both' ({folder}): {manifest} says \"protocol\": 1; this orb speaks engine protocol 2. Update agent-orb or the engine."
+                      f"; {manifest} 'share' must be true or false.")
+
+
+def test_engine_protocol_names_a_share_that_is_not_a_boolean_and_every_refused_engine(tmp_path):
+    users_engine(tmp_path, "tts", "loose", {**OLD, "protocol": 2, "share": "no"})
+    users_engine(tmp_path, "stt", "older", {**OLD, "kind": "stt", "protocol": "2"})
+    detail = doctor.check_engine_protocol(tmp_path).detail
+    assert "tts engine 'loose'" in detail and "'share' must be true or false." in detail
+    assert "stt engine 'older'" in detail and "'protocol' must be the number 2." in detail

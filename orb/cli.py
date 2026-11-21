@@ -13,12 +13,14 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from orb import PLUGIN_ROOT, agents, browser, logs, pages, panels, widgets
+from orb import PLUGIN_ROOT, agents, browser, engine_client, logs, pages, panels, widgets
 from orb.config import ConfigError, load_for, panel_dirs_for, private_config_path, save_for_repo, save_widget, widget_dirs_for, widgets_on
 from orb.copilot import CopilotLink
+from orb.engines import EngineError
 from orb.state import copilot_channel_file, port_file, private_root, read_json, running_server, server_file, session_project, state_dir, user_only
 
-HEALTH_WAIT_S = 300  # the first run downloads the speech models (about 400 MB) before the server answers
+HEALTH_WAIT_S = 60
+SPEECH_LOADING = "speech engines are still loading; the window shows what they are doing (the first run downloads about 400 MB of models)"
 
 
 def free_port() -> int:
@@ -34,7 +36,7 @@ def port_free(port: int) -> bool:
 
 def stable_port(last: dict | None) -> int:
     """The port the last server for this repo and agent used, so Chrome keeps the mic permission for the origin."""
-    if last and isinstance(last.get("port"), int) and port_free(last["port"]):
+    if last and type(last.get("port")) is int and 0 < last["port"] < 65536 and port_free(last["port"]):
         return last["port"]
     return free_port()
 
@@ -148,7 +150,7 @@ def cmd_open(args) -> int:
     port, token = stable_port(read_json(port_file(state, agent))), secrets.token_urlsafe(24)
     log_path = logs.log_path(state, agent)
     proc = spawn_detached(server_command(repo, agent, port, home, config), logs.output_path(state, agent), token)
-    print(f"starting the orb server for {agent} (loading speech engines; the first run downloads their models)…")
+    print(f"starting the orb server for {agent}…")
     health = wait_healthy(port, token, proc, log_path)
     server = {"port": port, "token": token}
     try:
@@ -157,6 +159,8 @@ def cmd_open(args) -> int:
         return no_browser(e, window_url(state, agent, server))
     print(f"orb open in {opened}: {page_address(server)}")
     print(health["attach_text"])
+    if any(kind in health["loading"] for kind in ("stt", "tts")):
+        print(SPEECH_LOADING)
     return 0
 
 
@@ -319,6 +323,34 @@ def cmd_widget(args) -> int:
     return 0
 
 
+def cmd_engines(args) -> int:
+    _, home = repo_and_home(args, os.environ)
+    if args.action == "stop":
+        return cmd_engines_stop(home)
+    try:
+        running = engine_client.running_engines(home)
+    except engine_client.HostDown as e:
+        print(f"orb: {e}", file=sys.stderr)
+        return 1
+    print("\n".join(engine_client.describe(running)) if running else "no shared speech engines are running")
+    return 0
+
+
+def cmd_engines_stop(home: Path) -> int:
+    try:
+        closed = engine_client.stop_engines(home)
+    except EngineError as e:
+        print(f"orb: {e}", file=sys.stderr)
+        return 1
+    if closed is None:
+        print("no shared speech engines are running")
+        return 0
+    for engine in engine_client.in_listing_order(closed):
+        print(f"closed {engine_client.engine_line(engine)}")
+    print("stopped the engine host and its engines")
+    return 0
+
+
 def cmd_log(args) -> int:
     """The newest lines of this repo's orb log, for each agent that has one (or the one --agent names)."""
     repo, home = repo_and_home(args, os.environ)
@@ -376,6 +408,9 @@ def main(argv=None) -> int:
     p_voice = sub.add_parser("voice", help="mute or unmute the orb's speech, or enroll your voiceprint")
     p_voice.add_argument("setting", choices=("on", "off", "toggle", "enroll"))
     common(p_voice)
+    p_engines = sub.add_parser("engines", help="the speech engines shared between this machine's orbs and the orbs using each; `stop` closes them all")
+    p_engines.add_argument("action", nargs="?", choices=("stop",))
+    common(p_engines)
     p_log = sub.add_parser("log", help="the newest lines of this repo's orb log (it keeps about 5 MB, oldest dropped)")
     p_log.add_argument("-n", "--lines", type=int, default=60)
     common(p_log)
@@ -397,6 +432,8 @@ def main(argv=None) -> int:
         return cmd_widgets_list(args)
     if args.cmd == "widget":
         return cmd_widget(args)
+    if args.cmd == "engines":
+        return cmd_engines(args)
     if args.cmd == "log":
         return cmd_log(args)
     if args.cmd == "doctor":

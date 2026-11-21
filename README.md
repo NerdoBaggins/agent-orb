@@ -116,8 +116,9 @@ Coming from 0.4.0? A shell function that starts `copilot --ui-server --port …`
 In either agent, say or type *"open the orb"*. The agent runs `orb open`, and a window opens in a browser profile of
 the orb's own.
 
-- **The first open is slow.** Python dependencies install themselves and the speech models (about 400 MB) download
-  once; later opens take seconds.
+- **The first open is slow to speak.** The window opens at once and works in text while the speech engines load, saying
+  what each is doing. On the first run their Python dependencies install themselves and the speech models (about
+  400 MB) download once; later opens take seconds.
 - **The browser asks for the microphone** once per repo and agent, since each has its own port. The orb reuses that
   port on every later open, so the permission sticks, unless something else has taken it in the meantime.
 - **Talk:** hold the round button, or hold Space while the window has focus, and speak. Release to send. The reply is
@@ -213,7 +214,8 @@ plugin's folder (the skill tells the agent where that is).
 | `orb voice on\|off\|toggle [--agent claude\|copilot]` | mute or unmute the orb's speech without closing it; with no orb open, sets it for the next one |
 | `orb voice enroll [--agent claude\|copilot]` | enroll your voiceprint in the open orb (five phrases, hold to read) |
 | `orb log [-n N] [--agent claude\|copilot]` | the newest lines (60 unless you say) of this repo's orb log |
-| `orb doctor [--no-engines]` | read-only checks: tools, browser, config, skin, theme, actions, widgets, agent links, engines, wake word, server capture |
+| `orb engines [stop]` | the speech engines this copy's orbs share, and the orbs attached to each; `stop` closes them all (see [Shared engines](#shared-engines)) |
+| `orb doctor [--no-engines]` | read-only checks: tools, browser, config, skin, theme, actions, widgets, agent links, engine host, engines, wake word, server capture |
 
 Every command also takes `--repo <path>` to act on another repo than the current one.
 
@@ -319,7 +321,7 @@ a choice made in one repo stays there.
 | `mute_key` | `KeyM` |
 | `panels_key` | `KeyP` — hides the open panels, and brings them back as they were |
 | `stt` | `{"engine": "moonshine", "moonshine": {}}` |
-| `tts` | `{"engine": "kokoro", "speed": 1.18, "kokoro": {"voice": {"af_heart": 0.55, "bf_emma": 0.45}, "lang": "en-gb"}}` — `speed` is one number or per agent, `{"claude": 1.1, "copilot": 1.3}` |
+| `tts` | `{"engine": "kokoro", "speed": 1.18, "kokoro": {"voice": "default", "lang": "en-gb"}}` — `speed` is one number or per agent, `{"claude": 1.1, "copilot": 1.3}` |
 | `wake` | absent (push-to-talk only); see [Wake word](#wake-word) |
 | `capture` | absent (the browser records the microphone); `{"engine": "livekit"}` turns it on; see [Server capture](#server-capture) |
 | `panel_dirs` | `[]` — extra folders for saved panels, absolute or `~/…`; only your own two files may set it |
@@ -506,26 +508,148 @@ entry naming an API key is the usual sign that it talks to one.
 and `speech` menus. Your folder is searched first. An engine that is missing, fails to load or dies gives way to the
 built-in default and the orb says why. A repo can neither name nor provide one.
 
+### Shared engines
+
+The orbs on a machine share their speech-to-text and voice engines, so a second window costs about nothing, where a
+large local model would otherwise be loaded again for each one. The first orb that needs an engine starts a small
+engine host (`python -m orb.engine_host`) that runs the engines, and later orbs attach to it. The host listens on the
+loopback interface only, and what an orb says to it is accepted only with a secret kept in a file only you can read.
+
+- **What is shared.** Two orbs share one engine process when their engine kind, engine name, load settings and the
+  values of the variables the engine's `engine.json` lists in `env` are all equal. Load settings are what the engine
+  reads once when it loads, such as Moonshine's `model`; orbs that differ in one run two processes. Orbs with
+  different API keys run two processes too.
+- **Voice and speed travel with each call.** A voice engine holds no voice: every sentence carries the voice, the
+  language and the speed from the orb that speaks it. Orbs that differ only in these, and picking another voice or
+  moving the speed slider in one orb, share one process, start none and change nothing in another orb; that orb's next
+  sentence is the first to carry the change.
+- **When it stops.** An orb holds an engine for as long as it lives. When the last orb using an engine goes, whether it
+  closed or died (`kill -9`, a crash), the engine stays for 120 s, so an orb reopened straight away, or after a Claude
+  Code restart, finds it warm; then it is closed. The host exits 10 s after it has no engines and no orbs. A new orb
+  starts a new host if it arrives as one leaves.
+- **Requests queue.** An engine answers one request at a time, so two orbs transcribing at the same moment take turns.
+  A clip is short, so the wait is short.
+- **Fallback stays per orb.** An engine that fails is replaced by the built-in default for the orb that saw it fail;
+  switching engines from the bar's menus moves only that orb. The built-in default answering for a failed engine is
+  shared like any other.
+- **`share`.** An engine whose work happens elsewhere, so that sharing only makes two orbs' sentences take turns, sets
+  `"share": false` in its `engine.json`. The host still runs it, but each orb gets its own process, which closes at
+  once when its orb lets go.
+- **Only the speech-to-text and voice engines are shared.** The wake word, voice detection, voiceprint and capture
+  engines stay one per orb.
+- **One host per copy.** Claude Code installs each plugin version to its own folder, and every copy of one version
+  shares a host; a new version gets a new host, and the old one leaves once its orbs do. Copilot CLI replaces its
+  plugin's files in place when it updates, and a git checkout is one folder, so each of those has a host of its own,
+  keyed by its folder: a Copilot copy and a Claude Code copy never share a host or an engine. After a Copilot update,
+  the next orb that opens from that copy stops the old host and starts one from the new files. Updating a git checkout
+  in place, or editing an engine, changes nothing for an engine already running: run `orb engines stop` and the next
+  sentence loads the current code.
+- **`PATH`.** An engine gets the host's environment, plus the values the attaching orb has for the variables its
+  `engine.json` lists in `env`, and nothing else of the orb's. `PATH` is therefore the one the host was started with,
+  not your orb's, unless the engine lists `PATH` in `env`; an engine that needs a tool found through `PATH` (an
+  `ffmpeg`, say) lists it there.
+- **See it.** `orb engines` lists what this copy's host runs, sorted by kind, then name, then load settings, with the
+  orbs using each:
+
+  ```
+  stt moonshine {"model": "base"}  engine pid 4121  2 orbs
+    claude in /work/x (orb pid 3001)
+    copilot in /work/x (orb pid 3050)
+  stt moonshine {"model": "tiny"}  engine pid 4188  1 orb
+    claude in /work/y (orb pid 3122)
+  tts kokoro {}  engine pid 4160  no orbs, closes in 81 s
+  ```
+
+  `engine pid` is the engine's own process. An engine with no orbs and no countdown, which `orb doctor` reports, ends
+  `no orbs, leaked`. With no host it prints `no shared speech engines are running`.
+- **Stop it.** `orb engines stop` closes this copy's host and every engine in it, and returns once they are gone:
+
+  ```
+  closed stt moonshine {"model": "base"}  engine pid 4121
+  closed tts kokoro {}  engine pid 4160
+  stopped the engine host and its engines
+  ```
+
+  Each orb's next sentence attaches to a new host.
+- **Checks.** `orb doctor` checks that every engine's `engine.json` speaks protocol 2, that the host answers and that
+  every engine has an orb or a countdown, and attaches to the host to load the speech engines it is configured with. With no
+  host running it starts one, whose engines close after the usual 120 s and the host 10 s after that. The host's log is `~/.config/orb/state/engine-host.<id>.log`,
+  where `<id>` names the copy.
+
 An engine's, skin's or theme's folder name is lowercase letters, digits, `-` and `_` (up to 64); a folder named any
 other way is neither listed nor loaded.
 
-**Writing one.** The orb starts the engine, keeps it warm, and talks JSON lines:
+**Writing one.** The host or the orb starts the engine, keeps it warm, and talks JSON lines on its standard input and
+output. `engine.json` needs `"protocol": 2`, an integer; an engine without it is refused, with the reason, by `orb
+doctor` and by the orb that tries to start it, which uses the built-in default instead for `stt`, `tts`, `vad` and
+`voiceprint` and turns the feature off with the reason for `wake` and `capture`. It may also say `"share": false` (see [Shared engines](#shared-engines)). Every reply is an object, and one carrying `error` is a failure.
 
 | Kind | Request | Reply |
 |---|---|---|
-| any | `{"op": "load", "settings": {…}}`, once | — |
+| any | `{"op": "load", "settings": {…}}`, once, first | `{"ok": true, "pid": <the engine's own process id>}`; a reply without an integer `pid` fails the load |
 | `stt` | `{"op": "transcribe", "pcm": <base64 float32 16 kHz>}` | `{"text": …}` |
-| `tts` | `{"op": "render", "text": …, "speed": …}` | `{"rate": …, "pcm": …}` |
-| `tts` with voices | `{"op": "voices"}` | `{"voices": [{"id", "label"}], "current": id}` |
-| `tts` with voices | `{"op": "voice", "id": …}` | — |
+| `tts` | `{"op": "render", "text": …, "speed": …, "voice"?: …, "lang"?: …}` | `{"rate": …, "pcm": …}` |
+| `tts` with voices | `{"op": "voices"}` | `{"voices": [{"id", "label"}]}` |
 | `wake`, `vad` | `{"op": "frame", "pcm": …}` | `{"score": …}` |
 | `voiceprint` | `{"op": "embed", "pcm": …}` | `{"vector": […]}` |
-| `capture` | `load` only, answered once the microphone is open: `{"latency": <seconds of buffer>, "device": …}` | then, unasked, one line per frame, `{"pcm": <base64 float32 16 kHz>, "level": <rms>}`, or a `{"notice": …}` |
+| `capture` | `load` only, answered once the microphone is open: `{"ok": true, "pid": …, "device": …, "rate": …, "latency": <seconds of buffer>}` | then, unasked, one line per frame, `{"pcm": <base64 float32 16 kHz>, "level": <rms>}`, or a `{"notice": …}` |
 
-A reply carrying `error` is a failure. A `tts` engine that does not answer `voices` simply has no voice menu. In
-`engine.json`, `env` names the variables the engine needs (credentials never go in config); `max_seconds` is the
-longest clip an STT engine accepts, and the orb cuts longer ones at quiet points; `frame_samples` is how many samples
-a `wake` or `vad` engine takes per frame. A `capture` engine streams until its standard input closes.
+- **The pid** is the engine's own process, not its launcher's: an engine run by `uv run` is a child of `uv`, and ending
+  `uv` leaves the engine running.
+- **`render`** takes `speed` (a number) with `voice` and `lang`, which are absent when the user has set none; an absent
+  `voice` means the engine's default voice. The orb passes `voice` through as the user wrote it, so it is an id from
+  your `voices` or any other value your engine documents; an engine that cannot take it answers `error`. `lang` is a
+  hint for a voice that has no language of its own.
+- **`voices`** is a catalogue and holds no choice: **its first entry is the engine's default voice**, what `render`
+  uses when the request has no `voice`, and every `id` is valid as a `render` `voice`. An engine that does not answer
+  `voices` simply has no voice menu. A `voice` the engine does not know is answered `{"error": "no <engine> voice named
+  '<id>'"}`, in that wording. An engine holds no voice between calls.
+- **Load settings** are the engine's block in the config, except `voice` and `lang` for a `tts` engine.
+- **In `engine.json`**, `env` names the variables the engine needs (credentials never go in config), and an engine
+  that needs a tool found through `PATH` lists `PATH` there too (see [Shared engines](#shared-engines)); `max_seconds`
+  is the longest clip an STT engine accepts, and the orb cuts longer ones at quiet points; `frame_samples` is how many
+  samples a `wake` or `vad` engine takes per frame.
+- **Progress.** Before its `load` reply an engine may write lines `{"progress": "<what it is doing>"}`: one as it starts,
+  before it imports anything slow, and at least every 10 s while it downloads. The orb shows the latest.
+- **The exit contract.** Every engine exits within 5 seconds of its standard input closing, whatever it is doing. The
+  host or the orb closes the input, waits 5 s, and kills the pid from the load reply. An engine busy in a call it
+  cannot interrupt must end itself a little under that limit instead of waiting for the call. A `capture` engine streams
+  until its input closes and arms its own 4 s timer when it does. A Python request/reply engine takes this block as it
+  stands, right after its imports, and reads its requests with `for line in requests():` where it would read
+  `sys.stdin`:
+
+```python
+# ---- exit contract: the same in every engine (engines/test_exit_contract.py) ----
+import os
+import queue
+import sys
+import threading
+
+EXIT_BACKSTOP_S = 4.0
+
+
+def requests():
+    """The request lines, read on a thread of their own. When standard input closes, an idle engine stops at once;
+    one busy in a call it cannot interrupt is ended by a timer, inside the 5 s the orb allows."""
+    lines: queue.Queue = queue.Queue()
+
+    def read() -> None:
+        for line in sys.stdin:
+            lines.put(line)
+        timer = threading.Timer(EXIT_BACKSTOP_S, os._exit, args=(0,))
+        timer.daemon = True
+        timer.start()
+        lines.put(None)
+
+    threading.Thread(target=read, daemon=True).start()
+    while (line := lines.get()) is not None:
+        yield line
+# ---- end of the exit contract ----
+```
+
+A failed `load` is answered `{"error": …}` and the engine exits. A `stt` or `tts` call is timed from the orb's send, so
+time queued behind another orb's call counts. A call not answered within 120 s fails; when the engine had it and went
+silent, the engine is closed, and a call that ran out of time still waiting its turn leaves the engine running.
 
 ## Wake word
 
@@ -645,7 +769,7 @@ never installed into agent-orb itself.
 | Path | What |
 |---|---|
 | `.claude-plugin/`, `.mcp.json`, `hooks/`, `skills/` | the plugin, read unchanged by both agents |
-| `orb/` | the Python package: CLI, server, config, state, the engine runner, Stop hook, interrupt adapters, doctor (tests beside the code) |
+| `orb/` | the Python package: CLI, server, config, state, the engine runner and the shared engine host, Stop hook, interrupt adapters, doctor (tests beside the code) |
 | `channel/` | the Claude Code channel MCP server (Node, no dependencies) |
 | `copilot/` | the routes of the Copilot extension's door (Node, no dependencies) |
 | `web/` | the orb page, the push-to-talk worklet, the panel API and stylesheet |

@@ -10,6 +10,8 @@
     level: 0,
     attached: false,
     voice: false,
+    loading: {},
+    speechOff: null,
     waiting: null,
     pttKey: "Space",
     muteKey: "KeyM",
@@ -160,6 +162,20 @@
   const MIC_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>';
   const STOP_ICON = '<svg viewBox="0 0 12 12"><rect x="1" y="1" width="10" height="10" rx="2" fill="currentColor"/></svg>';
   const STATE_WORDS = { listening: "listening", transcribing: "transcribing…", thinking: "thinking…", speaking: "speaking" };
+  function loadingWords(kinds) {
+    return Object.entries(orb.loading).filter(([kind]) => kinds.includes(kind)).map(([kind, said]) => `${kind}: ${said}`).join("; ");
+  }
+  function speechHint() {
+    const speech = loadingWords(["stt", "tts"]);
+    return orb.speechOff ? `speech off: ${orb.speechOff}` : speech ? `loading speech engines (${speech})` : "speech engines not loaded";
+  }
+  function speechPending() {
+    return orb.voice ? !!orb.loading.wake && !orb.wake : !!(orb.speechOff || loadingWords(["stt", "tts"]));
+  }
+  function holdHint() {
+    const wake = orb.loading.wake;
+    return `or hold ${orb.pttKey} while this window has focus${orb.wake ? `, or say “${orb.wake.phrase}”` : wake ? `; loading the wake word (${wake})` : ""}`;
+  }
   function updateMic() {
     const mic = $("mic");
     const busy = orb.state !== "idle";
@@ -178,12 +194,12 @@
     $("stop").hidden = !working && !outside;
     if (orb.stopping && !working && !outside) orb.stopping = false;
     const how = orb.enrolling ? `enrolling ${orb.enrolling.index + 1} of ${orb.enrolling.total}: hold and read — “${orb.enrolling.phrase}”`
-      : orb.voice ? `or hold ${orb.pttKey} while this window has focus${orb.wake ? `, or say “${orb.wake.phrase}”` : ""}` : "speech engines not loaded";
+      : orb.voice ? holdHint() : speechHint();
     const doing = (working || outside) && orb.session.doing;
     $("hint").textContent = working && orb.waiting ? `waiting for ${orb.waiting} to finish`
       : doing ? `working: ${orb.session.doing}` : outside ? "working…" : how;
-    // The how-to shows on hover; enrolment's instructions and what the agent is busy with show without it.
-    $("hint").classList.toggle("shown", !!orb.enrolling || (working && !!orb.waiting) || !!doing || outside);
+    $("hint").classList.toggle("shown", !!orb.enrolling || (working && !!orb.waiting) || !!doing || outside || speechPending());
+    $("hint").classList.toggle("loading", !doing && !outside && speechPending());
   }
 
   let noticeTimer;
@@ -225,6 +241,8 @@
     switch (m.type) {
       case "snapshot":
         orb.voice = m.voice;
+        orb.loading = m.loading;
+        orb.speechOff = m.speech_off;
         orb.pttKey = m.ptt_key || "Space";
         orb.muteKey = m.mute_key || "KeyM";
         orb.panelsKey = m.panels_key || "KeyP";
@@ -285,7 +303,11 @@
         backgroundUi.set(m.tasks);
         break;
       case "engines":
-        showEngines(m.engines, null, null);
+        orb.voice = m.voice;
+        orb.loading = m.loading;
+        orb.speechOff = m.speech_off;
+        updateMic();
+        showEngines(m.engines, m.tts_engines, m.stt_engines);
         showVoices(m.voices);
         break;
       case "voices":

@@ -7,6 +7,19 @@ that has one adds it under Unreleased.
 
 ### Added
 
+- `orb open` returns once the window is open, without waiting for the speech engines. The window works in text and says
+  what each engine is doing while it loads, speech turns on when they finish, and an engine that fails to load
+  leaves the window open with the reason. A load is timed by silence, 30 s between the lines an engine writes, so a
+  first-run download that keeps reporting is no longer cut off after 5 minutes
+  ([#203](https://github.com/NerdoBaggins/agent-orb/issues/203)).
+- The orbs on a machine now share one set of speech-to-text and voice engines, where each used to start its own (two
+  orbs with a large speech-to-text model held two copies of it in memory). Orbs share an engine when its name, load
+  settings and declared environment variables match; voice, language and speed travel with each sentence, so changing
+  them in one orb touches no other. An engine stays up while any orb uses it and closes 120 s after the last one
+  goes, whether that orb closed or died, and the engine host exits 10 s after its last engine. `orb engines` lists
+  what is running and which orbs use it, `orb engines stop` closes the host and every engine, `orb doctor` checks the
+  host and every engine's protocol, and an engine's `engine.json` can say `"share": false` to get one process per orb
+  ([#203](https://github.com/NerdoBaggins/agent-orb/issues/203)).
 - Server capture: with `"capture": {"engine": "livekit"}` in your config, the built-in `livekit` engine records the
   microphone instead of the browser, with a 500 ms buffer and WebRTC noise suppression, so a Remote Desktop microphone loses no
   audio. `orb doctor` checks how much of the microphone's audio arrives
@@ -20,8 +33,23 @@ that has one adds it under Unreleased.
   compacts a Copilot session: the plugin's extension compacts the session once the turn in progress ends
   ([#221](https://github.com/NerdoBaggins/agent-orb/issues/221), [#225](https://github.com/NerdoBaggins/agent-orb/issues/225)).
 
+### Changed
+
+- Engines now speak protocol 2, with no way back: `engine.json` needs `"protocol": 2`, an engine's `load` reply carries
+  its own `pid`, `render` takes `voice` and `lang` with each call, and `voices` lists the default voice first and no
+  longer has `current` or a `voice` op. An engine without `"protocol": 2` is refused with a message naming its file; the
+  orb uses the built-in default instead (a refused wake or capture engine turns that feature off) and `orb doctor` names
+  it. Kokoro's voice setting is now `"default"`, the
+  first entry in its voice list, so the voice menu marks it.
+- Every engine now exits within 5 s of its standard input closing, even in the middle of a call, and whatever started it kills one
+  that does not, by the `pid` it reported.
+- A leftover `engines` key in your config is now ignored with the usual unknown-key warning.
+
 ### Fixed
 
+- A speech engine no longer outlives the orb that started it and keeps using the processor: engines now notice their
+  input closing while they are loading or answering a call, and end within 5 s
+  ([#165](https://github.com/NerdoBaggins/agent-orb/issues/165)).
 - The mic button starts on a mouse press even when Chrome sends no pointer event for it, which had left every click
   ignored while the talk key still worked ([#249](https://github.com/NerdoBaggins/agent-orb/issues/249)).
 - On Windows, `orb command` and the orb's Stop keep reaching a Claude Code session after Claude Code updates itself

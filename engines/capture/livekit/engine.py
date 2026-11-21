@@ -4,6 +4,7 @@
 # ///
 import base64
 import json
+import os
 import queue
 import sys
 import threading
@@ -16,6 +17,7 @@ APM_SAMPLES = RATE // 100
 FRAME_SAMPLES = 1280
 DEFAULTS = {"device": None, "buffer_ms": 500, "noise_suppression": True, "auto_gain": True}
 REOPEN_S = 2.0
+EXIT_BACKSTOP_S = 4.0
 WASAPI = "Windows WASAPI"
 
 
@@ -94,11 +96,12 @@ def open_stream(sd, settings: dict, audio: queue.Queue):
 
 
 def run(settings: dict, writer: Writer, closed: threading.Event) -> None:
+    writer.send({"progress": "opening the microphone"})
     import sounddevice as sd
     from livekit import rtc
     audio: queue.Queue = queue.Queue()
     stream, rate = open_stream(sd, settings, audio)
-    writer.send({"ok": True, "device": sd.query_devices(stream.device)["name"], "rate": rate, "latency": float(stream.latency)})
+    writer.send({"ok": True, "pid": os.getpid(), "device": sd.query_devices(stream.device)["name"], "rate": rate, "latency": float(stream.latency)})
     pipeline = Pipeline(rtc, rate, settings)
     while not closed.is_set():
         try:
@@ -128,9 +131,12 @@ def watch_stdin(closed: threading.Event) -> None:
     for _ in sys.stdin:
         pass
     closed.set()
+    timer = threading.Timer(EXIT_BACKSTOP_S, os._exit, args=(0,))
+    timer.daemon = True
+    timer.start()
 
 
-if __name__ == "__main__":
+def main() -> None:
     writer = Writer(sys.stdout)
     request = json.loads(sys.stdin.readline() or "{}")
     if request.get("op") != "load":
@@ -143,3 +149,7 @@ if __name__ == "__main__":
     except Exception as e:
         writer.send({"error": f"{type(e).__name__}: {e}"})
         sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

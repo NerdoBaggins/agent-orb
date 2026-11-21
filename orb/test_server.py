@@ -1,8 +1,12 @@
 import asyncio
+import contextlib
+import io
 import json
+import os
 import queue
 import shutil
 import struct
+import sys
 from types import SimpleNamespace
 
 import numpy as np
@@ -10,11 +14,13 @@ import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
 from orb import PLUGIN_ROOT, agents, engines
+from orb import server as server_module
 from orb.audio import SAMPLE_RATE
 from orb.capture import Ended, Frame
-from orb.config import private_config_path
-from orb.engines import EngineError
-from orb.server import SERVER_STATES, OrbServer, audio_frame, page_sender
+from orb.config import DEFAULTS, private_config_path
+from orb.engines import EngineError, Tts, start, unreported
+from orb.server import SERVER_STATES, OrbServer, audio_frame, page_sender, voice_menu
+from orb.test_engines import requests_sent
 from orb.skins import STATES as SKIN_STATES
 
 TOKEN = "t0k3n-abc"
@@ -76,7 +82,7 @@ class FakeTts:
     name, fallback_reason, failure = "fake", None, None
 
     def __init__(self):
-        self.rendered, self.seconds_per_word, self.speed = [], 0.05, 1.0
+        self.rendered, self.seconds_per_word = [], 0.05
 
     def render(self, text: str):
         self.rendered.append(text)
@@ -686,18 +692,27 @@ def test_reply_is_rendered_per_sentence_and_streamed_then_idle_after_played(tmp_
     run(go())
 
 
-def test_speed_from_the_page_reaches_the_engine_this_repos_user_config_and_every_window(tmp_path):
+def test_speed_from_the_page_reaches_the_render_this_repos_user_config_and_every_window(tmp_path):
     async def go():
         server = make(tmp_path, voice=True)
         async with await client_for(server) as c:
             ws = await c.ws_connect("/ws", params={"token": TOKEN})
-            assert (await ws.receive_json())["speed"] == 1.0
+            assert (await ws.receive_json())["speed"] == DEFAULTS["tts"]["speed"]
             await ws.send_json({"type": "speed", "value": 1.3})
             assert (await ws.receive_json()) == {"type": "speed", "value": 1.3}
-            assert server.tts.speed == 1.3
+            assert server.call_for("kokoro")["speed"] == 1.3
             saved = json.loads(private_config_path(tmp_path / "home", server.repo_root).read_text(encoding="utf-8"))
             assert saved["tts"]["speed"] == {"claude": 1.3}
     run(go())
+
+
+def test_set_speed_updates_the_live_config(tmp_path):
+    server = make(tmp_path, voice=True)
+    run(server.set_speed(1.3))
+    assert server.config["tts"]["speed"] == {"claude": 1.3, "copilot": DEFAULTS["tts"]["speed"]}
+    assert server.speed == 1.3
+    run(server.set_speed(1.0))
+    assert server.config["tts"]["speed"] == {"claude": 1.0, "copilot": DEFAULTS["tts"]["speed"]}
 
 
 def test_speed_outside_the_range_is_clamped_and_garbage_is_ignored(tmp_path):
@@ -889,20 +904,36 @@ def test_the_snapshot_lists_the_installed_skins_and_the_key_that_cycles_them(tmp
 def user_tts_engine(tmp_path, name):
     folder = tmp_path / "home" / ".config" / "voice-engines" / "tts" / name
     shutil.copytree(PLUGIN_ROOT / "engines" / "tts" / "fake", folder, ignore=shutil.ignore_patterns("__pycache__"))
-    (folder / "engine.json").write_text(json.dumps({"name": name, "version": "1", "kind": "tts",
+    (folder / "engine.json").write_text(json.dumps({"name": name, "version": "1", "kind": "tts", "protocol": 2,
                                                     "run": ["uv", "run", "--script", "engine.py"]}), encoding="utf-8")
 
 
 def user_stt_engine(tmp_path, name):
     folder = tmp_path / "home" / ".config" / "voice-engines" / "stt" / name
     shutil.copytree(PLUGIN_ROOT / "engines" / "stt" / "fake", folder, ignore=shutil.ignore_patterns("__pycache__"))
-    (folder / "engine.json").write_text(json.dumps({"name": name, "version": "1", "kind": "stt",
+    (folder / "engine.json").write_text(json.dumps({"name": name, "version": "1", "kind": "stt", "protocol": 2,
                                                     "run": ["uv", "run", "--script", "engine.py"]}), encoding="utf-8")
 
 
 def test_the_snapshot_lists_the_installed_transcription_engines_without_the_test_engines(tmp_path):
     user_stt_engine(tmp_path, "other")
     assert make(tmp_path, voice=True).snapshot()["stt_engines"] == ["moonshine", "other"]
+
+
+def test_a_refused_selected_engine_shows_its_refusal_in_the_snapshot_fallback_reason(tmp_path, monkeypatch):
+    from orb import engines
+    monkeypatch.setitem(engines.DEFAULT, "stt", "fake")
+    folder = tmp_path / "home" / ".config" / "voice-engines" / "stt" / "old"
+    folder.mkdir(parents=True)
+    (folder / "engine.json").write_text(json.dumps({"name": "old", "version": "1", "kind": "stt", "run": ["x"]}), encoding="utf-8")
+    server = make(tmp_path, voice=True)
+    server.stt = engines.Stt(lambda name: {"engine": name or "old"}, tmp_path / "home")
+    try:
+        reason = server.engines_snapshot()["stt"]["fallback_reason"]
+    finally:
+        server.stt.close()
+    assert reason.startswith(f'{folder / "engine.json"} has no "protocol": 2.') and reason.endswith("; using fake")
+    assert server.engines_snapshot()["stt"]["name"] == "fake"
 
 
 @pytest.mark.timeout(60)
@@ -973,7 +1004,8 @@ def test_switching_the_voice_loads_the_engine_saves_it_for_this_repo_and_tells_e
             message = await ws.receive_json()
             assert message == {"type": "engines", "engines": {"stt": {"name": "fake", "fallback_reason": None},
                                                               "tts": {"name": "other", "fallback_reason": None}},
-                               "voices": None}
+                               "voices": None, "voice": True, "loading": {}, "speech_off": None,
+                               "tts_engines": engines.available("tts", server.home), "stt_engines": engines.available("stt", server.home)}
             assert old.closed and server.tts.name == "other"
             saved = json.loads(private_config_path(tmp_path / "home", server.repo_root).read_text(encoding="utf-8"))
             assert saved["tts"] == {"engine": "other"}
@@ -982,10 +1014,11 @@ def test_switching_the_voice_loads_the_engine_saves_it_for_this_repo_and_tells_e
 
 
 @pytest.mark.timeout(60)
-def test_a_voice_that_fails_to_load_leaves_the_current_one_speaking_and_says_why(tmp_path, monkeypatch):
+@pytest.mark.parametrize("default", ["standin", "broken"], ids=["with a default to fall back on", "when it is the default"])
+def test_a_new_engine_that_fails_to_load_leaves_the_old_in_place_with_the_reason(tmp_path, monkeypatch, default):
     user_tts_engine(tmp_path, "standin")
-    monkeypatch.setitem(engines.DEFAULT, "tts", "standin")
     user_tts_engine(tmp_path, "broken")
+    monkeypatch.setitem(engines.DEFAULT, "tts", default)
     (tmp_path / "home" / ".config" / "orb").mkdir(parents=True)
     (tmp_path / "home" / ".config" / "orb" / "config.json").write_text(
         json.dumps({"tts": {"broken": {"fail": True}}}), encoding="utf-8")
@@ -1000,12 +1033,53 @@ def test_a_voice_that_fails_to_load_leaves_the_current_one_speaking_and_says_why
             await ws.receive_json()
             notice = await ws.receive_json()
             assert notice["type"] == "notice" and "voice broken" in notice["text"] and "told to fail" in notice["text"]
-            assert server.tts is old and not private_config_path(tmp_path / "home", server.repo_root).exists()
+            assert server.tts is old and not hasattr(old, "closed") and server.config["tts"]["engine"] != "broken"
+            assert not private_config_path(tmp_path / "home", server.repo_root).exists()
     run(go())
 
 
+CATALOGUE = [{"id": "ann", "label": "Ann"}, {"id": "bob", "label": "Bob"}]
+
+
+def test_the_menu_marks_the_configured_voice_the_first_entry_when_none_is_configured_and_none_for_a_stale_id():
+    assert voice_menu(CATALOGUE, "bob") == {"voices": CATALOGUE, "current": "bob"}
+    assert voice_menu(CATALOGUE, None) == {"voices": CATALOGUE, "current": "ann"}
+    assert voice_menu(CATALOGUE, "zed") == {"voices": CATALOGUE, "current": None}
+    assert voice_menu(CATALOGUE, {"ann": 1.0}) == {"voices": CATALOGUE, "current": None}
+    assert voice_menu(None, "bob") is None
+
+
+def test_a_render_is_built_when_it_is_sent_from_the_live_config(tmp_path):
+    server = make(tmp_path, voice=True)
+    tts = Tts(lambda name: {"engine": "fake"}, server.call_for, tmp_path, launch=start)
+    sent = requests_sent(tts)
+    try:
+        server.config["tts"]["fake"] = {"voice": "ann", "lang": "fr-fr"}
+        server.config["tts"]["speed"] = 1.4
+        tts.render("hi")
+        server.config["tts"]["fake"]["voice"] = "bob"
+        tts.render("again")
+    finally:
+        tts.close()
+    assert sent == [{"op": "render", "text": "hi", "speed": 1.4, "voice": "ann", "lang": "fr-fr"},
+                    {"op": "render", "text": "again", "speed": 1.4, "voice": "bob", "lang": "fr-fr"}]
+
+
+def test_a_tts_the_server_is_handed_builds_its_renders_from_the_servers_live_config(tmp_path):
+    (tmp_path / "repo").mkdir()
+    tts = Tts(lambda name: {"engine": "fake"}, lambda name: {"speed": 9.0}, tmp_path, launch=start)
+    sent = requests_sent(tts)
+    try:
+        server = OrbServer(tmp_path / "repo", "claude", 0, TOKEN, tmp_path / "home", FakeLink(), FakeStt(""), tts)
+        server.config["tts"]["fake"] = {"voice": "ann"}
+        tts.render("hi")
+    finally:
+        tts.close()
+    assert sent == [{"op": "render", "text": "hi", "speed": DEFAULTS["tts"]["speed"], "voice": "ann"}]
+
+
 @pytest.mark.timeout(60)
-def test_choosing_a_voice_switches_it_and_saves_it_in_that_engines_own_block(tmp_path):
+def test_picking_a_voice_sends_the_engine_nothing_saves_it_and_the_next_sentence_carries_it(tmp_path):
     user_tts_engine(tmp_path, "other")
     (tmp_path / "home" / ".config" / "orb").mkdir(parents=True)
     (tmp_path / "home" / ".config" / "orb" / "config.json").write_text(
@@ -1019,14 +1093,44 @@ def test_choosing_a_voice_switches_it_and_saves_it_in_that_engines_own_block(tmp
             await ws.send_json({"type": "tts_engine", "name": "other"})
             await ws.receive_json()
             switched = await ws.receive_json()
-            assert switched["voices"]["current"] == "ann" and [v["id"] for v in switched["voices"]["voices"]] == ["ann", "bob"]
+            assert switched["voices"] == {"voices": [{"id": "ann", "label": "Ann"}, {"id": "bob", "label": "Bob"}], "current": "ann"}
+            sent = requests_sent(server.tts)
             await ws.send_json({"type": "tts_voice", "id": "zed"})
             await ws.send_json({"type": "tts_voice", "id": "bob"})
             assert (await ws.receive_json())["voices"]["current"] == "bob"
-            assert server.tts.render("hi") is not None and server.tts.process.call({"op": "voices"})["current"] == "bob"
+            assert sent == []
+            server.tts.render("hi")
+            assert sent == [{"op": "render", "text": "hi", "speed": DEFAULTS["tts"]["speed"], "voice": "bob"}]
             saved = json.loads(private_config_path(tmp_path / "home", server.repo_root).read_text(encoding="utf-8"))
             assert saved["tts"] == {"engine": "other", "other": {"voice": "bob"}}
         server.tts.close()
+    run(go())
+
+
+@pytest.mark.timeout(60)
+def test_changing_speed_or_voice_starts_no_process_and_leaves_another_orb_alone(tmp_path):
+    launched = []
+
+    def counting(kind, settings, home, env=os.environ, report=unreported):
+        launched.append(kind)
+        return start(kind, settings, home, env, report)
+
+    def orb(name):
+        (tmp_path / name).mkdir()
+        server = make(tmp_path / name, voice=True)
+        server.tts = Tts(lambda n: {"engine": "fake", "voices": ["ann", "bob"]}, server.call_for, server.home, launch=counting)
+        server.voice_menu = server.menu_of(server.tts.voices())
+        return server
+
+    async def go():
+        mine, other = orb("mine"), orb("other")
+        before = (list(launched), other.call_for("fake"), dict(other.config["tts"]), other.voice_menu)
+        await mine.set_speed(1.4)
+        await mine.set_tts_voice("bob")
+        assert mine.call_for("fake") == {"speed": 1.4, "voice": "bob"}
+        assert (launched, other.call_for("fake"), other.config["tts"], other.voice_menu) == before
+        mine.tts.close()
+        other.tts.close()
     run(go())
 
 
@@ -1466,7 +1570,7 @@ def test_after_the_follow_up_window_speech_alone_does_nothing(tmp_path):
 
 class DeadWakeEngine(FakeWakeEngine):
     def score(self, frame):
-        raise EngineError("wake engine 'fake' gave no answer to 'frame' within 5 s")
+        raise EngineError("wake engine 'fake' did not answer within 5 s")
 
 
 def test_a_wake_engine_that_dies_is_started_again_from_the_config_and_the_window_stays_connected(tmp_path):
@@ -1501,7 +1605,7 @@ def test_a_wake_engine_that_cannot_be_started_again_turns_the_wake_word_off_and_
             await ws.receive_json()
             await ws.send_bytes(QUIET)
             message = await ws.receive_json()
-            assert message["type"] == "wake" and "gave no answer" in message["wake"]["reason"]
+            assert message["type"] == "wake" and "did not answer within 5 s" in message["wake"]["reason"]
             assert server.waker is None
             await ws.send_json({"type": "ptt_start"})
             await ws.send_bytes(pcm(0.5))
@@ -1540,9 +1644,9 @@ def test_enrolling_stops_and_saves_nothing_when_the_voiceprint_engine_fails_part
     home = tmp_path / "home"
     flaky = home / ".config" / "voice-engines" / "voiceprint" / "flaky"
     flaky.mkdir(parents=True)
-    (flaky / "engine.json").write_text(json.dumps({"name": "flaky", "version": "1", "kind": "voiceprint", "run": ["uv", "run", "--script", "engine.py"]}))
-    (flaky / "engine.py").write_text("import json, sys\nfor line in sys.stdin:\n    op = json.loads(line)['op']\n"
-                                     "    sys.stdout.write(json.dumps({'ok': True} if op == 'load' else {'error': 'embed broke'}) + '\\n')\n"
+    (flaky / "engine.json").write_text(json.dumps({"name": "flaky", "version": "1", "kind": "voiceprint", "protocol": 2, "run": ["uv", "run", "--script", "engine.py"]}))
+    (flaky / "engine.py").write_text("import json, os, sys\nfor line in sys.stdin:\n    op = json.loads(line)['op']\n"
+                                     "    sys.stdout.write(json.dumps({'ok': True, 'pid': os.getpid()} if op == 'load' else {'error': 'embed broke'}) + '\\n')\n"
                                      "    sys.stdout.flush()\n")
     (home / ".config" / "orb").mkdir(parents=True)
     (home / ".config" / "orb" / "config.json").write_text(json.dumps({"wake": {"engine": "fake", "model": "hey_test", "vad": "fake", "voiceprint": "flaky"}}), encoding="utf-8")
@@ -1573,11 +1677,11 @@ def test_enrolling_stops_and_saves_nothing_when_the_voiceprint_engine_dies_and_c
     home = tmp_path / "home"
     dying = home / ".config" / "voice-engines" / "voiceprint" / "dying"
     dying.mkdir(parents=True)
-    (dying / "engine.json").write_text(json.dumps({"name": "dying", "version": "1", "kind": "voiceprint", "run": ["uv", "run", "--script", "engine.py"]}))
+    (dying / "engine.json").write_text(json.dumps({"name": "dying", "version": "1", "kind": "voiceprint", "protocol": 2, "run": ["uv", "run", "--script", "engine.py"]}))
     (dying / "engine.py").write_text(
-        "import json, pathlib, sys\nmark = pathlib.Path('died')\nfor line in sys.stdin:\n"
+        "import json, os, pathlib, sys\nmark = pathlib.Path('died')\nfor line in sys.stdin:\n"
         "    if json.loads(line)['op'] == 'load':\n"
-        "        print(json.dumps({'error': 'will not restart'} if mark.exists() else {'ok': True}), flush=True)\n"
+        "        print(json.dumps({'error': 'will not restart'} if mark.exists() else {'ok': True, 'pid': os.getpid()}), flush=True)\n"
         "    else:\n        mark.write_text('x')\n        print(json.dumps({'vector': [0.5, 0.5, 0.0, 0.0]}), flush=True)\n        sys.exit(0)\n")
     (home / ".config" / "orb").mkdir(parents=True)
     (home / ".config" / "orb" / "config.json").write_text(json.dumps({"wake": {"engine": "fake", "model": "hey_test", "vad": "fake", "voiceprint": "dying"}}), encoding="utf-8")
@@ -1615,11 +1719,11 @@ def test_enrolling_stops_drops_the_engine_and_lets_a_retry_load_afresh_when_no_e
     home = tmp_path / "home"
     dying = home / ".config" / "voice-engines" / "voiceprint" / "dying"
     dying.mkdir(parents=True)
-    (dying / "engine.json").write_text(json.dumps({"name": "dying", "version": "1", "kind": "voiceprint", "run": ["uv", "run", "--script", "engine.py"]}))
+    (dying / "engine.json").write_text(json.dumps({"name": "dying", "version": "1", "kind": "voiceprint", "protocol": 2, "run": ["uv", "run", "--script", "engine.py"]}))
     (dying / "engine.py").write_text(
-        "import json, pathlib, sys\nmark = pathlib.Path('died')\nfor line in sys.stdin:\n"
+        "import json, os, pathlib, sys\nmark = pathlib.Path('died')\nfor line in sys.stdin:\n"
         "    if json.loads(line)['op'] == 'load':\n"
-        "        print(json.dumps({'error': 'will not restart'} if mark.exists() else {'ok': True}), flush=True)\n"
+        "        print(json.dumps({'error': 'will not restart'} if mark.exists() else {'ok': True, 'pid': os.getpid()}), flush=True)\n"
         "    else:\n        mark.write_text('x')\n        print(json.dumps({'vector': [0.5, 0.5, 0.0, 0.0]}), flush=True)\n        sys.exit(0)\n")
     (home / ".config" / "orb").mkdir(parents=True)
     (home / ".config" / "orb" / "config.json").write_text(json.dumps({"wake": {"engine": "fake", "model": "hey_test", "vad": "fake", "voiceprint": "dying"}}), encoding="utf-8")
@@ -1657,9 +1761,9 @@ def test_enrolling_stops_and_closes_the_engine_when_the_default_engine_itself_re
     home = tmp_path / "home"
     stubborn = home / ".config" / "voice-engines" / "voiceprint" / "stubborn"
     stubborn.mkdir(parents=True)
-    (stubborn / "engine.json").write_text(json.dumps({"name": "stubborn", "version": "1", "kind": "voiceprint", "run": ["uv", "run", "--script", "engine.py"]}))
-    (stubborn / "engine.py").write_text("import json, sys\nfor line in sys.stdin:\n    op = json.loads(line)['op']\n"
-                                        "    print(json.dumps({'ok': True} if op == 'load' else {'error': 'bad clip'}), flush=True)\n")
+    (stubborn / "engine.json").write_text(json.dumps({"name": "stubborn", "version": "1", "kind": "voiceprint", "protocol": 2, "run": ["uv", "run", "--script", "engine.py"]}))
+    (stubborn / "engine.py").write_text("import json, os, sys\nfor line in sys.stdin:\n    op = json.loads(line)['op']\n"
+                                        "    print(json.dumps({'ok': True, 'pid': os.getpid()} if op == 'load' else {'error': 'bad clip'}), flush=True)\n")
     (home / ".config" / "orb").mkdir(parents=True)
     (home / ".config" / "orb" / "config.json").write_text(json.dumps({"wake": {"engine": "fake", "model": "hey_test", "vad": "fake", "voiceprint": "stubborn"}}), encoding="utf-8")
 
@@ -2013,3 +2117,37 @@ def test_a_request_is_not_overtaken_while_its_wait_notice_is_still_going_out(tmp
 
 def test_the_servers_state_tuple_is_within_the_states_a_skin_may_declare():
     assert set(SERVER_STATES) <= set(SKIN_STATES)
+
+
+class Closable:
+    closed = False
+
+    def close(self):
+        self.closed = True
+
+
+def ending_with_a_crash(server):
+    raise RuntimeError("the run ended badly")
+
+
+def ending_by_returning(server):
+    return None
+
+
+@pytest.mark.parametrize("ending", [ending_with_a_crash, ending_by_returning], ids=["a crash", "a return"])
+def test_the_engines_the_server_holds_are_closed_when_it_exits_however_its_run_ended(tmp_path, monkeypatch, ending):
+    stt, tts, wake_engine, vad = Closable(), Closable(), Closable(), Closable()
+    held = Waker(wake_rules.settings({"model": "hey_jarvis"}), wake_engine, vad, None, None)
+
+    async def run(self):
+        self.stt, self.tts, self.waker = stt, tts, held
+        ending(self)
+
+    monkeypatch.setattr(server_module, "speech_loaders", lambda config, home, agent, launch: {})
+    monkeypatch.setattr(server_module.logs, "setup", lambda path: None)
+    monkeypatch.setattr(OrbServer, "run", run)
+    monkeypatch.setattr(sys, "stdin", io.StringIO(TOKEN + "\n"))
+    (tmp_path / "repo").mkdir()
+    with contextlib.suppress(RuntimeError):
+        server_module.main(["--repo", str(tmp_path / "repo"), "--agent", "claude", "--port", "0", "--home", str(tmp_path / "home")])
+    assert [engine.closed for engine in (stt, tts, wake_engine, vad)] == [True] * 4

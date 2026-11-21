@@ -1,5 +1,5 @@
 """`orb doctor`: read-only checks that the pieces the orb needs are actually there and answering. Nothing is
-started, sent or written."""
+sent or written; the speech engines are attached through the engine host, which it starts when none runs."""
 import json
 import os
 import shutil
@@ -10,9 +10,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from orb import actions, agents, browser, pages, skins, themes, widgets
-from orb.config import ConfigError, engine_settings, expand_dirs, load_for, tts_settings_for, widgets_on
+from orb.config import ConfigError, engine_settings, expand_dirs, load_for, widgets_on
 from orb.copilot import call_door, read_door
-from orb import engines, wake, waking
+from orb import engine_client, engines, wake, waking
 from orb.audio import SAMPLE_RATE
 from orb.capture import Capture, Ended, Frame
 from orb.engines import EngineError, EngineLoadError
@@ -103,6 +103,52 @@ def check_engine(kind: str, settings: dict, home: Path) -> Check:
         return Check(f"{kind} engine", False, str(e))
 
 
+def stale_voice(settings: dict, remote: engine_client.RemoteEngine) -> str | None:
+    voice = settings.get("voice")
+    catalogue = engines.catalogue(remote)
+    if not isinstance(voice, str) or catalogue is None or voice in [v["id"] for v in catalogue]:
+        return None
+    ids = ", ".join(v["id"] for v in catalogue)
+    return f"tts.{settings['engine']}.voice is {voice!r}, which the {settings['engine']} engine does not offer; it offers {ids}"
+
+
+def check_hosted_engine(kind: str, settings: dict, home: Path, launch) -> Check:
+    try:
+        remote = launch(kind, settings, home)
+    except EngineError as e:
+        return Check(f"{kind} engine", False, str(e))
+    try:
+        stale = stale_voice(settings, remote) if kind == "tts" else None
+        manifest = remote.manifest
+        return Check(f"{kind} engine", stale is None,
+                     stale or f"{manifest.name} {manifest.version} loads from {manifest.path}, engine pid {remote.loaded['pid']}")
+    finally:
+        remote.close()
+
+
+def check_engine_protocol(home: Path) -> Check:
+    read, refused = engines.refusals(home)
+    if refused:
+        return Check("engine protocol", False, "; ".join(f"{r.kind} engine {r.name!r} ({r.folder}): {r.text}" for r in refused))
+    return Check("engine protocol", True, f"{read} engines, all protocol {engines.PROTOCOL}")
+
+
+def check_engine_host(home: Path) -> Check:
+    try:
+        running = engine_client.running_engines(home)
+    except engine_client.HostDown as e:
+        return Check("engine host", False, str(e))
+    if running is None:
+        return Check("engine host", True, "not running; the first orb that needs a speech engine starts it")
+    orphans = engine_client.leaked(running)
+    if orphans:
+        names = ", ".join(f"{e['kind']} {e['name']} (pid {e['pid']})" for e in orphans)
+        return Check("engine host", False, f"answers, but {names} has no orb attached and no grace period running; "
+                     "stop it with `kill <pid>` and report it")
+    attached = sum(len(e["owners"]) for e in running)
+    return Check("engine host", True, f"answers; {len(running)} engine(s), {attached} orb(s) attached")
+
+
 def check_theme_tts(theme: themes.Theme, home: Path) -> Check:
     engine = theme.tts["engine"]
     if engine not in engines.available("tts", home):
@@ -116,7 +162,7 @@ def check_chosen(kind: str, chosen: skins.Skin | themes.Theme, roots: list[Path]
     return Check(kind, not problems, "; ".join(problems) or f"{chosen.name} {chosen.version}")
 
 
-def run(repo: Path, home: Path, engines: bool = True) -> list[Check]:
+def run(repo: Path, home: Path, engines: bool = True, spawn=engine_client.spawn_host) -> list[Check]:
     checks = [check_tool("uv", ["--version"]), check_tool("node", ["--version"]), check_browser()]
     try:
         config = load_for(repo, home)
@@ -133,9 +179,12 @@ def run(repo: Path, home: Path, engines: bool = True) -> list[Check]:
     checks.append(check_widgets(repo, home, config))
     checks.append(check_channel(repo, home))
     checks.append(check_copilot(repo, home))
+    checks.append(check_engine_host(home))
+    checks.append(check_engine_protocol(home))
     if engines:
-        checks.append(check_engine("stt", engine_settings(config["stt"]), home))
-        checks.append(check_engine("tts", tts_settings_for(config["tts"], "claude"), home))
+        launch = engine_client.launcher({"pid": os.getpid(), "repo": str(repo), "agent": "doctor"}, spawn)
+        checks.append(check_hosted_engine("stt", engine_settings(config["stt"]), home, launch))
+        checks.append(check_hosted_engine("tts", engine_settings(config["tts"]), home, launch))
     if config["wake"] is not None:
         checks += check_wake(config["wake"], home, engines)
     if engines and config["capture"] is not None:
@@ -157,19 +206,26 @@ def check_capture(section: dict, home: Path, platform: str = sys.platform) -> Ch
         return Check("capture engine", False, f"{e}{grant}")
     except EngineError as e:
         return Check("capture engine", False, str(e))
-    delivered, started = 0, None
     try:
-        while started is None or time.monotonic() - started < CAPTURE_PROBE_S:
-            event = probe.next_event()
-            if isinstance(event, Ended):
-                return Check("capture engine", False, f"{event.reason}{grant}")
-            if isinstance(event, Frame) and started is None:
-                started = time.monotonic()
-            elif isinstance(event, Frame):
-                delivered += event.samples.size
-        elapsed = time.monotonic() - started
+        result = measure_capture(probe, grant)
     finally:
-        probe.close()
+        exited = probe.close()
+    if not exited:
+        return Check("capture engine", False, f"{probe.process.label} did not exit within 5 s of its input closing")
+    return result
+
+
+def measure_capture(probe: Capture, grant: str) -> Check:
+    delivered, started = 0, None
+    while started is None or time.monotonic() - started < CAPTURE_PROBE_S:
+        event = probe.next_event()
+        if isinstance(event, Ended):
+            return Check("capture engine", False, f"{event.reason}{grant}")
+        if isinstance(event, Frame) and started is None:
+            started = time.monotonic()
+        elif isinstance(event, Frame):
+            delivered += event.samples.size
+    elapsed = time.monotonic() - started
     share = delivered / SAMPLE_RATE / elapsed
     whole = share >= WHOLE_SHARE
     return Check("capture engine", whole, f"{probe.name} on {probe.device}: {share:.0%} of {CAPTURE_PROBE_S:.0f} s arrived as audio"
