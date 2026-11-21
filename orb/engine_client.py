@@ -196,9 +196,11 @@ class RemoteEngine:
                     self._release()
                     if repeat:
                         raise EngineError(f"{self.label}: {e}")
+                    if not self.closed:
+                        self.link, self.loaded = attach(self.attachment)
                     if self.closed:
+                        self._release()
                         raise EngineError(f"{self.label} is no longer attached to the engine host")
-                    self.link, self.loaded = attach(self.attachment)
         if "error" in reply:
             raise EngineError(reply["error"])
         return reply["reply"]
