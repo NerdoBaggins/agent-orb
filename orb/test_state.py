@@ -284,7 +284,7 @@ def test_stop_progress_that_is_malformed_reads_as_none_recorded(tmp_path, record
 def test_a_well_formed_stop_record_is_read_back(tmp_path):
     folder = state_dir(tmp_path / "home", tmp_path / "repo")
     write_json(state.stop_file(folder), {"sessionId": "s1", "transcriptPath": "/t/x.jsonl", "offset": 9,
-                                         "delivered": ["r1", 7], "walk": WALK, "mark": "m1"})
+                                         "delivered": ["r1"], "walk": WALK, "mark": "m1"})
     assert state.read_stop_progress(folder, "s1", "/t/x.jsonl") == (9, {"r1"}, Walk("r1", True, False), "m1")
 
 
