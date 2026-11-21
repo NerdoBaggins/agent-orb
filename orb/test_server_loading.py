@@ -252,8 +252,10 @@ def test_the_speech_loaders_name_stt_and_tts_and_the_wake_word_only_when_it_is_c
     assert (list(bare), list(configured)) == (["stt", "tts"], ["stt", "tts", "wake"])
 
 
-def test_a_speech_loader_passes_what_its_engine_says_to_the_report_it_is_given(tmp_path):
+def test_a_speech_loader_passes_what_its_engine_says_to_the_report_it_is_given(tmp_path, monkeypatch):
     from orb.config import DEFAULTS
+    monkeypatch.setitem(engines.DEFAULT, "stt", "moonshine")
+    monkeypatch.setitem(engines.DEFAULT, "tts", "kokoro")
 
     def launch(kind, settings, home, env, report):
         report(f"{kind} is {settings['engine']}")
@@ -283,8 +285,9 @@ class RecordingProcess:
         pass
 
 
-def test_a_failing_hosted_tts_is_answered_by_the_default_built_with_the_defaults_own_voice_and_speed(tmp_path):
+def test_a_failing_hosted_tts_is_answered_by_the_default_built_with_the_defaults_own_voice_and_speed(tmp_path, monkeypatch):
     from orb.config import DEFAULTS
+    monkeypatch.setitem(engines.DEFAULT, "tts", "kokoro")
     processes = {"frail": RecordingProcess("frail was told to fail"), "kokoro": RecordingProcess()}
     attached = []
 
