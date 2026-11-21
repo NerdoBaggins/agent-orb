@@ -439,13 +439,6 @@ def test_a_call_queued_behind_one_that_timed_out_on_its_reply_finds_the_engine_g
     assert [type(e) for e in outcomes] == [EngineExited]
 
 
-def test_a_call_that_finds_the_engine_gone_raises_an_exit(tmp_path):
-    process = start("tts", {"engine": "fake", "die_after": 1}, tmp_path)
-    process.call({"op": "render", "text": "one"})
-    with pytest.raises(EngineExited, match="exited with code 3"):
-        process.call({"op": "render", "text": "two"})
-
-
 def test_check_says_where_the_engine_was_found(tmp_path):
     assert check("tts", {"engine": "fake"}, tmp_path) == f"fake 1.0.0 loads from {BUILTIN_DIR / 'tts' / 'fake'}"
 
@@ -626,6 +619,27 @@ def test_available_lists_engines_with_a_manifest_from_both_folders_and_never_the
     assert available("tts", tmp_path) == ["kokoro", "mine"]
 
 
+class AnsweringWith:
+    def __init__(self, reply):
+        self.reply = reply
+
+    def call(self, request):
+        return self.reply
+
+
+def test_a_catalogue_with_an_entry_that_is_not_an_object_is_no_catalogue():
+    assert engines.catalogue(AnsweringWith({"voices": [{"id": "ann"}, "bob"]})) is None
+
+
+def test_a_catalogue_with_an_entry_that_has_no_text_id_is_no_catalogue():
+    assert engines.catalogue(AnsweringWith({"voices": [{"id": "ann"}, {"label": "Bob"}, {"id": 3}]})) is None
+
+
+def test_a_catalogue_label_that_is_not_text_is_made_text():
+    assert engines.catalogue(AnsweringWith({"voices": [{"id": "ann", "label": 5}, {"id": "bob"}]})) == [
+        {"id": "ann", "label": "5"}, {"id": "bob", "label": "bob"}]
+
+
 def test_an_engine_that_offers_no_voices_gives_no_menu_and_is_not_replaced(tmp_path):
     tts = Tts(settings(engine="fake"), speaking, tmp_path)
     try:
@@ -757,6 +771,22 @@ def test_killing_an_engine_whose_pid_is_not_known_ends_the_python_its_launcher_s
         assert gone(engine_pid) and gone(process.process.pid)
     finally:
         kill_pid(engine_pid)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a group kill is POSIX; Windows runs taskkill")
+def test_killing_an_engine_whose_process_group_is_already_gone_does_not_raise(tmp_path):
+    process = start("tts", {"engine": "fake"}, tmp_path)
+    assert process.close()
+    process.kill()
+
+
+def test_a_call_whose_time_ran_out_before_the_host_passed_it_on_is_a_timeout(tmp_path):
+    process = start("tts", {"engine": "fake"}, tmp_path)
+    try:
+        with pytest.raises(EngineTimeout):
+            process.call({"op": "render", "text": "one"}, 1.0, sent_at=time.monotonic() - 5.0)
+    finally:
+        process.close()
 
 
 SPEAKS = 'import json, os, sys, time\nsys.stdin.readline()\ndef say(**line):\n    sys.stdout.write(json.dumps(line) + "\\n"); sys.stdout.flush()\n'

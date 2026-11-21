@@ -489,6 +489,41 @@ def test_a_calls_limit_counts_from_the_moment_the_host_received_it(host, starter
     assert seen == [(5, 10.0)]
 
 
+def test_a_finished_call_leaves_its_slot_with_no_call_counted(host, starter):
+    session, _ = join(host)
+    host.handle(session, CALL)
+    assert session.slot.calls == 0
+
+
+def replaced_while_a_call_unwinds(host):
+    """A connection's call is stuck on an engine that dies; another connection attaches under the same key and gets a new
+    slot; then the stuck call finds the engine gone. Returns both connections, once that call has unwound."""
+    made = [StuckProcess(7), FakeProcess(8)]
+    stuck = made[0]
+    host.start = lambda kind, settings, home, env, report, started: made.pop(0)
+    events = []
+    old, _ = join(host, heard(events, "old"))
+    thread, _ = handle_in_thread(host, old, CALL)
+    assert stuck.in_call.wait(10)
+    stuck.alive = False
+    new, _ = join(host, heard(events, "new"), pid=2)
+    assert new.slot is not old.slot
+    stuck.fail = EngineExited("fake engine 7 exited with code 3")
+    stuck.release.set()
+    thread.join(10)
+    return old, new, events
+
+
+def test_a_stale_slots_late_retirement_hangs_up_only_the_connections_attached_to_that_slot(host):
+    old, new, events = replaced_while_a_call_unwinds(host)
+    assert events == [("old", "hung up")] and new.key is not None and list(host.registry.owners) == [new]
+
+
+def test_a_stale_slots_late_retirement_leaves_the_slot_that_replaced_it(host):
+    old, new, events = replaced_while_a_call_unwinds(host)
+    assert host.slots == {new.key: new.slot}
+
+
 def test_the_next_attach_to_a_dead_engine_starts_a_new_one_and_closes_the_dead(host, starter):
     join(host)
     dead = processes(starter)[0]
@@ -857,6 +892,36 @@ def test_the_host_never_reads_an_orbs_pid(host, wire, monkeypatch):
     host.drop(other)
     assert not wire.thread.is_alive() and host.registry.owners == {}
     assert reads == []
+
+
+def test_a_connection_made_after_the_accept_loops_poll_timeout_is_still_served(host):
+    listener, record = engine_host.listen(None)
+    threading.Thread(target=engine_host.accept_loop, args=(host, listener, record.token), daemon=True).start()
+    time.sleep(0.7)
+    client = socket.create_connection(("127.0.0.1", record.port), timeout=3)
+    try:
+        client.sendall((json.dumps({"op": "hello", "token": record.token}) + "\n").encode("utf-8"))
+        assert client.recv(1024) == b'{"ok": true}\n'
+    finally:
+        client.close()
+        listener.close()
+
+
+def test_a_json_line_that_is_not_an_object_is_answered_with_an_error_and_the_connection_stays_open(host, wire):
+    wire.greet()
+    wire.send([1, 2])
+    assert wire.client.recv(1024) == b'{"error": "a request is an object"}\n'
+    wire.send({"op": "ping"})
+    assert json.loads(wire.client.recv(1024))["ok"] is True
+
+
+def test_a_host_that_cannot_take_the_lifetime_lock_returns_without_serving_or_leaving_a_record(tmp_path, monkeypatch):
+    written = []
+    monkeypatch.setattr(engine_wire, "hold_lock", lambda path, wait_s: None)
+    monkeypatch.setattr(engine_wire, "write_record", lambda home, host_identity, record: written.append(record))
+    monkeypatch.setattr(engine_host.signal, "signal", lambda *args: None)
+    assert engine_host.run(tmp_path, "abc", None, Registry(time.monotonic, grace=0, host_idle=0), tick=0.05) == 0
+    assert written == [] and engine_wire.read_record(tmp_path, "abc") is None
 
 
 def test_the_host_listens_on_the_loopback_interface_only():

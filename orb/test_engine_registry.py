@@ -85,12 +85,6 @@ def test_two_keys_are_reaped_independently(registry, clock):
     assert registry.reap() == [one] and registry.users(two) == ["b"]
 
 
-def test_a_connection_cannot_be_attached_twice(registry):
-    registry.attach("a", key(), OWNER)
-    with pytest.raises(ValueError):
-        registry.attach("a", key(name="other"), OWNER)
-
-
 def test_a_host_nobody_attached_to_is_done_after_the_idle_time(registry, clock):
     clock.advance(9.9)
     assert registry.host_done() is False

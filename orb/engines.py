@@ -162,7 +162,7 @@ def refusals(home: Path) -> tuple[int, list[Refusal]]:
         for kind in KINDS:
             for folder in sorted((root / kind).iterdir()) if (root / kind).is_dir() else ():
                 manifest = folder / "engine.json"
-                if folder.name in FIXTURES or not folder.is_dir() or not plain_name(folder.name) or not manifest.exists():
+                if folder.name in FIXTURES or not plain_name(folder.name) or not manifest.exists():
                     continue
                 read += 1
                 data = read_data(manifest)
@@ -360,8 +360,6 @@ class EngineProcess:
     def close(self) -> bool:
         """Closes the input and waits EXIT_WAIT_S. True when the process left on its own; otherwise it is killed, a
         warning is logged, and the result is False."""
-        if self.process.poll() is not None:
-            return True
         self.close_input()
         try:
             self.process.wait(timeout=EXIT_WAIT_S)
