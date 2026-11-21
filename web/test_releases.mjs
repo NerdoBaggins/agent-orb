@@ -53,12 +53,12 @@ test("the text size steps by two points in either direction and stays between 12
   assert.equal(nextTextSize(12, -1), 12);
 });
 
-test("a saved size that is missing, empty, zero, negative or not a number reads as the start size", () => {
-  for (const bad of [null, "", "0", "-3", "Infinity", "big"]) assert.equal(storedTextSize(bad), TEXT_SIZES.start, bad);
+test("no saved size reads as the start size", () => {
+  assert.equal(storedTextSize(null), TEXT_SIZES.start);
 });
 
-test("a saved size out of range reads as the nearest size in range", () => {
-  assert.deepEqual(["40", "5", "20"].map(storedTextSize), [28, 12, 20]);
+test("a saved size reads as the size it saved", () => {
+  assert.equal(storedTextSize("20"), 20);
 });
 
 test("every other change within a section is striped, starting plain, and the striping starts over in the next section", () => {

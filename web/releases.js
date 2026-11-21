@@ -29,8 +29,7 @@ function clampTextSize(size) {
 }
 
 function storedTextSize(stored) {
-  const size = Number(stored);
-  return Number.isFinite(size) && size > 0 ? clampTextSize(size) : TEXT_SIZES.start;
+  return stored === null ? TEXT_SIZES.start : Number(stored);
 }
 
 function nextTextSize(size, direction) {
