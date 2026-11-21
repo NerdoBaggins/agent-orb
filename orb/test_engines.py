@@ -979,4 +979,4 @@ def test_a_wake_frame_not_answered_in_5_s_fails_as_a_frame(tmp_path, monkeypatch
 
 def test_an_engine_that_fails_in_a_test_that_set_no_stand_in_names_the_missing_default_instead_of_loading_one(tmp_path):
     with pytest.raises(EngineError, match=NO_ENGINE):
-        engines.Tts(settings(engine="missing"), tmp_path)
+        engines.Tts(settings(engine="missing"), speaking, tmp_path)
