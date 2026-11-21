@@ -627,6 +627,11 @@ class AnsweringWith:
         return self.reply
 
 
+@pytest.mark.parametrize("reply", [{"voices": 5}, {"voices": None}, {}])
+def test_a_catalogue_whose_voices_are_not_a_list_is_no_catalogue(reply):
+    assert engines.catalogue(AnsweringWith(reply)) is None
+
+
 def test_a_catalogue_with_an_entry_that_is_not_an_object_is_no_catalogue():
     assert engines.catalogue(AnsweringWith({"voices": [{"id": "ann"}, "bob"]})) is None
 

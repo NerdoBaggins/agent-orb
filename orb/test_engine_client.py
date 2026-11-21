@@ -538,6 +538,32 @@ def test_an_engine_closed_during_a_call_stays_closed_instead_of_attaching_again(
     assert raised == ["stt engine 'fake' is no longer attached to the engine host"] and engine.alive is False
 
 
+def test_an_engine_closed_while_it_attaches_again_lets_the_new_attachment_go(tmp_path, monkeypatch):
+    attaching, attached, fresh = threading.Event(), threading.Event(), FakeLink()
+
+    def attach(attached_engine):
+        attaching.set()
+        assert attached.wait(5)
+        return fresh, {}
+
+    monkeypatch.setattr(engine_client, "attach", attach)
+    engine, raised = RemoteEngine(attachment(tmp_path), FakeLink(WireBroken("gone")), {}), []
+
+    def call():
+        try:
+            engine.call({"op": "transcribe"})
+        except EngineError as e:
+            raised.append(str(e))
+
+    caller = threading.Thread(target=call)
+    caller.start()
+    assert attaching.wait(5)
+    engine.close()
+    attached.set()
+    caller.join(5)
+    assert raised and engine.alive is False and fresh.closed
+
+
 def test_closing_an_engine_whose_call_already_ended_the_attachment_is_not_an_error(tmp_path):
     engine = RemoteEngine(attachment(tmp_path), FakeLink(WireTimeout("no answer")), {})
     with pytest.raises(EngineTimeout):
