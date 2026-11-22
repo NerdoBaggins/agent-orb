@@ -107,18 +107,27 @@ def read_stop_progress(state: Path, session_id: str | None, transcript: str | No
     offset, ids, turn, mark = record.get("offset"), record.get("delivered"), record.get("walk"), record.get("mark")
     if (not session_id or not transcript or record.get("sessionId") != session_id
             or record.get("transcriptPath") != transcript or type(offset) is not int or offset < 0
-            or not isinstance(ids, list) or not _is_walk(turn) or not isinstance(mark, str)):
+            or not isinstance(ids, list) or not isinstance(mark, str)):
         return StopProgress()
-    return StopProgress(offset, frozenset(ids), Walk(*(turn[key] for key in WALK_KEYS)), mark)
+    stored = _stored_walk(turn)
+    return StopProgress() if stored is None else StopProgress(offset, frozenset(ids), stored, mark)
 
 
-WALK_KEYS = ("requestId", "running", "replyContinues")
+def _camel(field: str) -> str:
+    first, *rest = field.split("_")
+    return first + "".join(word.capitalize() for word in rest)
 
 
-def _is_walk(turn) -> bool:
-    request_id, running, reply_continues = WALK_KEYS
-    return (isinstance(turn, dict) and (turn.get(request_id) is None or isinstance(turn.get(request_id), str))
-            and type(turn.get(running)) is bool and type(turn.get(reply_continues)) is bool)
+WALK_KEYS = tuple(_camel(field) for field in Walk._fields)
+
+
+def _stored_walk(turn) -> Walk | None:
+    if not isinstance(turn, dict):
+        return None
+    stored = Walk(*(turn.get(key) for key in WALK_KEYS))
+    well_formed = ((stored.request_id is None or isinstance(stored.request_id, str))
+                   and type(stored.running) is bool and type(stored.reply_continues) is bool)
+    return stored if well_formed else None
 
 
 def record_stop_progress(state: Path, session_id: str | None, transcript: str | None, progress: StopProgress) -> None:
