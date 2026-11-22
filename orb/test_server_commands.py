@@ -309,6 +309,26 @@ def test_two_threads_reading_the_transcript_at_once_take_its_new_entries_once(tm
     assert [entry["n"] for entry in link.transcript] == [0, 1]
 
 
+def test_a_line_written_while_the_transcript_is_being_read_is_taken_on_the_next_look(tmp_path, monkeypatch):
+    transcript = tmp_path / "t.jsonl"
+    transcript.write_text(json.dumps({"type": "user", "n": 0}) + "\n", encoding="utf-8")
+    write_json(session_file(tmp_path), {"transcriptPath": str(transcript), "sessionId": "s"})
+    read = server_module.read_transcript_from
+
+    def read_then_written_to(path, offset=0):
+        found = read(path, offset)
+        with transcript.open("a", encoding="utf-8") as f:
+            f.write(json.dumps({"type": "user", "n": 1}) + "\n")
+        monkeypatch.setattr(server_module, "read_transcript_from", read)
+        return found
+
+    monkeypatch.setattr(server_module, "read_transcript_from", read_then_written_to)
+    link = server_module.ClaudeLink(tmp_path)
+    link.refresh()
+    link.refresh()
+    assert [entry["n"] for entry in link.transcript] == [0, 1]
+
+
 class HeldLink(CommandLink):
     def __init__(self):
         super().__init__()

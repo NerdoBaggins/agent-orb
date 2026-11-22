@@ -383,19 +383,24 @@ def test_open_all_is_remembered_when_the_panel_is_closed_and_opened_again(tmp_pa
 
 
 @pytest.mark.timeout(60)
-def test_settings_still_opens_when_the_browser_refuses_to_read_local_storage(tmp_path):
+def test_settings_opens_and_its_sections_open_without_an_error_when_the_browser_blocks_local_storage(tmp_path):
     server = make(tmp_path)
     seen = {}
+    errors = []
 
     async def act(page):
-        await page.add_init_script("Storage.prototype.getItem = () => { throw new Error('storage is blocked'); }")
+        page.on("pageerror", lambda error: errors.append(error.message))
+        await page.add_init_script("Object.defineProperty(window, 'localStorage', "
+                                   "{get() { throw new DOMException('Access is denied for this document.', 'SecurityError'); }})")
         await page.reload()
         await page.wait_for_timeout(800)
         await open_settings(page)
-        seen["expanded"] = await expanded(page)
+        seen["opened"] = await expanded(page)
+        await page.click("#builtin-settings .settings-sec-toggle")
+        seen["first_toggled"] = await expanded(page)
 
     asyncio.run(run_page(tmp_path, [], act, server))
-    assert seen["expanded"] == ["false"] * 4
+    assert (seen["opened"], seen["first_toggled"], errors) == (["false"] * 4, ["true"] + ["false"] * 3, [])
 
 
 @pytest.mark.timeout(60)
