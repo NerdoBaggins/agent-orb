@@ -436,7 +436,7 @@ def test_a_transcript_that_cannot_be_read_at_a_stop_forgets_the_turn_the_last_st
 
 def test_the_stop_hook_makes_no_request_once_its_budget_is_spent(monkeypatch):
     requested = []
-    monkeypatch.setattr("urllib.request.urlopen", lambda request, timeout: requested.append(timeout))
+    monkeypatch.setattr(stop_hook.loopback, "urlopen", lambda request, timeout: requested.append(timeout))
     with pytest.raises(TimeoutError):
         stop_hook._call({"port": 1, "token": "t"}, "GET", "/pending", until=time.monotonic() - 1)
     assert requested == []

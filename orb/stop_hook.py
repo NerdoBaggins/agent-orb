@@ -12,6 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from orb import loopback  # noqa: E402
 from orb.hook_deadline import deadline  # noqa: E402
 from orb.gate import answers, delivered, read_transcript_after, walk  # noqa: E402
 from orb.state import (  # noqa: E402
@@ -29,7 +30,7 @@ def _call(server: dict, method: str, path: str, body: dict | None = None, *, unt
     data = json.dumps(body).encode("utf-8") if body is not None else None
     request = urllib.request.Request(f"http://127.0.0.1:{server['port']}{path}", data, method=method,
                                      headers={"X-Orb-Token": server["token"], "Content-Type": "application/json"})
-    with urllib.request.urlopen(request, timeout=timeout) as response:
+    with loopback.urlopen(request, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8") or "{}")
 
 

@@ -10,7 +10,7 @@ from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 
-from orb import agents
+from orb import agents, loopback
 from orb.background import copilot_running_tasks
 from orb import commands
 from orb.feed import ORB_TAG, copilot_busy, copilot_compacted, copilot_feed, failed_request, task_summary, turn_ended_since, turn_since
@@ -233,7 +233,7 @@ def call_door(door: Door, method: str, route: str, body: dict | None, timeout_s:
     request = urllib.request.Request(f"http://127.0.0.1:{door.port}{route}", data, method=method,
                                      headers={"X-Orb-Secret": door.secret, "Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(request, timeout=timeout_s) as r:
+        with loopback.urlopen(request, timeout=timeout_s) as r:
             return json.loads(r.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         refusal = f"Copilot's door refused {route} ({e.code}): {e.read().decode('utf-8', 'replace')}"
