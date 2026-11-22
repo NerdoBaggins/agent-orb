@@ -149,7 +149,7 @@ class Walk(NamedTuple):
 
 
 def _opened(entries: list[dict], server: str, walk: Walk) -> Iterator[tuple[dict, bool, Walk]]:
-    request_id, running, reply_continues = walk
+    request_id, running, reply_continues = walk.request_id, walk.running, walk.reply_continues
     for entry in entries:
         opens = False
         if not entry.get("isSidechain"):
