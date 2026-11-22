@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
-from orb import PLUGIN_ROOT
+from orb import PLUGIN_ROOT, loopback
 from orb.state import channel_file, pid_alive, read_json
 
 PROBE_TIMEOUT_S = 2
@@ -60,7 +60,7 @@ def channel_bound(info: ChannelInfo | None) -> bool:
         return False
     try:
         request = urllib.request.Request(f"http://127.0.0.1:{info.port}/health", headers={"X-Orb-Secret": info.secret})
-        with urllib.request.urlopen(request, timeout=PROBE_TIMEOUT_S) as r:
+        with loopback.urlopen(request, timeout=PROBE_TIMEOUT_S) as r:
             return bool(json.loads(r.read().decode("utf-8")).get("ok"))
     except (urllib.error.URLError, OSError, ValueError):
         return False
@@ -71,10 +71,10 @@ def post_prompt(info: ChannelInfo, text: str, request_id: str) -> None:
     request = urllib.request.Request(f"http://127.0.0.1:{info.port}/prompt", body, method="POST",
                                      headers={"X-Orb-Secret": info.secret, "Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(request, timeout=PROBE_TIMEOUT_S) as r:
+        with loopback.urlopen(request, timeout=PROBE_TIMEOUT_S) as r:
             r.read()
     except urllib.error.HTTPError as e:
-        detail = e.read().decode("utf-8", "replace")
+        detail = e.read().decode("utf-8")
         raise LinkError(f"channel refused the request ({e.code}): {detail}")
     except (urllib.error.URLError, OSError) as e:
         raise LinkError(f"channel unreachable on port {info.port}: {e}")

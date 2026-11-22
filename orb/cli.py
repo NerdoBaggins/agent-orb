@@ -13,7 +13,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from orb import PLUGIN_ROOT, agents, browser, engine_client, logs, pages, panels, widgets
+from orb import PLUGIN_ROOT, agents, browser, engine_client, logs, loopback, pages, panels, widgets
 from orb.config import ConfigError, load_for, panel_dirs_for, private_config_path, save_for_repo, save_widget, widget_dirs_for, widgets_on
 from orb.copilot import CopilotLink
 from orb.engines import EngineError
@@ -81,7 +81,7 @@ def wait_healthy(port: int, token: str, proc: subprocess.Popen, log_path: Path, 
         if proc.poll() is not None:
             raise SystemExit(f"orb server exited with {proc.returncode}; see {log_path} and {crash_path}")
         try:
-            with urllib.request.urlopen(f"http://127.0.0.1:{port}/health?token={token}", timeout=1) as r:
+            with loopback.urlopen(f"http://127.0.0.1:{port}/health?token={token}", timeout=1) as r:
                 return json.loads(r.read().decode("utf-8"))
         except (urllib.error.URLError, OSError, ValueError):
             time.sleep(0.3)
@@ -92,7 +92,7 @@ def open_windows(server: dict) -> int:
     """How many pages are connected to a running server; 1 when it will not say, so an unanswering server is
     left alone rather than given a second window."""
     try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{server['port']}/health?token={server['token']}", timeout=2) as r:
+        with loopback.urlopen(f"http://127.0.0.1:{server['port']}/health?token={server['token']}", timeout=2) as r:
             return int(json.loads(r.read().decode("utf-8")).get("windows", 1))
     except (urllib.error.URLError, OSError, ValueError):
         return 1
@@ -195,10 +195,10 @@ def post(server: dict, path: str, body: dict) -> dict:
     request = urllib.request.Request(f"http://127.0.0.1:{server['port']}{path}", data, method="POST",
                                      headers={"X-Orb-Token": server["token"], "Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(request, timeout=10) as r:
+        with loopback.urlopen(request, timeout=10) as r:
             return json.loads(r.read().decode("utf-8") or "{}")
     except urllib.error.HTTPError as e:
-        raise SystemExit(f"orb: {e.read().decode('utf-8', 'replace') or e}")
+        raise SystemExit(f"orb: {e.read().decode('utf-8') or e}")
     except (urllib.error.URLError, OSError) as e:
         raise SystemExit(f"orb: the orb server did not answer ({e}); close its window and run `orb open` again")
 

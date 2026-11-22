@@ -190,7 +190,7 @@ def test_orb_open_gives_up_on_a_server_that_never_answers_after_60_s(tmp_path, m
     def refused(*args, **kwargs):
         raise cli.urllib.error.URLError("refused")
 
-    monkeypatch.setattr(cli.urllib.request, "urlopen", refused)
+    monkeypatch.setattr(cli.loopback, "urlopen", refused)
     server = type("Server", (), {"poll": lambda self: None})()
     with pytest.raises(SystemExit, match=r"^orb server did not answer within 60s; see "):
         cli.wait_healthy(4321, "token", server, tmp_path / "orb.log", tmp_path / "orb.out")
