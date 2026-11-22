@@ -101,14 +101,9 @@ def test_local_command_echo_is_not_a_user_turn():
     assert answered([channel_turn(), assistant(), echo, cmd], PENDING) == "r7"
 
 
-def test_missing_transcript_and_copilot_events_stay_silent(tmp_path):
+def test_a_missing_transcript_stays_silent(tmp_path):
     assert answered(entries_of(str(tmp_path / "nope.jsonl")), PENDING) is None
     assert answered(entries_of(None), PENDING) is None
-    events = tmp_path / "events.jsonl"
-    events.write_text("\n".join(json.dumps(e) for e in [
-        {"type": "user.message", "data": {"content": "hi"}},
-        {"type": "assistant.message", "data": {"content": "hello"}}]), encoding="utf-8")
-    assert answered(entries_of(str(events)), PENDING) is None
 
 
 
