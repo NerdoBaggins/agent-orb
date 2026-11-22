@@ -337,6 +337,18 @@ def test_copilot_activity_reads_history_only_as_far_back_as_its_limit(tmp_path, 
     assert feed_texts(attached_link(tmp_path)) == ["recent"]
 
 
+def test_copilot_activity_reads_the_events_after_a_history_limit_that_falls_inside_a_character(tmp_path, monkeypatch):
+    import json
+    from orb import copilot
+    older, recent = (json.dumps(typed(text), ensure_ascii=False).encode() + b"\n" for text in ("café", "recent"))
+    log = copilot.events_path(tmp_path, "s1")
+    log.parent.mkdir(parents=True)
+    log.write_bytes(older + recent)
+    inside = older.index("é".encode()) + 1
+    monkeypatch.setattr(copilot, "HISTORY_BYTES", len(older) + len(recent) - inside)
+    assert feed_texts(attached_link(tmp_path)) == ["recent"]
+
+
 ORB_TURN = user('<channel source="plugin:agent-orb:orb-channel" req="r1">\ngo ahead\n</channel>', ORB, meta=True, uid="o")
 NOTIFIED = user("<task-notification>\n<task-id>a1</task-id>", {"kind": "task-notification"}, uid="n")
 
