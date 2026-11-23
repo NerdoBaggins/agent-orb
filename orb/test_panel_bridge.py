@@ -11,6 +11,9 @@ pytestmark = pytest.mark.browser
 
 playwright = pytest.importorskip("playwright.async_api")
 
+from orb import headless  # noqa: E402
+from orb.headless import INSTALL_BROWSER  # noqa: E402
+
 CLICKED = """<!doctype html><body><button id="go" style="width:200px;height:80px"
   onclick="orb.send('from the clicked panel', {speak: false}).catch(() => {})">send</button></body>"""
 SCRIPTED = """<!doctype html><body><script>setInterval(() => {
@@ -19,17 +22,12 @@ SCRIPTED = """<!doctype html><body><script>setInterval(() => {
 }, 100);</script></body>"""
 
 
-INSTALL_BROWSER = "uv run playwright install chromium-headless-shell"
-
 
 async def browser(p):
     try:
-        return await p.chromium.launch(headless=True, args=["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"])
-    except playwright.Error as e:
-        if "Executable doesn't exist" not in str(e):
-            raise
-        pytest.fail(f"Playwright's headless Chromium is not installed: run `{INSTALL_BROWSER}`, or deselect the browser "
-                    f"tests with -m \"not {pytestmark.name}\"", pytrace=False)
+        return await headless.launch(p)
+    except headless.BrowserMissing as e:
+        pytest.fail(f"{e}, or deselect the browser tests with -m \"not {pytestmark.name}\"", pytrace=False)
 
 
 async def run_page(tmp_path, panels, act, server=None):

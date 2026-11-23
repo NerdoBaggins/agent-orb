@@ -5,7 +5,8 @@ import pytest
 
 playwright = pytest.importorskip("playwright.async_api")
 
-from orb.test_panel_bridge import INSTALL_BROWSER, browser
+from orb.headless import INSTALL_BROWSER
+from orb.test_panel_bridge import browser
 
 README = Path(__file__).parent.parent / "README.md"
 MISSING = "BrowserType.launch: Executable doesn't exist at /nowhere/chrome-headless-shell"
