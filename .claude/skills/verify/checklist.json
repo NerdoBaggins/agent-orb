@@ -1,0 +1,27 @@
+[
+  {
+    "id": "mic-open-race",
+    "when": ["web/orb.js", "web/ptt-worklet.js"],
+    "flows": ["hold_mic_slow_open"],
+    "check": "A press released while the microphone opens must not leave it recording, and the other input must still start a press after a failed open.",
+    "source": "61c2273, 0716599, #308"
+  },
+  {
+    "id": "mid-turn-messages",
+    "when": ["orb/stop_hook.py", "orb/gate.py", "orb/state.py", "hooks/hooks.json"],
+    "check": "A message typed into the session mid-turn joins the orb's turn rather than ending it with the wrong reply. verify does not drive this: run orb/test_gate.py and read its mid-turn cases against the change.",
+    "source": "bb4783a, 7dbd55c, 87ce6ac"
+  },
+  {
+    "id": "panel-focus",
+    "when": ["web/panel.js", "web/orb.js", "orb/pages.py", "orb/panels.py"],
+    "check": "A panel cannot keep the keyboard from the type box: a page that grabs focus repeatedly is closed, and a panel forwards only Escape to the orb.",
+    "source": "402c54f, 7caca3a"
+  },
+  {
+    "id": "real-engines",
+    "when": ["engines/*", "orb/engines.py"],
+    "check": "verify speaks only through the fake engines. A change to a real engine needs one run with that engine selected, on a machine that has it.",
+    "source": "the stub boundary of verify itself"
+  }
+]

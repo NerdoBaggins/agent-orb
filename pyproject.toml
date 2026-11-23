@@ -24,7 +24,7 @@ build-backend = "hatchling.build"
 packages = ["orb"]
 
 [tool.pytest.ini_options]
-testpaths = ["orb", "engines", "channel", "copilot"]
+testpaths = ["orb", "engines", "channel", "copilot", ".claude/skills"]
 timeout = 60
 addopts = "-n auto"
 markers = ["browser"]
