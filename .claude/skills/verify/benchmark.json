@@ -1,0 +1,4 @@
+[
+  {"fix": "61c2273", "flow": "tap_mic", "source": "a tap on first use left the mic recording"},
+  {"fix": "a098762", "flow": "hold_mic_mousedown_only", "source": "#249"}
+]
