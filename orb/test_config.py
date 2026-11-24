@@ -131,9 +131,11 @@ def test_a_partial_tts_block_overlays_the_defaults_instead_of_replacing_them(tmp
     assert cfg["tts"]["engine"] == "kokoro" and cfg["tts"]["speed"] == {"claude": 0.85}
 
 
-def test_speed_of_the_wrong_type_is_rejected(tmp_path):
+@pytest.mark.parametrize("speed", ["fast", float("nan"), 10**400, {"claude": "fast"}, {"claude": None},
+                                   {"claude": float("inf")}, {"claude": 10**400}])
+def test_speed_that_is_not_a_finite_number_or_a_table_of_them_is_rejected(tmp_path, speed):
     with pytest.raises(ConfigError, match="tts.speed must be a number"):
-        load_layers(tmp_path, user={"tts": {"speed": "fast"}})
+        load_layers(tmp_path, user={"tts": {"speed": speed}})
 
 
 # ---- what the orb writes goes to the private layer only ----
