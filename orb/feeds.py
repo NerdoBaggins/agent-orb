@@ -12,7 +12,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from orb.numbers import is_finite
+from orb.finite import is_finite
 from orb.state import private_root
 
 MIN_EVERY_S = 30
