@@ -1,7 +1,9 @@
+import asyncio
 import importlib.util
 import json
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -160,3 +162,88 @@ def test_an_out_folder_holding_evidence_is_refused(tmp_path):
     (tmp_path / "report.json").write_text("{}")
     with pytest.raises(SystemExit, match="already holds"):
         verify.empty_out(tmp_path)
+
+
+def test_a_report_marking_the_flow_broken_is_broken_not_failed(tmp_path):
+    path = report(tmp_path, [{"flow": "mute", "ok": False, "broke": True}])
+    assert verify.outcome_of(path, "mute") is verify.Outcome.BROKEN
+
+
+def test_an_unrelated_base_ref_says_it_shares_no_history(repo):
+    git(repo, "checkout", "-q", "--orphan", "other")
+    git(repo, "commit", "-qm", "unrelated", "--allow-empty")
+    with pytest.raises(SystemExit, match="shares no history"):
+        verify.changed_paths(repo, "base")
+
+
+def session_with(tmp_path, failures=(), hooks=None):
+    session = verify.FakeSession(tmp_path, tmp_path, tmp_path, hook_failures=list(failures))
+    session.hooks, session.session_id, session.transcript = hooks or {}, "s", tmp_path / "t.jsonl"
+    return session
+
+
+async def fails(orb, session, page):
+    raise verify.Failed("the orb said no")
+
+
+async def breaks(orb, session, page):
+    {}["no_such_key"]
+
+
+async def passes(orb, session, page):
+    pass
+
+
+def test_a_flow_raising_failed_is_a_failure_not_a_breakage(tmp_path):
+    tried = asyncio.run(verify.attempt(fails, None, session_with(tmp_path), None))
+    assert (tried.failures, tried.breakages) == (["the orb said no"], [])
+
+
+def test_any_other_exception_in_a_flow_is_a_breakage(tmp_path):
+    tried = asyncio.run(verify.attempt(breaks, None, session_with(tmp_path), None))
+    assert tried.failures == [] and "no_such_key" in tried.breakages[0]
+
+
+def test_a_hook_failure_is_reported_on_the_flow_it_happened_in_and_only_there(tmp_path):
+    session = session_with(tmp_path, failures=["Stop: exited 3"])
+    tried = asyncio.run(verify.attempt(passes, None, session, None))
+    assert tried.failures == ["a plugin hook failed: Stop: exited 3"] and session.hook_failures == []
+
+
+def test_a_hook_failing_at_session_start_stops_the_run(tmp_path):
+    with pytest.raises(SystemExit, match="SessionStart: exited 3"):
+        verify.require_clean_start(session_with(tmp_path, failures=["SessionStart: exited 3"]))
+
+
+def test_a_clean_session_start_lets_the_run_go_on(tmp_path):
+    verify.require_clean_start(session_with(tmp_path))
+
+
+def test_a_hook_exiting_non_zero_is_recorded(tmp_path):
+    session = session_with(tmp_path, hooks={"Stop": [{"hooks": [{"command": "exit 3"}]}]})
+    asyncio.run(session.run_hooks("Stop", {}))
+    assert "exited 3" in session.hook_failures[0]
+
+
+def test_a_hook_running_past_its_timeout_is_recorded_and_stopped(tmp_path):
+    session = session_with(tmp_path, hooks={"Stop": [{"hooks": [{"command": "sleep 30", "timeout": 0.3}]}]})
+    started = time.monotonic()
+    asyncio.run(session.run_hooks("Stop", {}))
+    assert "past its 0.3s timeout" in session.hook_failures[0] and time.monotonic() - started < 5
+
+
+def test_a_benchmark_run_past_its_timeout_says_so():
+    assert verify.run_harness(["sleep", "30"], 0.3).startswith("timed out after 0.3s")
+
+
+@pytest.mark.parametrize("args", [["--only", "mute", "--changed-since", "main"], ["--benchmark", "--only", "mute"]])
+def test_run_scopes_cannot_be_combined(args, capsys):
+    with pytest.raises(SystemExit):
+        verify.build_parser().parse_args(args)
+    assert "not allowed with" in capsys.readouterr().err
+
+
+def test_a_stub_reply_closes_the_turn_it_answers():
+    from orb import gate
+    entries = [verify.channel_entry(gate.CHANNEL_SERVER, "hi", "r1"), verify.finished_reply("Verified: hi")]
+    assert gate.walk(entries) == gate.Walk("r1", False, False)
