@@ -62,13 +62,14 @@ def test_no_orb_module_opens_a_url_except_through_loopback():
     assert callers == []
 
 
-@pytest.mark.parametrize("call, refused", [
-    (lambda port: cli.post({"port": port, "token": "t"}, "/x", {}), SystemExit),
-    (lambda port: agents.post_prompt(agents.ChannelInfo(port, "s", 1, "/repo"), "hi", "r1"), agents.LinkError),
-    (lambda port: copilot.call_door(copilot.Door(port, "s", "s1"), "POST", "/x", {}, 2), agents.LinkError),
+@pytest.mark.parametrize("call, status, refused", [
+    (lambda port: cli.post({"port": port, "token": "t"}, "/x", {}), 500, SystemExit),
+    (lambda port: agents.post_prompt(agents.ChannelInfo(port, "s", 1, "/repo"), "hi", "r1"), 500, agents.LinkError),
+    (lambda port: copilot.call_door(copilot.Door(port, "s", "s1"), "POST", "/x", {}, 2), 500, agents.LinkError),
+    (lambda port: copilot.call_door(copilot.Door(port, "s", "s1"), "POST", "/x", {}, 2), 409, copilot.SessionMoved),
 ])
-def test_a_foreign_servers_error_page_that_is_not_utf8_still_reaches_the_user_as_a_message(call, refused):
-    foreign = answering("accès refusé", status=500, encoding="latin-1")
+def test_an_error_page_that_is_not_utf8_is_raised_as_the_callers_own_error_with_its_text(call, status, refused):
+    foreign = answering("accès refusé", status=status, encoding="latin-1")
     try:
         with pytest.raises(refused, match="acc\ufffds refus\ufffd"):
             call(foreign.server_address[1])
