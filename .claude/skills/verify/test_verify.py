@@ -211,13 +211,16 @@ def test_a_hook_failure_is_reported_on_the_flow_it_happened_in_and_only_there(tm
     assert tried.failures == ["a plugin hook failed: Stop: exited 3"] and session.hook_failures == []
 
 
-def started_session(tmp_path, command):
+def started_session_into(session, tmp_path, command):
     (tmp_path / "hooks").mkdir()
     (tmp_path / "hooks" / "hooks.json").write_text(json.dumps({"hooks": {"SessionStart": [{"hooks": [{"command": command}]}]}}))
     from orb import state
-    session = verify.FakeSession(tmp_path, tmp_path, tmp_path)
     asyncio.run(session.start(types.SimpleNamespace(state=state)))
     return session
+
+
+def started_session(tmp_path, command):
+    return started_session_into(verify.FakeSession(tmp_path, tmp_path, tmp_path), tmp_path, command)
 
 
 def test_a_hook_failing_at_session_start_stops_the_run(tmp_path):
@@ -283,3 +286,44 @@ def test_a_stub_reply_closes_the_turn_it_answers():
     from orb import gate
     entries = [verify.channel_entry(gate.CHANNEL_SERVER, "hi", "r1"), verify.finished_reply("Verified: hi")]
     assert gate.walk(entries) == gate.Walk("r1", False, False)
+
+
+class Page:
+    def __init__(self, notice=""):
+        self.notice = notice
+
+    async def screenshot(self, path):
+        Path(path).write_bytes(b"")
+
+    def locator(self, selector):
+        page = self
+
+        class Notice:
+            async def inner_text(self):
+                return page.notice
+        return Notice()
+
+
+def test_run_flow_reports_a_breakage_in_the_flow_as_broke(tmp_path, monkeypatch):
+    monkeypatch.setitem(verify.FLOWS, "breaks", verify.Flow("breaks", "d", breaks, "shared", "on demand", None))
+    result = asyncio.run(verify.run_flow(1, verify.FLOWS["breaks"], None, session_with(tmp_path), Page(), tmp_path))
+    assert (result["ok"], result["broke"]) == (False, True)
+
+
+@pytest.mark.parametrize("oks, code, word", [([True], 0, "PASS"), ([False], 1, "FAIL")])
+def test_verify_prints_each_flow_and_exits_by_its_results(tmp_path, monkeypatch, capsys, oks, code, word):
+    async def ran(subject, out, names):
+        return [{"flow": "mute", "does": "d", "ok": ok, "broke": False, "error": None if ok else "no",
+                 "shortcut": None, "seconds": 1.0} for ok in oks]
+    monkeypatch.setattr(verify, "run", ran)
+    assert verify.verify(tmp_path, tmp_path, ["mute"], None) == code
+    assert capsys.readouterr().out.startswith(f"{word:5} mute")
+
+
+def test_a_failed_session_start_closes_its_channel_server(tmp_path):
+    session = verify.FakeSession(tmp_path, tmp_path, tmp_path)
+    with pytest.raises(SystemExit):
+        try:
+            started_session_into(session, tmp_path, "exit 3")
+        finally:
+            assert not session.runner.sites
