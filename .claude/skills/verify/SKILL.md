@@ -5,62 +5,46 @@ description: Drive a real orb end to end in headless Chromium and report, flow b
 
 # Verify the orb
 
-`verify.py` starts the checkout's own orb server with the built-in `fake` speech engines, opens its page in headless
-Chromium with a fake microphone, and answers every request through a stand-in session that writes a Claude Code
-transcript and runs the plugin's hooks from `hooks/hooks.json`. Each flow ends with a screenshot; the run leaves a
-Playwright trace, the page's console, the server log and `report.json` in one folder.
-
-`--list` prints the feature map: every flow and what it proves.
-
 ## Run it
 
-The harness, checklist and benchmark that judge a change are the ones on `main`, never the branch's own copies, so a
-change cannot loosen the checks that grade it:
+The skill that judges a change is `main`'s copy. The branch's own copy is used only until the skill reaches `main`, and
+the command says so when it does:
 
 ```bash
 git fetch -q origin main
 gate="$(mktemp -d)"
-git archive origin/main .claude/skills/verify | tar -x -C "$gate"
+if git cat-file -e origin/main:.claude/skills/verify/verify.py 2>/dev/null; then
+  git archive origin/main .claude/skills/verify | tar -x -C "$gate"
+else
+  echo "verify is not on main yet: this run uses the branch's own copy"
+  mkdir -p "$gate/.claude/skills" && cp -R .claude/skills/verify "$gate/.claude/skills/"
+fi
 uv run python "$gate/.claude/skills/verify/verify.py" --subject . --changed-since origin/main
 ```
 
-`--changed-since` also runs `checklist.json`: each item names the paths that trigger it, the past fixes behind it, a
-check, and any on-demand flows it needs. A triggered item's flows join the run; its check is printed for you to carry
-out and report. Items fire only on a matching diff, so nobody has to remember past breakages.
+The stubs it drives (the `fake` engines, `hooks/hooks.json`) still come from the branch.
 
-When the branch edits the skill itself (a new flow for a new feature), run the branch's copy as well and report the
-two results separately; only `main`'s is the gate. Until `verify.py` exists on `main`, say that the run used the
-branch's copy.
-
-First run on a machine: `uv run playwright install chromium-headless-shell` (on Linux add `--with-deps` if Chromium
-reports missing libraries).
+`--list` prints the flows. `--changed-since` adds the `checklist.json` items whose paths the change touches: their
+flows join the run, and their checks are printed for you to carry out and report.
 
 ## Reading the result
 
-- Exit 0 and `N/N flows passed`: report it with the evidence folder the run printed.
-- A `FAIL` line names what it waited for; the page's notice is appended when it showed one. Open the screenshot and
-  `orb.log` in the evidence folder before changing code.
-- Fix and run again. After three rounds that still fail, stop and bring Alberto the failing flows and the evidence
-  folder rather than a fourth guess.
-- Never edit a flow to make it pass. A flow that is wrong is fixed on its own branch, reviewed, and merged first.
+Open the failing flow's screenshot and `orb.log` in the evidence folder before changing code. After three rounds that
+still fail, stop and bring Alberto the failing flows and the evidence folder. Never edit a flow to make it pass.
 
-## Shortcuts
-
-A flow that acts through a page script instead of as a person would says so in its `shortcut`, and every run prints
-it under the flow. Report shortcuts with the result; a pass through a shortcut proves less than a pass through a click.
+Report each `shortcut:` line with the result.
 
 ## Checking the checker
 
-`--benchmark` replays `benchmark.json`: for each past fix, the named flow must fail on the commit before the fix and
-pass on the fix. Run it whenever `verify.py`, a flow, or the stubs it drives change, and report any case that is not
-`caught`. It checks out old commits, so a shallow clone needs `git fetch --unshallow` first. When a bug escapes verify, add the flow that would have caught it and the fix to the benchmark, and a
-checklist item if the risk belongs to particular files.
+`--benchmark` replays `benchmark.json`: each flow must fail on the commit before its fix and pass on the fix. Run it
+whenever `verify.py`, a flow, or the stubs change, and report every case that is not `caught`; `harness.log` beside
+each case's evidence says why. It checks out old commits, so a shallow clone needs `git fetch --unshallow` first.
+
+When a bug escapes verify, add the flow that would have caught it, its fix to the benchmark, and a checklist item when
+the risk belongs to particular files.
 
 ## Adding a flow
 
-A change that adds or alters something a person does in the orb adds or alters its flow in the same change: an async
-function decorated with `@flow("what a person does, and what must follow")`. Assert on what the server and the session
-saw, not only on the DOM; `round_trip` already proves a request reached the session and its reply came back through
-the Stop hook. Show the flow can fail: run it against the commit before the feature and watch it go red. `@cold_flow` gives a flow a
-window whose microphone has never opened; `@extra_flow` makes one run only when named or a checklist item calls for it.
-Prune: an item or flow whose risk is gone is deleted, not kept for luck.
+A change to something a person does in the orb changes its flow in the same change. Decorate an async function with
+`@flow`, `@cold_flow` (a window whose microphone has never opened) or `@extra_flow` (on demand). Assert on what the
+server and the session saw, and show the flow fails on the commit before the feature.
