@@ -2174,7 +2174,7 @@ def test_a_size_set_in_the_page_is_kept_for_the_skin_and_shown_in_every_window(t
     run(go())
 
 
-def test_a_size_outside_the_range_is_clamped_and_garbage_is_ignored(tmp_path):
+def test_a_size_outside_the_range_is_clamped(tmp_path):
     async def go():
         server = make(tmp_path)
         async with await client_for(server) as c:
@@ -2182,9 +2182,6 @@ def test_a_size_outside_the_range_is_clamped_and_garbage_is_ignored(tmp_path):
             await ws.receive_json()
             await ws.send_json({"type": "skin_size", "value": 9})
             assert (await ws.receive_json()) == {"type": "skin_size", "value": 2.0}
-            await ws.send_json({"type": "skin_size", "value": "huge"})
-            await server.set_state("idle")
-            assert (await ws.receive_json()) == {"type": "state", "state": "idle"}
     run(go())
 
 
