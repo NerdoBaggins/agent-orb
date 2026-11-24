@@ -10,6 +10,7 @@ from orb import PLUGIN_ROOT, agents, cli, copilot, loopback
 def answering(text, status=200, encoding="utf-8"):
     class Answer(BaseHTTPRequestHandler):
         def do_GET(self):
+            self.rfile.read(int(self.headers.get("Content-Length", 0)))
             self.send_response(status)
             self.end_headers()
             self.wfile.write(text.encode(encoding))
