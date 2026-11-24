@@ -422,16 +422,22 @@ async def type_request(page, text):
     await take_keyboard_from_panel(page)
 
 
-@flow("A panel posted to the server opens as a tab and renders its page")
-async def panel_show(orb, session, page):
+async def show_panel(orb, page) -> None:
     await orb.post("/panel", {"name": "verify", "title": "verify",
                               "files": {"index.html": base64.b64encode(PANEL.encode()).decode()}})
     await page.wait_for_selector("#tabs >> text=verify", timeout=FLOW_TIMEOUT_S * 1000)
     await page.frame_locator("#panel-bodies iframe").locator("#go").wait_for(timeout=FLOW_TIMEOUT_S * 1000)
 
 
+@flow("A panel posted to the server opens as a tab and renders its page")
+async def panel_show(orb, session, page):
+    await show_panel(orb, page)
+
+
 @flow("A click on a panel's button sends its request to the session, silently as the panel asked")
 async def panel_send(orb, session, page):
+    await show_panel(orb, page)
+
     async def act():
         await page.frame_locator("#panel-bodies iframe").locator("#go").click()
 
