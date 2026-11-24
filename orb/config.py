@@ -9,7 +9,7 @@ from typing import TypedDict
 
 from orb.commands import is_name
 from orb.engines import PER_CALL
-from orb.numbers import is_finite, is_number
+from orb.finite import is_finite, is_number
 from orb.state import AGENTS, private_root
 
 DEFAULTS = {

@@ -9,7 +9,7 @@ import numpy as np
 
 from orb import engines
 from orb.engines import decode_pcm
-from orb.numbers import is_finite
+from orb.finite import is_finite
 
 BURST_S = 0.3
 STALL_S = 2.0

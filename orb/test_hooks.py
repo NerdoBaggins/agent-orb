@@ -2,6 +2,7 @@ import ast
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -201,6 +202,13 @@ def test_every_hooks_json_entry_has_a_timeout():
     hooks = json.loads((REPO / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
     entries = [hook for groups in hooks.values() for group in groups for hook in group["hooks"]]
     assert entries and [h["command"] for h in entries if not isinstance(h.get("timeout"), int)] == []
+
+
+def test_no_module_beside_a_hook_script_shares_a_name_with_the_standard_library():
+    hooks = json.loads((REPO / "hooks" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
+    commands = [hook["command"] for groups in hooks.values() for group in groups for hook in group["hooks"]]
+    folders = {(REPO / script).parent for c in commands for script in re.findall(r"\$\{CLAUDE_PLUGIN_ROOT\}/(\S+?\.py)", c)}
+    assert folders and [p for f in folders for p in f.glob("*.py") if p.stem in sys.stdlib_module_names] == []
 
 
 def test_every_timeout_is_above_the_scripts_deadline_and_its_backstop():
