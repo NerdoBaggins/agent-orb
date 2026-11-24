@@ -30,6 +30,7 @@ def proxy(monkeypatch):
     monkeypatch.setenv("http_proxy", f"http://127.0.0.1:{server.server_address[1]}")
     yield
     server.shutdown()
+    server.server_close()
 
 
 def test_a_loopback_call_reaches_the_orbs_server_and_not_a_configured_proxy(proxy):
@@ -39,6 +40,10 @@ def test_a_loopback_call_reaches_the_orbs_server_and_not_a_configured_proxy(prox
             assert r.read() == b"the orb"
     finally:
         orb.shutdown()
+        orb.server_close()
+
+
+OPENERS = {"urlopen", "build_opener"}
 
 
 def test_no_orb_module_opens_a_url_except_through_loopback():
@@ -47,7 +52,9 @@ def test_no_orb_module_opens_a_url_except_through_loopback():
         if path.name.startswith("test_") or path.name == "loopback.py":
             continue
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if isinstance(node, ast.Attribute) and node.attr in ("urlopen", "build_opener"):
-                if not (isinstance(node.value, ast.Name) and node.value.id == "loopback"):
-                    callers.append(f"{path.name}:{node.lineno}")
+            through_loopback = isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == "loopback"
+            named = ((node.attr,) if isinstance(node, ast.Attribute) else (node.id,) if isinstance(node, ast.Name)
+                     else tuple(alias.name for alias in node.names) if isinstance(node, ast.ImportFrom) else ())
+            if OPENERS & set(named) and not through_loopback:
+                callers.append(f"{path.name}:{node.lineno}")
     assert callers == []
