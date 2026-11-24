@@ -1,0 +1,23 @@
+[
+  {
+    "id": "mic-open-race",
+    "when": ["web/orb.js", "web/ptt-worklet.js"],
+    "flows": ["tap_mic_slow_open"],
+    "check": "A press released while the microphone opens must not leave it recording, and the other input must still start a press after a failed open."
+  },
+  {
+    "id": "mid-turn-messages",
+    "when": ["orb/stop_hook.py", "orb/gate.py", "orb/state.py", "hooks/hooks.json"],
+    "check": "Run orb/test_gate.py: a message typed into the session mid-turn must join the orb's turn, not end it with the wrong reply."
+  },
+  {
+    "id": "panel-focus",
+    "when": ["web/panel.js", "web/orb.js", "orb/pages.py", "orb/panels.py"],
+    "check": "Run orb/test_panel_bridge.py and orb/test_typed_page.py: a panel must not keep the keyboard from the type box."
+  },
+  {
+    "id": "real-engines",
+    "when": ["engines/*", "orb/engines.py"],
+    "check": "verify speaks only through the fake engines: run once with the changed real engine selected, on a machine that has it."
+  }
+]
