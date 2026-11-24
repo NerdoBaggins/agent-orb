@@ -1,12 +1,4 @@
-"""Drives a real orb the way a person uses it and reports, per flow, whether it worked.
-
-The orb server, its page, its engine protocol and the plugin's own hooks are the real ones. Two things are stubbed:
-speech (the built-in `fake` engines) and the Claude Code session (a channel that answers every prompt by writing a
-transcript and running the plugin's Stop hooks, as a session would).
-
-    uv run --project <checkout> python verify.py --subject <checkout> [--changed-since REF] [--only FLOW ...]
-    uv run --project <checkout> python verify.py --subject <checkout> --benchmark
-"""
+"""Drives a real orb the way a person uses it and reports, per flow, whether it worked."""
 import argparse
 import asyncio
 import base64
@@ -22,6 +14,7 @@ import tempfile
 import time
 import traceback
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
 from typing import Awaitable, Callable, Literal
 
@@ -34,8 +27,10 @@ HOLD_S = 1.2
 MIC_OPENS_S = 10
 SLOW_MIC_S = 2
 TAP_SETTLES_S = 4
-HERE = Path(__file__).resolve().parent
 REPLY_DELAY_S = 0.3
+HOOK_TIMEOUT_S = 60
+CASE_TIMEOUT_S = 600
+HERE = Path(__file__).resolve().parent
 PANEL = """<!doctype html><body><button id="go" style="width:200px;height:80px"
   onclick="orb.send('from the verify panel', {speak: false}).catch(() => {})">send</button></body>"""
 
@@ -62,8 +57,6 @@ async def until(check, what: str, timeout: float = FLOW_TIMEOUT_S):
 
 @dataclass
 class FakeSession:
-    """Stands in for a Claude Code session with the plugin loaded: answers the orb's channel, keeps a transcript in
-    Claude Code's shape, and runs the plugin's hooks from its hooks.json at the moments a session would."""
     subject: Path
     home: Path
     repo: Path
@@ -93,6 +86,10 @@ class FakeSession:
     async def stop(self) -> None:
         await self.runner.cleanup()
 
+    def take_hook_failures(self) -> list[str]:
+        failures, self.hook_failures = self.hook_failures, []
+        return failures
+
     def authorized(self, request: web.Request) -> bool:
         return request.headers.get("X-Orb-Secret") == self.secret
 
@@ -116,7 +113,8 @@ class FakeSession:
                      "message": {"role": "user", "content": message}})
         await asyncio.sleep(REPLY_DELAY_S)
         reply = reply_to(text)
-        self.append({"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": reply}]}})
+        self.append({"type": "assistant", "message": {"role": "assistant", "stop_reason": "end_turn",
+                                                      "content": [{"type": "text", "text": reply}]}})
         await self.run_hooks("Stop", {"last_assistant_message": reply, "stop_hook_active": False})
 
     def append(self, entry: dict) -> None:
@@ -132,7 +130,13 @@ class FakeSession:
             for hook in group["hooks"]:
                 process = await asyncio.create_subprocess_shell(
                     hook["command"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
-                _, err = await process.communicate(json.dumps(payload).encode("utf-8"))
+                limit = hook.get("timeout", HOOK_TIMEOUT_S)
+                try:
+                    _, err = await asyncio.wait_for(process.communicate(json.dumps(payload).encode("utf-8")), limit)
+                except asyncio.TimeoutError:
+                    process.kill()
+                    self.hook_failures.append(f"{event}: {hook['command']} ran past its {limit}s timeout")
+                    continue
                 if process.returncode:
                     self.hook_failures.append(f"{event}: {hook['command']} exited {process.returncode}: {err.decode()[-500:]}")
 
@@ -143,7 +147,6 @@ def reply_to(text: str) -> str:
 
 @dataclass
 class Orb:
-    """The subject's own modules, its running server, and the page a person would be looking at."""
     subject: Path
     home: Path
     repo: Path
@@ -233,7 +236,7 @@ class Flow:
     fn: Callable[..., Awaitable[None]]
     page: Window
     runs: Runs
-    shortcut: str | None  # where it acts through a page script rather than as a person would, and why
+    shortcut: str | None
 
 
 FLOWS: dict[str, Flow] = {}
@@ -258,9 +261,7 @@ def extra_flow(description: str):
     return register("fresh microphone", "on demand", description, None)
 
 
-async def round_trip(orb: Orb, session: FakeSession, act, expect: str) -> int:
-    """`act` makes a request; it must reach the session holding `expect`, and its reply must come back through the
-    Stop hook into the orb's transcript. Returns how many speech frames reached the page meanwhile."""
+async def frames_during_round_trip(orb: Orb, session: FakeSession, act, expect: str) -> int:
     asked, frames = len(session.prompts), orb.speech_frames
     await act()
 
@@ -274,9 +275,7 @@ async def round_trip(orb: Orb, session: FakeSession, act, expect: str) -> int:
         return next((e for e in entries if e.get("req") == request_id and e.get("reply") == reply_to(text)), None)
 
     await until(replied, f"the reply to request {request_id} in the orb's transcript")
-    await until(lambda: idle(orb), "the orb to return to idle")
-    if session.hook_failures:
-        raise Failed("a plugin hook failed: " + session.hook_failures.pop())
+    await until(lambda: health_is(orb, "state", "idle"), "the orb to return to idle")
     return orb.speech_frames - frames
 
 
@@ -290,17 +289,11 @@ def silent(frames: int) -> None:
         raise Failed(f"{frames} speech frames reached the page for a reply that should be silent")
 
 
-async def idle(orb: Orb) -> bool:
-    return (await orb.health())["state"] == "idle"
+async def health_is(orb: Orb, key: str, value) -> bool:
+    return (await orb.health())[key] == value
 
 
-async def listening(orb) -> bool:
-    return (await orb.health())["state"] == "listening"
-
-
-async def focus_orb(page) -> None:
-    """Clicks an empty corner of the orb's side, as a person takes the keyboard back from a panel: a panel forwards
-    only Escape."""
+async def take_keyboard_from_panel(page) -> None:
     await page.locator("#orb-pane").click(position={"x": 8, "y": 8})
 
 
@@ -313,15 +306,28 @@ async def mic_centre(page) -> None:
     await page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
 
 
-async def hold(orb, press, release) -> None:
-    """Holds as a person does: until the orb shows it is listening, then for HOLD_S. A press released while the
-    microphone is still opening records nothing and says nothing, so a fixed-length hold fails on a cold mic."""
+async def hold_until_listening(orb, press, release) -> None:
     await press()
     try:
-        await until(lambda: listening(orb), "the orb to start listening while the press is held", timeout=MIC_OPENS_S)
+        await until(lambda: health_is(orb, "state", "listening"), "the orb to start listening while the press is held",
+                    timeout=MIC_OPENS_S)
         await asyncio.sleep(HOLD_S)
     finally:
         await release()
+
+
+async def tap_leaves_idle(orb, session, page, settle_s: float) -> None:
+    await mic_ready(page)
+    asked = len(session.prompts)
+    await mic_centre(page)
+    await page.mouse.down()
+    await page.mouse.up()
+    await asyncio.sleep(settle_s)
+    state = (await orb.health())["state"]
+    if state != "idle":
+        raise Failed(f"{settle_s:.0f}s after a tap the orb is {state!r}, not idle")
+    if len(session.prompts) != asked:
+        raise Failed("a tap sent a request to the session")
 
 
 SLOW_MIC = """(() => {
@@ -333,12 +339,8 @@ SLOW_MIC = """(() => {
 
 @flow("The bar says the orb is attached to the session")
 async def attached(orb, session, page):
-    await until(lambda: health_says(orb, "attached"), "the server to report the session attached")
+    await until(lambda: health_is(orb, "attached", True), "the server to report the session attached")
     await until(lambda: text_starts(page, "#attach", "Attached"), "the bar to say Attached")
-
-
-async def health_says(orb, key):
-    return (await orb.health())[key]
 
 
 async def text_starts(page, selector, prefix):
@@ -347,17 +349,13 @@ async def text_starts(page, selector, prefix):
 
 @cold_flow("A tap on the mic button before the microphone has ever opened leaves the orb idle, not recording")
 async def tap_mic(orb, session, page):
-    await mic_ready(page)
-    asked = len(session.prompts)
-    await mic_centre(page)
-    await page.mouse.down()
-    await page.mouse.up()
-    await asyncio.sleep(TAP_SETTLES_S)
-    state = (await orb.health())["state"]
-    if state != "idle":
-        raise Failed(f"{TAP_SETTLES_S:.0f}s after a tap the orb is {state!r}, not idle")
-    if len(session.prompts) != asked:
-        raise Failed("a tap sent a request to the session")
+    await tap_leaves_idle(orb, session, page, TAP_SETTLES_S)
+
+
+@extra_flow(f"A tap released while a microphone that takes {SLOW_MIC_S}s to open is still opening leaves the orb idle")
+async def tap_mic_slow_open(orb, session, page):
+    await page.evaluate(SLOW_MIC)
+    await tap_leaves_idle(orb, session, page, SLOW_MIC_S + TAP_SETTLES_S)
 
 
 @flow("Holding the mic button with the mouse records, sends what was heard, and speaks the reply")
@@ -366,9 +364,9 @@ async def hold_mic(orb, session, page):
 
     async def act():
         await mic_centre(page)
-        await hold(orb, page.mouse.down, page.mouse.up)
+        await hold_until_listening(orb, page.mouse.down, page.mouse.up)
 
-    spoken(await round_trip(orb, session, act, HEARD))
+    spoken(await frames_during_round_trip(orb, session, act, HEARD))
 
 
 @flow("A mic press that arrives only as mousedown, with no pointer events, still records",
@@ -377,49 +375,38 @@ async def hold_mic_mousedown_only(orb, session, page):
     await mic_ready(page)
 
     async def act():
-        await hold(orb, lambda: page.dispatch_event("#mic", "mousedown"), lambda: page.dispatch_event("#mic", "mouseup"))
+        await hold_until_listening(orb, lambda: page.dispatch_event("#mic", "mousedown"),
+                                   lambda: page.dispatch_event("#mic", "mouseup"))
 
-    spoken(await round_trip(orb, session, act, HEARD))
+    spoken(await frames_during_round_trip(orb, session, act, HEARD))
 
 
 @flow("Holding the push-to-talk key records, sends what was heard, and speaks the reply")
 async def hold_key(orb, session, page):
     await mic_ready(page)
-    await focus_orb(page)
+    await take_keyboard_from_panel(page)
     key = (await orb.health())["ptt_key"]
 
     async def act():
-        await hold(orb, lambda: page.keyboard.down(key), lambda: page.keyboard.up(key))
+        await hold_until_listening(orb, lambda: page.keyboard.down(key), lambda: page.keyboard.up(key))
 
-    spoken(await round_trip(orb, session, act, HEARD))
-
-
-@extra_flow(f"With a microphone that takes {SLOW_MIC_S:.0f}s to open, holding the mic button still records and sends")
-async def hold_mic_slow_open(orb, session, page):
-    await page.evaluate(SLOW_MIC)
-    await mic_ready(page)
-
-    async def act():
-        await mic_centre(page)
-        await hold(orb, page.mouse.down, page.mouse.up)
-
-    spoken(await round_trip(orb, session, act, HEARD))
+    spoken(await frames_during_round_trip(orb, session, act, HEARD))
 
 
 @flow("Enter opens the type box, and Enter in it sends the text and speaks the reply")
 async def typed_send(orb, session, page):
-    spoken(await round_trip(orb, session, lambda: type_request(page, "typed by verify"), "typed by verify"))
+    spoken(await frames_during_round_trip(orb, session, lambda: type_request(page, "typed by verify"), "typed by verify"))
 
 
 async def type_request(page, text):
-    await focus_orb(page)
+    await take_keyboard_from_panel(page)
     if await page.locator("#typed").is_visible():
         await page.locator("#typed").click()
     else:
         await page.keyboard.press("Enter")
     await page.keyboard.type(text)
     await page.keyboard.press("Enter")
-    await focus_orb(page)
+    await take_keyboard_from_panel(page)
 
 
 @flow("A panel posted to the server opens as a tab and renders its page")
@@ -435,37 +422,20 @@ async def panel_send(orb, session, page):
     async def act():
         await page.frame_locator("#panel-bodies iframe").locator("#go").click()
 
-    silent(await round_trip(orb, session, act, "from the verify panel"))
+    silent(await frames_during_round_trip(orb, session, act, "from the verify panel"))
 
 
 @flow("The mute key silences replies, and pressing it again brings speech back")
 async def mute(orb, session, page):
     key = (await orb.health())["mute_key"]
-    await focus_orb(page)
+    await take_keyboard_from_panel(page)
     await page.keyboard.press(key)
-    await until(lambda: muted(orb), "the server to report speech muted")
-    silent(await round_trip(orb, session, lambda: type_request(page, "asked while muted"), "asked while muted"))
-    await focus_orb(page)
+    await until(lambda: health_is(orb, "speak", False), "the server to report speech muted")
+    silent(await frames_during_round_trip(orb, session, lambda: type_request(page, "asked while muted"),
+                                          "asked while muted"))
+    await take_keyboard_from_panel(page)
     await page.keyboard.press(key)
-    await until(lambda: speaking_on(orb), "the server to report speech back on")
-
-
-async def muted(orb) -> bool:
-    return (await orb.health())["speak"] is False
-
-
-async def speaking_on(orb) -> bool:
-    return (await orb.health())["speak"] is True
-
-
-@dataclass(frozen=True)
-class Item:
-    """One reliability check, owed whenever a change touches a path matching one of `when`."""
-    id: str
-    when: tuple[str, ...]
-    flows: tuple[str, ...]
-    check: str
-    source: str
+    await until(lambda: health_is(orb, "speak", True), "the server to report speech back on")
 
 
 class ChecklistError(ValueError):
@@ -476,15 +446,33 @@ class BenchmarkError(ValueError):
     pass
 
 
+@dataclass(frozen=True)
+class Item:
+    id: str
+    when: tuple[str, ...]
+    flows: tuple[str, ...]
+    check: str
+
+
+def string_list(value, what: str) -> tuple[str, ...]:
+    if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+        raise ChecklistError(f"{what} must be a list of strings, not {value!r}")
+    return tuple(value)
+
+
 def parse_checklist(data) -> list[Item]:
     if not isinstance(data, list):
         raise ChecklistError("the checklist is a JSON list of items")
     items = []
     for raw in data:
+        if not isinstance(raw, dict):
+            raise ChecklistError(f"checklist item {raw!r} is not an object")
         try:
-            item = Item(raw["id"], tuple(raw["when"]), tuple(raw.get("flows", ())), raw["check"], raw["source"])
-        except (KeyError, TypeError) as e:
+            item_id, check = raw["id"], raw["check"]
+            when = string_list(raw["when"], f"checklist item {item_id}'s `when`")
+        except KeyError as e:
             raise ChecklistError(f"checklist item {raw!r} lacks {e}")
+        item = Item(item_id, when, string_list(raw.get("flows", []), f"checklist item {item_id}'s `flows`"), check)
         unknown = [name for name in item.flows if name not in FLOWS]
         if unknown:
             raise ChecklistError(f"checklist item {item.id} names flows that do not exist: {', '.join(unknown)}")
@@ -498,12 +486,18 @@ def triggered(items: list[Item], changed: list[str]) -> list[Item]:
     return [item for item in items if any(fnmatch.fnmatchcase(path, pattern) for path in changed for pattern in item.when)]
 
 
+def git_paths(subject: Path, *args: str) -> list[str]:
+    out = subprocess.run(["git", *args, "-z"], cwd=subject, check=True, capture_output=True).stdout
+    return [path for path in out.decode("utf-8", "surrogateescape").split("\0") if path]
+
+
 def changed_paths(subject: Path, since: str) -> list[str]:
-    """Every path that differs from `since`: committed on the branch, staged, unstaged, or new and untracked."""
-    def git(*args):
-        return subprocess.run(["git", *args], cwd=subject, check=True, capture_output=True, text=True).stdout.split()
-    base = git("merge-base", since, "HEAD")[0]
-    return sorted(set(git("diff", "--name-only", base) + git("ls-files", "--others", "--exclude-standard")))
+    merge_base = subprocess.run(["git", "merge-base", since, "HEAD"], cwd=subject, capture_output=True, text=True)
+    if merge_base.returncode:
+        raise SystemExit(f"--changed-since {since}: {merge_base.stderr.strip()}")
+    base = merge_base.stdout.strip()
+    return sorted(set(git_paths(subject, "diff", "--name-only", "--no-renames", base)
+                      + git_paths(subject, "ls-files", "--others", "--exclude-standard")))
 
 
 def flows_to_run(only: list[str], items: list[Item]) -> list[str]:
@@ -515,17 +509,15 @@ def flows_to_run(only: list[str], items: list[Item]) -> list[str]:
 
 @dataclass(frozen=True)
 class Case:
-    """A past fix the harness must tell apart: `flow` fails on the commit before `fix` and passes on it."""
     fix: str
     flow: str
-    source: str
 
 
 def parse_benchmark(data) -> list[Case]:
     if not isinstance(data, list):
         raise BenchmarkError("the benchmark is a JSON list of cases")
     try:
-        cases = [Case(raw["fix"], raw["flow"], raw["source"]) for raw in data]
+        cases = [Case(raw["fix"], raw["flow"]) for raw in data]
     except (KeyError, TypeError) as e:
         raise BenchmarkError(f"a benchmark case lacks {e}")
     unknown = [case.flow for case in cases if case.flow not in FLOWS]
@@ -534,40 +526,67 @@ def parse_benchmark(data) -> list[Case]:
     return cases
 
 
-def verdict(before_passed: bool, after_passed: bool) -> str:
-    if not before_passed and after_passed:
+class Outcome(Enum):
+    PASSED = "pass"
+    FAILED = "fail"
+    BROKEN = "harness broke"
+
+
+def outcome_of(report: Path, flow_name: str) -> Outcome:
+    try:
+        flows = json.loads(report.read_text(encoding="utf-8"))["flows"]
+    except (OSError, ValueError, KeyError):
+        return Outcome.BROKEN
+    result = next((r for r in flows if r.get("flow") == flow_name), None)
+    if result is None:
+        return Outcome.BROKEN
+    return Outcome.PASSED if result["ok"] else Outcome.FAILED
+
+
+def verdict(before: Outcome, after: Outcome) -> str:
+    if before is Outcome.FAILED and after is Outcome.PASSED:
         return "caught"
-    if before_passed:
+    if Outcome.BROKEN in (before, after):
+        return "broken: the harness did not run the flow"
+    if before is Outcome.PASSED:
         return "missed: the flow passes without the fix"
     return "broken: the flow fails even with the fix"
 
 
-def run_case(case: Case, subject: Path, harness: Path, out: Path) -> tuple[str, dict]:
-    """Runs the case's flow against a checkout of the commit before the fix and of the fix itself. Each checkout gets
-    the subject's browser launcher, the one piece of harness that lives in the orb's tree."""
-    passed = {}
+def run_case(case: Case, subject: Path, harness: Path, out: Path) -> dict[str, Outcome]:
+    outcomes = {}
     for label, commit in (("before", f"{case.fix}~1"), ("after", case.fix)):
-        tree = out / f"{case.fix}-{label}" / "tree"
+        folder = out / f"{case.fix}-{case.flow}-{label}"
+        tree, evidence = folder / "tree", folder / "evidence"
         subprocess.run(["git", "worktree", "add", "--detach", "-q", str(tree), commit], cwd=subject, check=True)
         try:
             shutil.copy(subject / "orb" / "headless.py", tree / "orb" / "headless.py")
-            run = subprocess.run(["uv", "run", "--project", str(tree), "python", str(harness), "--subject", str(tree),
-                                  "--only", case.flow, "--out", str(out / f"{case.fix}-{label}" / "evidence")],
-                                 capture_output=True, text=True)
-            passed[label] = run.returncode == 0
+            try:
+                run = subprocess.run(["uv", "run", "--project", str(tree), "python", str(harness), "--subject",
+                                      str(tree), "--only", case.flow, "--out", str(evidence)],
+                                     capture_output=True, text=True, timeout=CASE_TIMEOUT_S)
+                log = run.stdout + run.stderr
+            except subprocess.TimeoutExpired as e:
+                log = f"timed out after {CASE_TIMEOUT_S}s\n{e.stdout or ''}{e.stderr or ''}"
+            (folder / "harness.log").write_text(log, encoding="utf-8")
+            outcomes[label] = outcome_of(evidence / "report.json", case.flow)
         finally:
             subprocess.run(["git", "worktree", "remove", "--force", str(tree)], cwd=subject, check=True)
-    return verdict(passed["before"], passed["after"]), passed
+    return outcomes
 
 
 async def run(subject: Path, out: Path, names: list[str]) -> list[dict]:
     home, repo = out / "home", out / "repo"
-    home.mkdir(parents=True)
+    home.mkdir()
     repo.mkdir()
     orb = Orb(subject, home, repo)
     orb.configure()
     session = FakeSession(subject, home, repo)
     await session.start(orb)
+    startup_failures = session.take_hook_failures()
+    if startup_failures:
+        await session.stop()
+        raise SystemExit("a plugin hook failed when the session started: " + "; ".join(startup_failures))
     results = []
     try:
         await orb.start_server()
@@ -604,20 +623,21 @@ async def open_window(context, orb: Orb, out: Path):
 
 async def run_flow(number: int, f: Flow, orb, session, page, out) -> dict:
     started = time.monotonic()
-    error = None
+    errors = []
     try:
         await f.fn(orb, session, page)
     except Failed as e:
-        error = str(e)
+        errors.append(str(e))
     except Exception:
-        error = traceback.format_exc(limit=3)
+        errors.append(traceback.format_exc(limit=3))
+    errors += [f"a plugin hook failed: {failure}" for failure in session.take_hook_failures()]
     shot = out / f"{number:02d}-{f.name}.png"
     await page.screenshot(path=shot)
     notice = await page.locator("#notice").inner_text()
-    if error and notice:
-        error += f"\nthe page's notice said: {notice}"
-    return {"flow": f.name, "does": f.description, "ok": error is None, "error": error, "shortcut": f.shortcut,
-            "seconds": round(time.monotonic() - started, 1), "screenshot": shot.name}
+    if errors and notice:
+        errors.append(f"the page's notice said: {notice}")
+    return {"flow": f.name, "does": f.description, "ok": not errors, "error": "\n".join(errors) or None,
+            "shortcut": f.shortcut, "seconds": round(time.monotonic() - started, 1), "screenshot": shot.name}
 
 
 def load(path: Path):
@@ -636,10 +656,11 @@ def benchmark(subject: Path, out: Path) -> int:
     cases = parse_benchmark(load(HERE / "benchmark.json"))
     misses = 0
     for case in cases:
-        result, passed = run_case(case, subject, Path(__file__).resolve(), out)
+        outcomes = run_case(case, subject, Path(__file__).resolve(), out)
+        result = verdict(outcomes["before"], outcomes["after"])
         misses += result != "caught"
-        print(f"{result:44} {case.fix} {case.flow:26} {case.source}  (before: {'pass' if passed['before'] else 'fail'},"
-              f" after: {'pass' if passed['after'] else 'fail'})")
+        print(f"{result:44} {case.fix} {case.flow:26} (before: {outcomes['before'].value}, "
+              f"after: {outcomes['after'].value})")
     print(f"\n{len(cases) - misses}/{len(cases)} past fixes caught. Evidence: {out}")
     return 1 if misses else 0
 
@@ -656,7 +677,7 @@ def verify(subject: Path, out: Path, only: list[str], since: str | None) -> int:
         if not r["ok"]:
             print("      " + r["error"].strip().replace("\n", "\n      "))
     for item in items:
-        print(f"\nCHECK {item.id} ({item.source}): {item.check}")
+        print(f"\nCHECK {item.id}: {item.check}")
         if item.flows:
             print(f"      flows run for it: {', '.join(item.flows)}")
     failed = sum(not r["ok"] for r in results)
@@ -664,22 +685,30 @@ def verify(subject: Path, out: Path, only: list[str], since: str | None) -> int:
     return 1 if failed or not results else 0
 
 
+def empty_out(chosen: Path | None) -> Path:
+    out = (chosen or Path(tempfile.mkdtemp(prefix="orb-verify-"))).resolve()
+    if out.exists() and any(out.iterdir()):
+        raise SystemExit(f"--out {out} already holds a run's evidence; choose an empty or new folder")
+    out.mkdir(parents=True, exist_ok=True)
+    return out
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--subject", type=Path, default=Path.cwd(), help="the agent-orb checkout under test")
-    parser.add_argument("--out", type=Path, help="where the evidence goes; a new temporary folder by default")
-    parser.add_argument("--only", nargs="+", choices=list(FLOWS), default=[], help="run only these flows")
-    parser.add_argument("--changed-since", metavar="REF",
-                        help="also run the checklist items whose paths the change since REF touches")
-    parser.add_argument("--benchmark", action="store_true",
-                        help="replay the past fixes in benchmark.json: each flow must fail before its fix and pass after")
-    parser.add_argument("--list", action="store_true", help="print the feature map and exit")
+    parser.add_argument("--out", type=Path, help="an empty folder for the evidence; a new temporary one by default")
+    scope = parser.add_mutually_exclusive_group()
+    scope.add_argument("--only", nargs="+", choices=list(FLOWS), default=[], help="run only these flows")
+    scope.add_argument("--changed-since", metavar="REF",
+                       help="also run the checklist items whose paths the change since REF touches")
+    scope.add_argument("--benchmark", action="store_true",
+                       help="replay the past fixes in benchmark.json: each flow must fail before its fix and pass after")
+    scope.add_argument("--list", action="store_true", help="print the feature map and exit")
     args = parser.parse_args()
     if args.list:
         print_flows()
         return 0
-    out = (args.out or Path(tempfile.mkdtemp(prefix="orb-verify-"))).resolve()
-    out.mkdir(parents=True, exist_ok=True)
+    out = empty_out(args.out)
     subject = args.subject.resolve()
     if args.benchmark:
         return benchmark(subject, out)
