@@ -1,4 +1,3 @@
-"""Calls to the orb's own servers on 127.0.0.1. They never go through a proxy the machine is configured with."""
 import urllib.request
 
 
