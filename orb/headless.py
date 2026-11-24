@@ -9,7 +9,6 @@ class BrowserMissing(RuntimeError):
 
 
 async def launch(playwright: Playwright):
-    """Headless Chromium with a fake microphone that asks no permission; BrowserMissing names the install command."""
     try:
         return await playwright.chromium.launch(headless=True, args=list(CHROMIUM_ARGS))
     except Error as e:
