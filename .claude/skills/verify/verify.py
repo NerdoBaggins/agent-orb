@@ -82,6 +82,10 @@ class FakeSession:
         orb.state.write_json(orb.state.channel_file(state), {"port": port, "secret": self.secret, "pid": os.getpid(),
                                                              "repoRoot": str(self.repo), "sessionPid": os.getpid()})
         await self.run_hooks("SessionStart", {"source": "startup"})
+        failures = self.take_hook_failures()
+        if failures:
+            await self.runner.cleanup()
+            raise SystemExit("a plugin hook failed when the session started: " + "; ".join(failures))
 
     async def stop(self) -> None:
         await self.runner.cleanup()
@@ -148,12 +152,6 @@ def channel_entry(server: str, text: str, request_id: str) -> dict:
 def finished_reply(reply: str) -> dict:
     return {"type": "assistant",
             "message": {"role": "assistant", "stop_reason": "end_turn", "content": [{"type": "text", "text": reply}]}}
-
-
-def require_clean_start(session: FakeSession) -> None:
-    failures = session.take_hook_failures()
-    if failures:
-        raise SystemExit("a plugin hook failed when the session started: " + "; ".join(failures))
 
 
 def reply_to(text: str) -> str:
@@ -569,11 +567,11 @@ def verdict(before: Outcome, after: Outcome) -> str:
     return "broken: the flow fails even with the fix"
 
 
-def run_harness(command: list[str], timeout_s: float) -> str:
+def run_harness(command: list[str]) -> str:
     try:
-        run = subprocess.run(command, capture_output=True, text=True, timeout=timeout_s)
+        run = subprocess.run(command, capture_output=True, text=True, timeout=CASE_TIMEOUT_S)
     except subprocess.TimeoutExpired as e:
-        return f"timed out after {timeout_s}s\n{e.stdout or ''}{e.stderr or ''}"
+        return f"timed out after {CASE_TIMEOUT_S}s\n{e.stdout or ''}{e.stderr or ''}"
     return run.stdout + run.stderr
 
 
@@ -586,7 +584,7 @@ def run_case(case: Case, subject: Path, harness: Path, out: Path) -> dict[str, O
         try:
             shutil.copy(subject / "orb" / "headless.py", tree / "orb" / "headless.py")
             log = run_harness(["uv", "run", "--project", str(tree), "python", str(harness), "--subject", str(tree),
-                               "--only", case.flow, "--out", str(evidence)], CASE_TIMEOUT_S)
+                               "--only", case.flow, "--out", str(evidence)])
             (folder / "harness.log").write_text(log, encoding="utf-8")
             outcomes[label] = outcome_of(evidence / "report.json", case.flow)
         finally:
@@ -602,7 +600,6 @@ async def run(subject: Path, out: Path, names: list[str]) -> list[dict]:
     orb.configure()
     session = FakeSession(subject, home, repo)
     await session.start(orb)
-    require_clean_start(session)
     results = []
     try:
         await orb.start_server()
@@ -658,15 +655,26 @@ async def attempt(fn, orb, session, page) -> Attempt:
 async def run_flow(number: int, f: Flow, orb, session, page, out) -> dict:
     started = time.monotonic()
     tried = await attempt(f.fn, orb, session, page)
-    errors = tried.failures + tried.breakages
     shot = out / f"{number:02d}-{f.name}.png"
     await page.screenshot(path=shot)
     notice = await page.locator("#notice").inner_text()
+    return flow_result(f, tried, notice, round(time.monotonic() - started, 1), shot.name)
+
+
+def flow_result(f: Flow, tried: Attempt, notice: str, seconds: float, screenshot: str) -> dict:
+    errors = tried.failures + tried.breakages
     if errors and notice:
         errors.append(f"the page's notice said: {notice}")
     return {"flow": f.name, "does": f.description, "ok": not errors, "broke": bool(tried.breakages),
-            "error": "\n".join(errors) or None,
-            "shortcut": f.shortcut, "seconds": round(time.monotonic() - started, 1), "screenshot": shot.name}
+            "error": "\n".join(errors) or None, "shortcut": f.shortcut, "seconds": seconds, "screenshot": screenshot}
+
+
+def status_word(result: dict) -> str:
+    return "PASS" if result["ok"] else "BROKE" if result["broke"] else "FAIL"
+
+
+def exit_code(results: list[dict]) -> int:
+    return 1 if not results or not all(r["ok"] for r in results) else 0
 
 
 def load(path: Path):
@@ -700,7 +708,7 @@ def verify(subject: Path, out: Path, only: list[str], since: str | None) -> int:
     report = {"flows": results, "checklist": [item.__dict__ for item in items]}
     (out / "report.json").write_text(json.dumps(report, indent=2, default=list) + "\n", encoding="utf-8")
     for r in results:
-        print(f"{'PASS' if r['ok'] else 'BROKE' if r['broke'] else 'FAIL':5} {r['flow']:26} {r['seconds']:>5}s  {r['does']}")
+        print(f"{status_word(r):5} {r['flow']:26} {r['seconds']:>5}s  {r['does']}")
         if r["shortcut"]:
             print(f"      shortcut: {r['shortcut']}")
         if not r["ok"]:
@@ -711,7 +719,7 @@ def verify(subject: Path, out: Path, only: list[str], since: str | None) -> int:
             print(f"      flows run for it: {', '.join(item.flows)}")
     failed = sum(not r["ok"] for r in results)
     print(f"\n{len(results) - failed}/{len(results)} flows passed, {len(items)} checklist items triggered. Evidence: {out}")
-    return 1 if failed or not results else 0
+    return exit_code(results)
 
 
 def empty_out(chosen: Path | None) -> Path:

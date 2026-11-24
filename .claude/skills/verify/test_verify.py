@@ -4,6 +4,7 @@ import json
 import subprocess
 import sys
 import time
+import types
 from pathlib import Path
 
 import pytest
@@ -210,13 +211,22 @@ def test_a_hook_failure_is_reported_on_the_flow_it_happened_in_and_only_there(tm
     assert tried.failures == ["a plugin hook failed: Stop: exited 3"] and session.hook_failures == []
 
 
+def started_session(tmp_path, command):
+    (tmp_path / "hooks").mkdir()
+    (tmp_path / "hooks" / "hooks.json").write_text(json.dumps({"hooks": {"SessionStart": [{"hooks": [{"command": command}]}]}}))
+    from orb import state
+    session = verify.FakeSession(tmp_path, tmp_path, tmp_path)
+    asyncio.run(session.start(types.SimpleNamespace(state=state)))
+    return session
+
+
 def test_a_hook_failing_at_session_start_stops_the_run(tmp_path):
-    with pytest.raises(SystemExit, match="SessionStart: exited 3"):
-        verify.require_clean_start(session_with(tmp_path, failures=["SessionStart: exited 3"]))
+    with pytest.raises(SystemExit, match="exited 3"):
+        started_session(tmp_path, "exit 3")
 
 
 def test_a_clean_session_start_lets_the_run_go_on(tmp_path):
-    verify.require_clean_start(session_with(tmp_path))
+    asyncio.run(started_session(tmp_path, "true").stop())
 
 
 def test_a_hook_exiting_non_zero_is_recorded(tmp_path):
@@ -232,8 +242,34 @@ def test_a_hook_running_past_its_timeout_is_recorded_and_stopped(tmp_path):
     assert "past its 0.3s timeout" in session.hook_failures[0] and time.monotonic() - started < 5
 
 
-def test_a_benchmark_run_past_its_timeout_says_so():
-    assert verify.run_harness(["sleep", "30"], 0.3).startswith("timed out after 0.3s")
+def test_a_benchmark_run_past_its_timeout_says_so(monkeypatch):
+    monkeypatch.setattr(verify, "CASE_TIMEOUT_S", 0.3)
+    assert verify.run_harness(["sleep", "30"]).startswith("timed out after 0.3s")
+
+
+def result_of(tried, notice=""):
+    return verify.flow_result(verify.FLOWS["mute"], tried, notice, 1.0, "s.png")
+
+
+def test_a_flow_that_broke_is_reported_not_ok_and_broke():
+    result = result_of(verify.Attempt([], ["KeyError"]))
+    assert (result["ok"], result["broke"], verify.status_word(result)) == (False, True, "BROKE")
+
+
+def test_a_flow_that_failed_is_reported_not_ok_and_not_broke():
+    result = result_of(verify.Attempt(["the orb said no"], []), notice="can't listen")
+    assert (result["ok"], result["broke"], verify.status_word(result)) == (False, False, "FAIL")
+    assert result["error"] == "the orb said no\nthe page's notice said: can't listen"
+
+
+def test_a_clean_flow_is_reported_ok_without_the_notice():
+    result = result_of(verify.Attempt([], []), notice="ready")
+    assert (result["ok"], result["error"], verify.status_word(result)) == (True, None, "PASS")
+
+
+@pytest.mark.parametrize("oks, code", [([True, True], 0), ([True, False], 1), ([], 1)])
+def test_a_run_exits_non_zero_when_any_flow_is_not_ok_or_none_ran(oks, code):
+    assert verify.exit_code([{"ok": ok} for ok in oks]) == code
 
 
 @pytest.mark.parametrize("args", [["--only", "mute", "--changed-since", "main"], ["--benchmark", "--only", "mute"]])
