@@ -38,7 +38,7 @@ function previousDoor(recordFile) {
 
 function healthStatus(port, secret) {
   return new Promise((resolve) => {
-    const probe = http.get({ host: HOST, port, path: "/health", headers: { "x-orb-secret": secret }, timeout: 1000 },
+    const probe = http.get({ host: HOST, port, path: "/health", headers: { "x-orb-secret": secret }, timeout: 1000, agent: false },
       (res) => { res.resume(); resolve(res.statusCode); });
     probe.on("timeout", () => probe.destroy());
     probe.on("error", () => resolve(null));

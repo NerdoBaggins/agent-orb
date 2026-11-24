@@ -5,9 +5,11 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
@@ -194,6 +196,32 @@ def test_second_channel_for_the_same_repo_waits_instead_of_taking_the_port(tmp_p
         assert taken["pid"] == second.proc.pid and taken["port"] == port
     finally:
         first.close(), second.close()
+
+
+def test_a_second_channel_still_waits_when_node_is_told_to_use_a_proxy_that_misses_loopback(tmp_path):
+    class Proxy(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(502)
+            self.end_headers()
+
+        def log_message(self, *args):
+            pass
+
+    proxy = ThreadingHTTPServer(("127.0.0.1", 0), Proxy)
+    threading.Thread(target=proxy.serve_forever, daemon=True).start()
+    repo, home = tmp_path / "repo", tmp_path / "home"
+    repo.mkdir(), home.mkdir()
+    first = Channel(repo, home)
+    first.record()
+    second = Channel(repo, home, {"NODE_USE_ENV_PROXY": "1", "HTTP_PROXY": f"http://127.0.0.1:{proxy.server_address[1]}",
+                                  "http_proxy": f"http://127.0.0.1:{proxy.server_address[1]}", "NO_PROXY": "", "no_proxy": ""})
+    try:
+        time.sleep(1.5)
+        assert json.loads(first.record_path.read_text(encoding="utf-8"))["pid"] == first.proc.pid
+    finally:
+        first.close(), second.close()
+        proxy.shutdown()
+        proxy.server_close()
 
 
 def test_port_is_reused_across_restarts(tmp_path):
