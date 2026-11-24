@@ -198,7 +198,7 @@ def post(server: dict, path: str, body: dict) -> dict:
         with loopback.urlopen(request, timeout=10) as r:
             return json.loads(r.read().decode("utf-8") or "{}")
     except urllib.error.HTTPError as e:
-        raise SystemExit(f"orb: {e.read().decode('utf-8') or e}")
+        raise SystemExit(f"orb: {e.read().decode('utf-8', 'replace') or e}")
     except (urllib.error.URLError, OSError) as e:
         raise SystemExit(f"orb: the orb server did not answer ({e}); close its window and run `orb open` again")
 

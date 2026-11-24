@@ -74,7 +74,7 @@ def post_prompt(info: ChannelInfo, text: str, request_id: str) -> None:
         with loopback.urlopen(request, timeout=PROBE_TIMEOUT_S) as r:
             r.read()
     except urllib.error.HTTPError as e:
-        detail = e.read().decode("utf-8")
+        detail = e.read().decode("utf-8", "replace")
         raise LinkError(f"channel refused the request ({e.code}): {detail}")
     except (urllib.error.URLError, OSError) as e:
         raise LinkError(f"channel unreachable on port {info.port}: {e}")

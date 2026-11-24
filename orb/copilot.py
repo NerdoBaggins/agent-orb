@@ -236,7 +236,7 @@ def call_door(door: Door, method: str, route: str, body: dict | None, timeout_s:
         with loopback.urlopen(request, timeout=timeout_s) as r:
             return json.loads(r.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
-        refusal = f"Copilot's door refused {route} ({e.code}): {e.read().decode('utf-8')}"
+        refusal = f"Copilot's door refused {route} ({e.code}): {e.read().decode('utf-8', 'replace')}"
         raise (SessionMoved if e.code == 409 else agents.LinkError)(refusal)
     except (urllib.error.URLError, OSError, ValueError) as e:
         raise agents.LinkError(f"Copilot's door on port {door.port} did not answer {route}: {e}")
