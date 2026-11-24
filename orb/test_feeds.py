@@ -59,7 +59,9 @@ def test_a_feed_is_read_from_the_users_own_config(tmp_path):
 
 @pytest.mark.parametrize("feed", [{"command": "python3 gen.py", "every": 300}, {"command": [], "every": 300},
                                   {"command": ["py\0thon"], "every": 300}, {"command": ["gen"], "every": 5},
-                                  {"command": ["gen"], "every": 300, "output": "../data.json"}])
+                                  {"command": ["gen"], "every": 300, "output": "../data.json"},
+                                  {"command": ["gen"], "every": float("nan")}, {"command": ["gen"], "every": float("inf")},
+                                  {"command": ["gen"], "every": 10**400}])
 def test_a_malformed_feed_is_refused(tmp_path, feed):
     write_feed(tmp_path, **feed)
     with pytest.raises(FeedError):

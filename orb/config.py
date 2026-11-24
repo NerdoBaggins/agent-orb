@@ -2,7 +2,6 @@
 repo. Credentials come from the environment only."""
 import copy
 import json
-import math
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -10,6 +9,7 @@ from typing import TypedDict
 
 from orb.commands import is_name
 from orb.engines import PER_CALL
+from orb.numbers import is_finite, is_number
 from orb.state import AGENTS, private_root
 
 DEFAULTS = {
@@ -112,17 +112,6 @@ def _read(path: Path, label: str) -> dict:
     return data
 
 
-def _is_number(value) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
-
-
-def _is_finite(value) -> bool:
-    try:
-        return _is_number(value) and math.isfinite(value)
-    except OverflowError:
-        return False
-
-
 def validate_types(data: dict, label: str) -> None:
     for key, expected in TYPES.items():
         if key not in data:
@@ -134,8 +123,8 @@ def validate_types(data: dict, label: str) -> None:
         for name, value in data.get(section, {}).items():
             if name == "engine" and not isinstance(value, str):
                 raise ConfigError(f"{label} config: {section}.engine must be a string")
-            elif name == "speed" and not (_is_number(value) or isinstance(value, dict)):
-                raise ConfigError(f"{label} config: tts.speed must be a number or a table per agent")
+            elif name == "speed" and not (is_finite(value) or isinstance(value, dict) and all(map(is_finite, value.values()))):
+                raise ConfigError(f"{label} config: tts.speed must be a number or a table of a number per agent")
             elif name not in SECTION_KEYS[section] and not isinstance(value, dict):
                 raise ConfigError(f"{label} config: {section}.{name} must be an engine's settings block (an object)")
     for key in FOLDER_KEYS:
@@ -146,7 +135,7 @@ def validate_types(data: dict, label: str) -> None:
         if not isinstance(options, dict):
             raise ConfigError(f"{label} config: skin_options.{skin} must be an object")
     for skin, size in data.get("skin_sizes", {}).items():
-        if not _is_finite(size):
+        if not is_finite(size):
             raise ConfigError(f"{label} config: skin_sizes.{skin} must be a number, the orb's scale with that skin")
     for name, entry in data.get("widgets", {}).items():
         validate_widget_entry(entry, f"{label} config: widgets.{name}")
@@ -161,7 +150,7 @@ def validate_widget_entry(entry, at: str) -> None:
     if "on" in entry and not isinstance(entry["on"], bool):
         raise ConfigError(f"{at}.on must be true or false")
     for key in (*WIDGET_PLACE_KEYS, *WIDGET_PANE_KEYS):
-        if key in entry and not _is_finite(entry[key]):
+        if key in entry and not is_finite(entry[key]):
             raise ConfigError(f"{at}.{key} must be a number")
     for key in ("x", "y"):
         if key in entry and not 0 <= entry[key] <= 1:
@@ -351,7 +340,7 @@ def speed_table(previous, agent: str, speed: float) -> dict:
     """`tts.speed` with this agent's pace set; a single number was every agent's pace."""
     if isinstance(previous, dict):
         speeds = previous
-    elif _is_number(previous):
+    elif is_number(previous):
         speeds = {other: clamp_speed(previous) for other in AGENTS}
     else:
         speeds = {}

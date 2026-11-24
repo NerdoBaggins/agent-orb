@@ -12,6 +12,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from orb.numbers import is_finite
 from orb.state import private_root
 
 MIN_EVERY_S = 30
@@ -64,7 +65,7 @@ def _feed(name: str, folder: Path, where: Path, data) -> Feed:
     command, every, output = data.get("command"), data.get("every"), data.get("output", "data.json")
     if not isinstance(command, list) or not command or not all(isinstance(c, str) and c and "\0" not in c for c in command):
         raise FeedError(f"{where}: command must be a list of words, such as [\"python3\", \"gen.py\"]")
-    if not isinstance(every, (int, float)) or every < MIN_EVERY_S:
+    if not is_finite(every) or every < MIN_EVERY_S:
         raise FeedError(f"{where}: every must be a number of seconds, at least {MIN_EVERY_S}")
     if not isinstance(output, str) or "\0" in output or Path(output).name != output:
         raise FeedError(f"{where}: output must be a file name in the feed's folder")

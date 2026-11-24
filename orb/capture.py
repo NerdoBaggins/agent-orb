@@ -1,5 +1,4 @@
 import json
-import math
 import os
 import queue
 import time
@@ -10,6 +9,7 @@ import numpy as np
 
 from orb import engines
 from orb.engines import decode_pcm
+from orb.numbers import is_finite
 
 BURST_S = 0.3
 STALL_S = 2.0
@@ -33,9 +33,9 @@ class Ended:
 
 def reported_latency(process: engines.EngineProcess) -> float:
     latency = process.loaded.get("latency")
-    if isinstance(latency, bool) or not isinstance(latency, (int, float)) or not 0 <= latency < math.inf:
+    if not is_finite(latency) or latency < 0:
         raise engines.EngineError(f"{process.label} did not report its latency as a number of seconds: {latency!r}")
-    return float(latency)
+    return latency
 
 
 class Capture:
