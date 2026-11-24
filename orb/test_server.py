@@ -817,7 +817,7 @@ def test_set_speed_updates_the_live_config(tmp_path):
     assert server.config["tts"]["speed"] == {"claude": 1.0, "copilot": DEFAULTS["tts"]["speed"]}
 
 
-def test_speed_outside_the_range_is_clamped_and_garbage_is_ignored(tmp_path):
+def test_speed_outside_the_range_is_clamped(tmp_path):
     async def go():
         server = make(tmp_path, voice=True)
         async with await client_for(server) as c:
@@ -825,9 +825,20 @@ def test_speed_outside_the_range_is_clamped_and_garbage_is_ignored(tmp_path):
             await ws.receive_json()
             await ws.send_json({"type": "speed", "value": 9})
             assert (await ws.receive_json()) == {"type": "speed", "value": 1.6}
-            await ws.send_json({"type": "speed", "value": "fast"})
-            await server.set_state("idle")
-            assert (await ws.receive_json()) == {"type": "state", "state": "idle"}
+    run(go())
+
+
+@pytest.mark.parametrize("kind", ["speed", "skin_size"])
+@pytest.mark.parametrize("value", ["fast", 10**400])
+def test_a_speed_or_size_that_is_not_a_float_is_ignored_and_the_socket_stays_open(tmp_path, kind, value):
+    async def go():
+        server = make(tmp_path, voice=True)
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            await ws.send_json({"type": kind, "value": value})
+            await ws.send_json({"type": kind, "value": 1.3})
+            assert (await ws.receive_json(timeout=5)) == {"type": kind, "value": 1.3}
     run(go())
 
 

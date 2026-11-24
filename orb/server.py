@@ -1963,12 +1963,12 @@ class OrbServer:
         elif kind == "speed":
             try:
                 await self.set_speed(float(message.get("value")))
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 pass
         elif kind == "skin_size":
             try:
                 await self.set_skin_size(float(message.get("value")))
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):
                 pass
         elif kind == "voice":
             await self.set_voice(bool(message.get("on")))
