@@ -107,14 +107,12 @@ class FakeSession:
         return web.json_response({"ok": True})
 
     async def answer(self, text: str, request_id: str) -> None:
-        message = f'<channel source="{self.orb.gate.CHANNEL_SERVER}" req="{request_id}">\n{text}\n</channel>'
-        await self.run_hooks("UserPromptSubmit", {"prompt": message})
-        self.append({"type": "user", "origin": {"kind": "channel", "server": self.orb.gate.CHANNEL_SERVER},
-                     "message": {"role": "user", "content": message}})
+        entry = channel_entry(self.orb.gate.CHANNEL_SERVER, text, request_id)
+        await self.run_hooks("UserPromptSubmit", {"prompt": entry["message"]["content"]})
+        self.append(entry)
         await asyncio.sleep(REPLY_DELAY_S)
         reply = reply_to(text)
-        self.append({"type": "assistant", "message": {"role": "assistant", "stop_reason": "end_turn",
-                                                      "content": [{"type": "text", "text": reply}]}})
+        self.append(finished_reply(reply))
         await self.run_hooks("Stop", {"last_assistant_message": reply, "stop_hook_active": False})
 
     def append(self, entry: dict) -> None:
@@ -135,10 +133,27 @@ class FakeSession:
                     _, err = await asyncio.wait_for(process.communicate(json.dumps(payload).encode("utf-8")), limit)
                 except asyncio.TimeoutError:
                     process.kill()
+                    await process.wait()
                     self.hook_failures.append(f"{event}: {hook['command']} ran past its {limit}s timeout")
                     continue
                 if process.returncode:
                     self.hook_failures.append(f"{event}: {hook['command']} exited {process.returncode}: {err.decode()[-500:]}")
+
+
+def channel_entry(server: str, text: str, request_id: str) -> dict:
+    return {"type": "user", "origin": {"kind": "channel", "server": server},
+            "message": {"role": "user", "content": f'<channel source="{server}" req="{request_id}">\n{text}\n</channel>'}}
+
+
+def finished_reply(reply: str) -> dict:
+    return {"type": "assistant",
+            "message": {"role": "assistant", "stop_reason": "end_turn", "content": [{"type": "text", "text": reply}]}}
+
+
+def require_clean_start(session: FakeSession) -> None:
+    failures = session.take_hook_failures()
+    if failures:
+        raise SystemExit("a plugin hook failed when the session started: " + "; ".join(failures))
 
 
 def reply_to(text: str) -> str:
@@ -494,7 +509,8 @@ def git_paths(subject: Path, *args: str) -> list[str]:
 def changed_paths(subject: Path, since: str) -> list[str]:
     merge_base = subprocess.run(["git", "merge-base", since, "HEAD"], cwd=subject, capture_output=True, text=True)
     if merge_base.returncode:
-        raise SystemExit(f"--changed-since {since}: {merge_base.stderr.strip()}")
+        reason = merge_base.stderr.strip() or "it shares no history with HEAD (a shallow clone needs git fetch --unshallow)"
+        raise SystemExit(f"--changed-since {since}: {reason}")
     base = merge_base.stdout.strip()
     return sorted(set(git_paths(subject, "diff", "--name-only", "--no-renames", base)
                       + git_paths(subject, "ls-files", "--others", "--exclude-standard")))
@@ -538,7 +554,7 @@ def outcome_of(report: Path, flow_name: str) -> Outcome:
     except (OSError, ValueError, KeyError):
         return Outcome.BROKEN
     result = next((r for r in flows if r.get("flow") == flow_name), None)
-    if result is None:
+    if result is None or result.get("broke"):
         return Outcome.BROKEN
     return Outcome.PASSED if result["ok"] else Outcome.FAILED
 
@@ -553,6 +569,14 @@ def verdict(before: Outcome, after: Outcome) -> str:
     return "broken: the flow fails even with the fix"
 
 
+def run_harness(command: list[str], timeout_s: float) -> str:
+    try:
+        run = subprocess.run(command, capture_output=True, text=True, timeout=timeout_s)
+    except subprocess.TimeoutExpired as e:
+        return f"timed out after {timeout_s}s\n{e.stdout or ''}{e.stderr or ''}"
+    return run.stdout + run.stderr
+
+
 def run_case(case: Case, subject: Path, harness: Path, out: Path) -> dict[str, Outcome]:
     outcomes = {}
     for label, commit in (("before", f"{case.fix}~1"), ("after", case.fix)):
@@ -561,13 +585,8 @@ def run_case(case: Case, subject: Path, harness: Path, out: Path) -> dict[str, O
         subprocess.run(["git", "worktree", "add", "--detach", "-q", str(tree), commit], cwd=subject, check=True)
         try:
             shutil.copy(subject / "orb" / "headless.py", tree / "orb" / "headless.py")
-            try:
-                run = subprocess.run(["uv", "run", "--project", str(tree), "python", str(harness), "--subject",
-                                      str(tree), "--only", case.flow, "--out", str(evidence)],
-                                     capture_output=True, text=True, timeout=CASE_TIMEOUT_S)
-                log = run.stdout + run.stderr
-            except subprocess.TimeoutExpired as e:
-                log = f"timed out after {CASE_TIMEOUT_S}s\n{e.stdout or ''}{e.stderr or ''}"
+            log = run_harness(["uv", "run", "--project", str(tree), "python", str(harness), "--subject", str(tree),
+                               "--only", case.flow, "--out", str(evidence)], CASE_TIMEOUT_S)
             (folder / "harness.log").write_text(log, encoding="utf-8")
             outcomes[label] = outcome_of(evidence / "report.json", case.flow)
         finally:
@@ -583,10 +602,7 @@ async def run(subject: Path, out: Path, names: list[str]) -> list[dict]:
     orb.configure()
     session = FakeSession(subject, home, repo)
     await session.start(orb)
-    startup_failures = session.take_hook_failures()
-    if startup_failures:
-        await session.stop()
-        raise SystemExit("a plugin hook failed when the session started: " + "; ".join(startup_failures))
+    require_clean_start(session)
     results = []
     try:
         await orb.start_server()
@@ -621,22 +637,35 @@ async def open_window(context, orb: Orb, out: Path):
     return page
 
 
+@dataclass
+class Attempt:
+    failures: list[str]
+    breakages: list[str]
+
+
+async def attempt(fn, orb, session, page) -> Attempt:
+    failures, breakages = [], []
+    try:
+        await fn(orb, session, page)
+    except Failed as e:
+        failures.append(str(e))
+    except Exception:
+        breakages.append(traceback.format_exc(limit=3))
+    failures += [f"a plugin hook failed: {failure}" for failure in session.take_hook_failures()]
+    return Attempt(failures, breakages)
+
+
 async def run_flow(number: int, f: Flow, orb, session, page, out) -> dict:
     started = time.monotonic()
-    errors = []
-    try:
-        await f.fn(orb, session, page)
-    except Failed as e:
-        errors.append(str(e))
-    except Exception:
-        errors.append(traceback.format_exc(limit=3))
-    errors += [f"a plugin hook failed: {failure}" for failure in session.take_hook_failures()]
+    tried = await attempt(f.fn, orb, session, page)
+    errors = tried.failures + tried.breakages
     shot = out / f"{number:02d}-{f.name}.png"
     await page.screenshot(path=shot)
     notice = await page.locator("#notice").inner_text()
     if errors and notice:
         errors.append(f"the page's notice said: {notice}")
-    return {"flow": f.name, "does": f.description, "ok": not errors, "error": "\n".join(errors) or None,
+    return {"flow": f.name, "does": f.description, "ok": not errors, "broke": bool(tried.breakages),
+            "error": "\n".join(errors) or None,
             "shortcut": f.shortcut, "seconds": round(time.monotonic() - started, 1), "screenshot": shot.name}
 
 
@@ -671,7 +700,7 @@ def verify(subject: Path, out: Path, only: list[str], since: str | None) -> int:
     report = {"flows": results, "checklist": [item.__dict__ for item in items]}
     (out / "report.json").write_text(json.dumps(report, indent=2, default=list) + "\n", encoding="utf-8")
     for r in results:
-        print(f"{'PASS' if r['ok'] else 'FAIL'}  {r['flow']:26} {r['seconds']:>5}s  {r['does']}")
+        print(f"{'PASS' if r['ok'] else 'BROKE' if r['broke'] else 'FAIL':5} {r['flow']:26} {r['seconds']:>5}s  {r['does']}")
         if r["shortcut"]:
             print(f"      shortcut: {r['shortcut']}")
         if not r["ok"]:
@@ -693,7 +722,7 @@ def empty_out(chosen: Path | None) -> Path:
     return out
 
 
-def main() -> int:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--subject", type=Path, default=Path.cwd(), help="the agent-orb checkout under test")
     parser.add_argument("--out", type=Path, help="an empty folder for the evidence; a new temporary one by default")
@@ -704,7 +733,11 @@ def main() -> int:
     scope.add_argument("--benchmark", action="store_true",
                        help="replay the past fixes in benchmark.json: each flow must fail before its fix and pass after")
     scope.add_argument("--list", action="store_true", help="print the feature map and exit")
-    args = parser.parse_args()
+    return parser
+
+
+def main() -> int:
+    args = build_parser().parse_args()
     if args.list:
         print_flows()
         return 0
