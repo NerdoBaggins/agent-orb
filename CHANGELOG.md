@@ -47,6 +47,10 @@ that has one adds it under Unreleased.
 
 ### Fixed
 
+- A feed's `every` and `tts.speed`, one number or a table per agent, must now be finite numbers: NaN, infinity
+  or an integer too large for a float is refused at load with the file named. NaN and infinity used to make a feed
+  never run and were clamped as a speed. A speed or size from the window that large no longer closes its socket
+  ([#299](https://github.com/NerdoBaggins/agent-orb/issues/299)).
 - A speech engine no longer outlives the orb that started it and keeps using the processor: engines now notice their
   input closing while they are loading or answering a call, and end within 5 s
   ([#165](https://github.com/NerdoBaggins/agent-orb/issues/165)).
