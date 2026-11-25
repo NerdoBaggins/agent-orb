@@ -272,9 +272,9 @@ def test_doctor_attaches_as_the_agent_doctor_with_its_own_pid_and_the_repo(tmp_p
 
 
 class Attached:
-    def __init__(self, voices):
+    def __init__(self, voices, stream=False):
         self.voices, self.closed = voices, False
-        self.manifest = Manifest("mine", "1", "tts", ("run",), (), Path("engines") / "mine")
+        self.manifest = Manifest("mine", "1", "tts", ("run",), (), Path("engines") / "mine", stream=stream)
         self.loaded = {"pid": 7}
 
     def call(self, request):
@@ -292,7 +292,7 @@ CATALOGUE = ["default", "af_heart"]
 @pytest.mark.parametrize("engine", ["kokoro", "mine"])
 def test_the_tts_check_fails_naming_tts_kokoro_voice_for_a_stale_id_and_not_for_a_weights_table(tmp_path, engine):
     def check(voice):
-        return doctor.check_hosted_engine("tts", {"engine": engine, "voice": voice}, tmp_path, lambda *a: Attached(CATALOGUE))
+        return doctor.check_hosted_engine("tts", {"engine": engine, "voice": voice}, tmp_path, lambda *a: Attached(CATALOGUE), {})
 
     stale = check("af_gone")
     assert not stale.ok and stale.detail.startswith(f"tts.{engine}.voice is 'af_gone'") and "default, af_heart" in stale.detail
@@ -300,18 +300,34 @@ def test_the_tts_check_fails_naming_tts_kokoro_voice_for_a_stale_id_and_not_for_
     assert check("af_heart").ok
 
 
+@pytest.mark.parametrize("declared, wanted, streams", [(True, True, True), (True, False, False), (False, True, False), (False, False, False)])
+def test_the_tts_check_says_streams_only_when_the_engine_declares_it_and_the_user_turned_it_on(tmp_path, declared, wanted, streams):
+    check = doctor.check_hosted_engine("tts", {"engine": "mine"}, tmp_path, lambda *a: Attached(None, declared), {"stream": wanted})
+    assert check.detail.endswith(", streams") is streams
+
+
+def test_the_stt_check_never_says_streams(tmp_path):
+    check = doctor.check_hosted_engine("stt", {"engine": "mine"}, tmp_path, lambda *a: Attached(None, True), {"stream": True})
+    assert not check.detail.endswith(", streams")
+
+
+def test_doctor_reports_the_fake_engine_as_streaming_when_the_config_turns_it_on(tmp_path, home):
+    configured(home, tts={"engine": "fake", "stream": True})
+    assert {c.name: c for c in run(tmp_path / "repo", home)}["tts engine"].detail.endswith(", streams")
+
+
 def test_the_tts_check_does_not_check_a_voice_against_an_engine_that_offers_no_choice(tmp_path):
-    assert doctor.check_hosted_engine("tts", {"engine": "mine", "voice": "anything"}, tmp_path, lambda *a: Attached(None)).ok
+    assert doctor.check_hosted_engine("tts", {"engine": "mine", "voice": "anything"}, tmp_path, lambda *a: Attached(None), {}).ok
 
 
 def test_the_stt_check_does_not_ask_for_voices(tmp_path):
-    check = doctor.check_hosted_engine("stt", {"engine": "mine", "voice": "af_gone"}, tmp_path, lambda *a: Attached(CATALOGUE))
+    check = doctor.check_hosted_engine("stt", {"engine": "mine", "voice": "af_gone"}, tmp_path, lambda *a: Attached(CATALOGUE), {})
     assert check.ok
 
 
 def test_every_hosted_check_lets_go_of_its_engine_even_when_the_voice_fails(tmp_path):
     attached = Attached(CATALOGUE)
-    assert not doctor.check_hosted_engine("tts", {"engine": "mine", "voice": "af_gone"}, tmp_path, lambda *a: attached).ok
+    assert not doctor.check_hosted_engine("tts", {"engine": "mine", "voice": "af_gone"}, tmp_path, lambda *a: attached, {}).ok
     assert attached.closed
 
 

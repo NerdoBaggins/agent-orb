@@ -145,6 +145,7 @@ background. Hover it to open the rest:
 | Hearing | every installed transcription engine; switching loads it at once |
 | Speech | every installed voice engine; switching loads it at once |
 | Voice menu | the current engine's voices, when it offers them; each engine keeps its own choice |
+| Stream speech | plays a sentence while the engine is still rendering it, so speech starts sooner (see [Streaming speech](#streaming-speech)); greyed, with the reason, when the engine does not stream |
 | Skin | every installed skin (`B` cycles them) |
 | Theme | every installed theme |
 | Widgets | ticks your installed widgets on or off |
@@ -321,7 +322,7 @@ a choice made in one repo stays there.
 | `mute_key` | `KeyM` |
 | `panels_key` | `KeyP` — hides the open panels, and brings them back as they were |
 | `stt` | `{"engine": "moonshine", "moonshine": {}}` |
-| `tts` | `{"engine": "kokoro", "speed": 1.18, "kokoro": {"voice": "default", "lang": "en-gb"}}` — `speed` is one number or per agent, `{"claude": 1.1, "copilot": 1.3}` |
+| `tts` | `{"engine": "kokoro", "speed": 1.18, "stream": false, "kokoro": {"voice": "default", "lang": "en-gb"}}` — `speed` is one number or per agent, `{"claude": 1.1, "copilot": 1.3}`; `stream` is `true` or `false`, see [Streaming speech](#streaming-speech) |
 | `wake` | absent (push-to-talk only); see [Wake word](#wake-word) |
 | `capture` | absent (the browser records the microphone); `{"engine": "livekit"}` turns it on; see [Server capture](#server-capture) |
 | `panel_dirs` | `[]` — extra folders for saved panels, absolute or `~/…`; only your own two files may set it |
@@ -582,13 +583,13 @@ other way is neither listed nor loaded.
 **Writing one.** The host or the orb starts the engine, keeps it warm, and talks JSON lines on its standard input and
 output. `engine.json` needs `"protocol": 2`, an integer; an engine without it is refused, with the reason, by `orb
 doctor` and by the orb that tries to start it, which uses the built-in default instead for `stt`, `tts`, `vad` and
-`voiceprint` and turns the feature off with the reason for `wake` and `capture`. It may also say `"share": false` (see [Shared engines](#shared-engines)). Every reply is an object, and one carrying `error` is a failure.
+`voiceprint` and turns the feature off with the reason for `wake` and `capture`. It may also say `"share": false` (see [Shared engines](#shared-engines)) or `"stream": true` (see [Streaming speech](#streaming-speech)). Every reply is an object, and one carrying `error` is a failure.
 
 | Kind | Request | Reply |
 |---|---|---|
 | any | `{"op": "load", "settings": {…}}`, once, first | `{"ok": true, "pid": <the engine's own process id>}`; a reply without an integer `pid` fails the load |
 | `stt` | `{"op": "transcribe", "pcm": <base64 float32 16 kHz>}` | `{"text": …}` |
-| `tts` | `{"op": "render", "text": …, "speed": …, "voice"?: …, "lang"?: …}` | `{"rate": …, "pcm": …}` |
+| `tts` | `{"op": "render", "text": …, "speed": …, "voice"?: …, "lang"?: …, "stream"?: true}` | `{"rate": …, "pcm": …}`; for an engine that declares `"stream": true`, any number of `{"rate": …, "pcm": …, "more": true}` lines first |
 | `tts` with voices | `{"op": "voices"}` | `{"voices": [{"id", "label"}]}` |
 | `wake`, `vad` | `{"op": "frame", "pcm": …}` | `{"score": …}` |
 | `voiceprint` | `{"op": "embed", "pcm": …}` | `{"vector": […]}` |
@@ -600,6 +601,12 @@ doctor` and by the orb that tries to start it, which uses the built-in default i
   `voice` means the engine's default voice. The orb passes `voice` through as the user wrote it, so it is an id from
   your `voices` or any other value your engine documents; an engine that cannot take it answers `error`. `lang` is a
   hint for a voice that has no language of its own.
+- **Streaming.** An engine that says `"stream": true` in `engine.json` is sent `"stream": true` with a `render` when the
+  user has turned streaming on, and an engine that does not say it is never sent the key. It may then answer with any
+  number of lines `{"rate": …, "pcm": …, "more": true}`, each played as it arrives, and then one last reply without `more`,
+  which is the reply a request without `stream` gets and may carry the last audio or an empty `pcm`. `rate` is the same in
+  every line of one render. An `{"error": …}` at any point ends the render; what was already played stays played. An
+  engine that ignores `stream` and answers with one reply is correct. See [Streaming speech](#streaming-speech).
 - **`voices`** is a catalogue and holds no choice: **its first entry is the engine's default voice**, what `render`
   uses when the request has no `voice`, and every `id` is valid as a `render` `voice`. An engine that does not answer
   `voices` simply has no voice menu. A `voice` the engine does not know is answered `{"error": "no <engine> voice named
@@ -649,7 +656,26 @@ def requests():
 
 A failed `load` is answered `{"error": …}` and the engine exits. A `stt` or `tts` call is timed from the orb's send, so
 time queued behind another orb's call counts. A call not answered within 120 s fails; when the engine had it and went
-silent, the engine is closed, and a call that ran out of time still waiting its turn leaves the engine running.
+silent, the engine is closed, and a call that ran out of time still waiting its turn leaves the engine running. A
+streamed render has the same 120 s for the whole of it, and an engine silent for 30 s between two of its lines is closed
+and the render fails, as `went quiet for 30 s after piece N`.
+
+### Streaming speech
+
+Without streaming, the orb renders a sentence and plays it once the whole render has returned, so the wait before the
+first sound is the sentence's length times how long the engine takes per second of speech. With streaming, an engine
+hands the orb the audio in pieces and the first one plays after a fraction of a second.
+
+It is off unless both sides ask for it: the engine says `"stream": true` in its `engine.json`, and you turn on
+`tts.stream` in your config or the bar's `stream speech (start sooner)` box. The box is greyed, with the reason, when
+the selected engine does not stream, and the choice is kept for the engines that do. `orb doctor` says `streams` on the
+`tts engine` line when both are on. Turning it off costs nothing else: the orb goes back to one render and one reply per
+sentence.
+
+An engine that renders slower than the audio it makes can stutter inside a sentence, where it used to pause between
+sentences; that is what the box is for. If a streamed render fails after some of it has played, the orb ends that
+sentence there instead of rendering it again with the default engine, which would repeat what you heard, says why, and
+goes on to the next sentence.
 
 ## Wake word
 

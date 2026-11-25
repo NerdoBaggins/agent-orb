@@ -312,6 +312,10 @@ def speed_for(tts: dict, agent: str) -> float:
     return clamp_speed(speed)
 
 
+def wants_stream(section: dict) -> bool:
+    return section.get("stream", False) is True
+
+
 def engine_settings(section: dict) -> dict:
     """The selected engine's own block plus its name; the other engines' blocks stay behind."""
     name = section["engine"]
