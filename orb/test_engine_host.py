@@ -891,7 +891,6 @@ def test_a_connection_that_ends_while_its_call_runs_drops_its_owner_before_the_c
 
 
 class StuckStream(FakeProcess):
-    """A stream that does not end until `release` is set."""
 
     def __init__(self, pid):
         super().__init__(pid)

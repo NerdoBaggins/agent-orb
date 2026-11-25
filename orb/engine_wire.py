@@ -126,8 +126,6 @@ class Link:
         return self._read(timeout)
 
     def stream(self, message: dict, timeout: float) -> Iterator[dict]:
-        """Every line the host sends to one request, up to the first that is not a `piece`, all within `timeout`
-        seconds of sending. A caller that stops before that line leaves the rest on the connection."""
         deadline = time.monotonic() + timeout
         self._write(message, timeout)
         while True:

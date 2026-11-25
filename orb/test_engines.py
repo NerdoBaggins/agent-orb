@@ -600,8 +600,6 @@ def test_the_fallback_uses_the_defaults_own_settings_not_the_failed_engines(tmp_
     tts.close()
 
 
-# ---- a render answered in pieces ----
-
 def streamed(process, text="one two three four", **request):
     return process.stream({"op": "render", "text": text, **request})
 
@@ -711,7 +709,6 @@ def test_a_streamed_render_waits_behind_another_and_gives_up_when_its_time_runs_
 
 
 def streaming_tts(tmp_path, monkeypatch, declared=True, **frail):
-    """The user engine `frail` over the default `fake`, each recording the requests it is sent."""
     monkeypatch.setitem(engines.DEFAULT, "tts", "fake")
     write_engine(tmp_path / ".config" / "voice-engines", "tts", "frail", (BUILTIN_DIR / "tts" / "fake" / "engine.py").read_text(),
                  {"name": "frail", "version": "1", "kind": "tts", "protocol": 2, "stream": declared, "run": ["uv", "run", "--script", "engine.py"]})
