@@ -74,7 +74,7 @@ class Manifest:
     max_seconds: float | None = None  # stt: the longest clip the engine accepts; the orb cuts longer ones
     frame_samples: int | None = None  # wake, vad: samples per frame
     share: bool = True  # false: the engine's work is elsewhere, so each orb gets its own process
-    stream: bool = False  # tts: the engine answers a render that asks for it in pieces
+    stream: bool = False
 
 
 def engine_dirs(home: Path) -> list[Path]:
@@ -162,7 +162,7 @@ class Refusal:
 
 def refusals(home: Path) -> tuple[int, list[Refusal]]:
     """How many engine folders with an `engine.json` were read, and each engine refused, once, for a manifest that
-    cannot be read or parsed as an object, its protocol, its `share` or its `stream`; its texts are joined with "; "."""
+    cannot be read or parsed as an object, its protocol or its `share`; its texts are joined with "; "."""
     read, refused = 0, []
     for root in engine_dirs(home):
         for kind in KINDS:
@@ -284,11 +284,6 @@ class EngineProcess:
         return self._reply(line)
 
     def stream(self, request: dict, timeout: float = CALL_TIMEOUT_S, sent_at: float | None = None) -> Iterator[dict]:
-        """The engine's reply lines to a request it may answer in pieces: each line marked `more`, then the final one,
-        which is the only reply an engine that ignores `stream` sends. `timeout` covers the whole render, counted as in
-        `call`, and the engine may be silent for at most STREAM_SILENCE_S between two lines. The process lock is held
-        until the final line has been read: a consumer that stops early, or an engine that changes `rate` mid-render, is
-        read to its end (or the process is closed) so the next request never meets a line of this one."""
         deadline = (time.monotonic() if sent_at is None else sent_at) + timeout
         if not self.lock.acquire(timeout=max(deadline - time.monotonic(), 0.0)):
             raise EngineQueueTimeout(self._silence(timeout))
@@ -317,14 +312,12 @@ class EngineProcess:
                 self._condemn()
 
     def _next_piece(self, deadline: float, timeout: float, received: int) -> str | None:
-        """The next line of a streamed render: the first has the whole deadline, each after it STREAM_SILENCE_S."""
         quiet = time.monotonic() + STREAM_SILENCE_S
         if received == 0 or deadline <= quiet:
             return self._next_line(deadline, self._silence(timeout))
         return self._next_line(quiet, f"{self.label} went quiet for {STREAM_SILENCE_S:g} s after piece {received}")
 
     def _drain(self, deadline: float, timeout: float) -> bool:
-        """Reads the rest of an abandoned render; True when it ended cleanly."""
         try:
             while True:
                 reply = self._parse(self._next_piece(deadline, timeout, 1))
@@ -501,9 +494,7 @@ def without_stream(request: dict) -> dict:
 
 class Engine:
     """The engine of one kind the orb speaks through. `settings_for(name)` gives any engine's settings, so the
-    built-in default can take over when the selected one fails; `fallback_reason` says when it has. A call the
-    selected engine fails is answered by the default and `failure` says why; the next call goes back to the selected
-    engine, restarted if it died, until it fails STICKY_AFTER_FAILURES calls in a row."""
+    built-in default can take over when the selected one fails; `fallback_reason` says when it has."""
 
     def __init__(self, kind: str, settings_for, home: Path, env=os.environ, launch=start, report=unreported):
         self.kind, self.settings_for, self.home, self.env, self.launch = kind, settings_for, home, env, launch
@@ -545,9 +536,6 @@ class Engine:
         return reply
 
     def stream(self, request: Request, timeout: float = CALL_TIMEOUT_S) -> Iterator[dict]:
-        """The reply lines of a render answered in pieces, the last one without `more`. A failure before any piece is
-        answered by the default as `call` answers it; one after the first ends the render there, with what was already
-        delivered, and is counted and reported the same way, since the same text rendered again would be heard twice."""
         self._running()
         delivered = False
         try:
@@ -563,7 +551,6 @@ class Engine:
         self.failure, self.failures_in_a_row = None, 0
 
     def _record_failure(self, error: EngineError, outcome: str) -> bool:
-        """Counts a failed call; True when it was the last the selected engine gets, and the default now holds its place."""
         default = DEFAULT.get(self.kind)
         if self.name == default or default is None:
             raise error
@@ -658,8 +645,6 @@ class Tts(Engine):
         return decode_pcm(reply["pcm"]), int(reply["rate"])
 
     def render_stream(self, text: str) -> Iterator[tuple[np.ndarray, int]]:
-        """The audio of one render as the engine produces it. Only the engine the orb selected is asked to stream: the
-        default that answers for it renders the whole text in one reply."""
         def request(name: str) -> dict:
             asked = {"stream": True} if name == self.name and self.streams else {}
             return {"op": "render", "text": text, **self.call_for(name), **asked}

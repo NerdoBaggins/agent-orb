@@ -10,11 +10,7 @@ without it the engine knows no `voices` op, like an engine that offers no choice
 the load take that long; `hold` ignores the hang-up; `hang_once`, a marker path, makes the first process to find
 none never answer its first request; `load_delay_s` makes the load take that long; `download_s` makes it first report a
 download of that many seconds, a line every `download_tick_s` (default 1); `log_loads`, a path, gets the pid on one line per
-load.
-A render that asks to `stream` is answered with `pieces` lines marked `more` and then the final reply, the tone shared
-between them, a piece every `piece_delay_s`. `fail_piece` answers that piece, counted from 0, with an error;
-`quiet_after` stops answering at that piece; `change_rate_at` gives that piece another rate; `hold_final_until`, a
-path, keeps the final reply back until the file exists."""
+load."""
 import base64
 import json
 import math

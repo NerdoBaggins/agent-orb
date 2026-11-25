@@ -798,7 +798,6 @@ def test_reply_is_rendered_per_sentence_and_streamed_then_idle_after_played(tmp_
 
 
 def streaming_server(tmp_path, stream=True, **settings):
-    """A server speaking through the fake engine, which gives each rendered text in `pieces` lines and a final one."""
     server = make(tmp_path, voice=True)
     server.tts = Tts(lambda n: {"engine": "fake", **settings}, server.call_for, server.home, launch=start)
     server.config["tts"]["stream"] = stream

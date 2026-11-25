@@ -200,10 +200,6 @@ class RemoteEngine:
         return reply["reply"]
 
     def stream(self, request: dict, timeout: float = CALL_TIMEOUT_S) -> Iterator[dict]:
-        """The engine's reply lines to a request it may answer in pieces, as EngineProcess.stream gives them. A connection
-        that breaks before the first line is attached again and the request made once more; after it the render fails,
-        since the pieces already heard cannot be taken back. A caller that stops early has the rest read and dropped, so
-        the connection can carry the next request."""
         with self.lock:
             delivered = False
             for repeat in (False, True):

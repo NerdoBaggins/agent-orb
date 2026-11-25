@@ -210,8 +210,6 @@ class Host:
         return self.serve(session, message, lambda process, request, timeout, received: {"reply": process.call(request, timeout, received)})
 
     def stream(self, session: Session, message: dict) -> dict | None:
-        """A call the engine may answer in pieces: each is sent to the connection as `{"piece": line}` as it arrives, and
-        the final line is the reply, as for `call`."""
         def relay(process, request, timeout, received):
             final = None
             for line in process.stream(request, timeout, received):
@@ -223,9 +221,7 @@ class Host:
 
         return self.serve(session, message, relay)
 
-    def serve(self, session: Session, message: dict, ask) -> dict | None:
-        """The reply of `ask(process, request, timeout, received)` on the engine the connection is attached to, with the
-        engine's failures answered, and its death handled, as one call's."""
+    def serve(self, session: Session, message: dict, ask: Callable[..., dict]) -> dict | None:
         received = time.monotonic()
         request, timeout = message.get("request"), message.get("timeout", CALL_TIMEOUT_S)
         if not isinstance(request, dict) or not isinstance(timeout, (int, float)) or timeout <= 0:

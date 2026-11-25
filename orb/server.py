@@ -998,7 +998,6 @@ class OrbServer:
         await self.broadcast({"type": "voices", "voices": self.voice_menu})
 
     async def set_tts_stream(self, on: bool) -> None:
-        """Saved for this repo whether or not the current engine streams, so the choice holds across engine switches."""
         if self.tts is None or on == self.config["tts"].get("stream", False):
             return
 
@@ -1861,7 +1860,6 @@ class OrbServer:
 
     @property
     def streaming(self) -> bool:
-        """Speech is rendered in pieces only when the user asked for it and the engine declares it."""
         return wants_stream(self.config["tts"]) and self.tts.streams
 
     def renders(self, sentence: str):
@@ -1871,8 +1869,6 @@ class OrbServer:
             yield self.tts.render(sentence)
 
     async def rendered(self, sentence: str):
-        """The audio of one sentence, each piece as the engine produces it. The engine is driven on a thread of its own to
-        the end of the render, even when the caller stops listening, since a render cannot be taken back."""
         loop = asyncio.get_running_loop()
         arrived: asyncio.Queue = asyncio.Queue()
         finished = object()
@@ -2181,7 +2177,6 @@ def engine_launcher(repo: Path, agent: str):
 
 
 def stream_menu(engine: str, offered: bool, on: bool) -> dict:
-    """The speech streaming switch as the page shows it: `reason` says why it cannot be turned on, when it cannot."""
     return {"on": on, "offered": offered, "reason": None if offered else f"the {engine} engine does not stream speech"}
 
 
