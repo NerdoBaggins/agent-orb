@@ -818,7 +818,6 @@ async def messages_until(ws, closing):
 
 
 def renders_started_at_each_broadcast(server):
-    """The count of renders the engine had been asked for as each audio frame went out to the window."""
     started, seen = [], []
     render, render_stream, broadcast_bytes = server.tts.render, server.tts.render_stream, server.broadcast_bytes
 
@@ -1047,7 +1046,7 @@ def test_pieces_still_arriving_after_the_window_has_closed_are_dropped_without_a
     servers = []
 
     async def go():
-        server = streaming_server(tmp_path, pieces=3, piece_delay_s=0.3, seconds_per_word=0.5)
+        server = streaming_server(tmp_path, pieces=3, piece_delay_s=0.3)
         servers.append(server)
         async with await client_for(server) as c:
             ws = await c.ws_connect("/ws", params={"token": TOKEN})
