@@ -7,8 +7,10 @@ import queue
 import shutil
 import struct
 import sys
+import threading
 from types import SimpleNamespace
 
+import aiohttp
 import numpy as np
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
@@ -17,10 +19,11 @@ from orb import PLUGIN_ROOT, agents, engines
 from orb import server as server_module
 from orb.audio import SAMPLE_RATE
 from orb.capture import Ended, Frame, Notice
+from orb.conftest import NO_ENGINE
 from orb.config import DEFAULTS, private_config_path
 from orb.engines import EngineError, Tts, start, unreported
 from orb.server import SERVER_STATES, OrbServer, audio_frame, page_sender, start_capture, voice_menu
-from orb.test_engines import requests_sent
+from orb.test_engines import eventually, requests_sent
 from orb.skins import STATES as SKIN_STATES
 
 TOKEN = "t0k3n-abc"
@@ -791,6 +794,139 @@ def test_reply_is_rendered_per_sentence_and_streamed_then_idle_after_played(tmp_
             assert server.tts.rendered == ["First sentence here.", "Second sentence there."]
             await ws.send_json({"type": "played"})
             assert (await ws.receive_json()) == {"type": "state", "state": "idle"}
+    run(go())
+
+
+def streaming_server(tmp_path, stream=True, **settings):
+    """A server speaking through the fake engine, which gives each rendered text in `pieces` lines and a final one."""
+    server = make(tmp_path, voice=True)
+    server.tts = Tts(lambda n: {"engine": "fake", **settings}, server.call_for, server.home, launch=start)
+    server.config["tts"]["stream"] = stream
+    return server
+
+
+async def next_message(ws):
+    message = await ws.receive(timeout=10)
+    return message.data if message.type == aiohttp.WSMsgType.BINARY else json.loads(message.data)
+
+
+async def messages_until(ws, closing):
+    seen = []
+    while not seen or seen[-1] != closing:
+        seen.append(await next_message(ws))
+    return seen
+
+
+def test_a_streamed_sentence_reaches_the_window_piece_by_piece_before_its_render_returns_and_the_log_names_it(tmp_path, caplog):
+    release = tmp_path / "release"
+
+    async def go():
+        server = streaming_server(tmp_path, pieces=2, hold_final_until=str(release))
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            with caplog.at_level("INFO", logger="orb"):
+                speaking = asyncio.create_task(server.speak("one two three four"))
+                await messages_until(ws, {"type": "speak_start", "sentences": 1})
+                first, second = await next_message(ws), await next_message(ws)
+                assert not speaking.done() and not release.exists()
+                release.write_text("go")
+                final = await next_message(ws)
+                assert await next_message(ws) == {"type": "speak_end"}
+                await ws.send_json({"type": "played"})
+                await speaking
+            assert [(len(frame) - 4) // 4 for frame in (first, second, final)] == [533, 533, 534]
+        server.tts.close()
+    run(go())
+    assert any("speaking 1 sentences with fake streaming:" in record.message for record in caplog.records)
+
+
+def test_a_sentence_is_rendered_whole_when_the_user_has_not_turned_streaming_on(tmp_path):
+    async def go():
+        server = streaming_server(tmp_path, stream=False, pieces=2)
+        sent = requests_sent(server.tts)
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            speaking = asyncio.create_task(server.speak("one two three four"))
+            frames = [m for m in await messages_until(ws, {"type": "speak_end"}) if isinstance(m, bytes)]
+            await ws.send_json({"type": "played"})
+            await speaking
+            assert [(len(frame) - 4) // 4 for frame in frames] == [1600] and "stream" not in sent[0]
+        server.tts.close()
+    run(go())
+
+
+def test_a_sentence_is_rendered_whole_when_streaming_is_on_but_the_engine_does_not_declare_it(tmp_path, caplog):
+    async def go():
+        server = make(tmp_path, voice=True)
+        server.config["tts"]["stream"] = True
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            with caplog.at_level("INFO", logger="orb"):
+                speaking = asyncio.create_task(server.speak("one two three four"))
+                frames = [m for m in await messages_until(ws, {"type": "speak_end"}) if isinstance(m, bytes)]
+                await ws.send_json({"type": "played"})
+                await speaking
+            assert len(frames) == 1
+    run(go())
+    assert not any("streaming" in record.message for record in caplog.records if record.message.startswith("speaking"))
+
+
+def test_speech_stopped_between_pieces_leaves_the_engine_answering_the_next_render(tmp_path):
+    async def go():
+        server = streaming_server(tmp_path, pieces=3, piece_delay_s=0.1)
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            speaking = asyncio.create_task(server.speak("one two three four"))
+            await messages_until(ws, {"type": "speak_start", "sentences": 1})
+            await next_message(ws)
+            speaking.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await speaking
+            assert (await asyncio.to_thread(server.tts.render, "next"))[0].size == 400
+        server.tts.close()
+    run(go())
+
+
+def test_pieces_still_arriving_after_the_window_has_closed_are_dropped_without_a_thread_error(tmp_path, monkeypatch):
+    errors = []
+    monkeypatch.setattr(threading, "excepthook", lambda args: errors.append(args.exc_value))
+    servers = []
+
+    async def go():
+        server = streaming_server(tmp_path, pieces=3, piece_delay_s=0.3)
+        servers.append(server)
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            speaking = asyncio.create_task(server.speak("one two three four"))
+            await messages_until(ws, {"type": "speak_start", "sentences": 1})
+            await next_message(ws)
+            speaking.cancel()
+    run(go())
+    [server] = servers
+    assert eventually(lambda: not server.tts.process.lock.locked(), 10)
+    server.tts.close()
+    assert errors == []
+
+
+def test_an_engine_that_fails_midway_ends_that_sentence_reports_it_and_the_next_sentence_is_still_spoken(tmp_path):
+    async def go():
+        server = streaming_server(tmp_path, pieces=2, fail_piece=1)
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            speaking = asyncio.create_task(server.speak("First sentence here. Second sentence there."))
+            seen = await messages_until(ws, {"type": "speak_end"})
+            await ws.send_json({"type": "played"})
+            await speaking
+            assert len([m for m in seen if isinstance(m, bytes)]) == 2
+            notices = [m["text"] for m in seen if isinstance(m, dict) and m.get("type") == "notice"]
+            assert notices == [f"speech: tts engine 'fake': fake tts was told to fail piece 1; {NO_ENGINE} answers the rest"]
+        server.tts.close()
     run(go())
 
 
