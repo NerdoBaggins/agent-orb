@@ -609,7 +609,7 @@ def engine_process(tmp_path, **load):
     return process
 
 
-def test_a_streamed_render_gives_its_pieces_in_order_and_ends_with_the_final_reply(tmp_path):
+def test_a_streamed_render_gives_its_pieces_and_ends_with_the_final_reply(tmp_path):
     process = engine_process(tmp_path, pieces=3)
     try:
         replies = list(streamed(process, stream=True))

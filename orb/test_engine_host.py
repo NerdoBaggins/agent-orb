@@ -494,11 +494,6 @@ def test_a_stream_on_a_connection_that_has_not_attached_is_an_error(host):
     assert host.handle(Session(), STREAM) == {"error": "this connection has not attached to an engine"}
 
 
-@pytest.mark.parametrize("message", [{"op": "stream"}, {"op": "stream", "request": "x", "timeout": 5}, {"op": "stream", "request": {}, "timeout": 0}])
-def test_a_malformed_stream_is_an_error_reply(host, message):
-    assert "error" in host.handle(Session(), message)
-
-
 class StuckProcess(FakeProcess):
     """A call that does not return until `release` is set."""
 

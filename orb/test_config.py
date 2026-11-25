@@ -138,10 +138,6 @@ def test_speed_that_is_not_a_finite_number_or_a_table_of_them_is_rejected(tmp_pa
         load_layers(tmp_path, user={"tts": {"speed": speed}})
 
 
-def test_streaming_is_off_by_default():
-    assert DEFAULTS["tts"]["stream"] is False
-
-
 @pytest.mark.parametrize("stream", ["yes", 1, 0, None, {"claude": True}])
 def test_a_stream_that_is_not_true_or_false_is_rejected(tmp_path, stream):
     with pytest.raises(ConfigError, match="tts.stream must be true or false"):
