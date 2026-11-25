@@ -495,6 +495,10 @@ def build_request(request: Request, engine_name: str) -> dict:
     return request(engine_name) if callable(request) else request
 
 
+def without_stream(request: dict) -> dict:
+    return {key: value for key, value in request.items() if key != "stream"}
+
+
 class Engine:
     """The engine of one kind the orb speaks through. `settings_for(name)` gives any engine's settings, so the
     built-in default can take over when the selected one fails; `fallback_reason` says when it has. A call the
@@ -534,7 +538,7 @@ class Engine:
     def call(self, request: Request, timeout: float = CALL_TIMEOUT_S) -> dict:
         self._running()
         try:
-            reply = self.process.call(build_request(request, self.name), timeout)
+            reply = self.process.call(without_stream(build_request(request, self.name)), timeout)
         except EngineError as e:
             return self._answer_with_default(e, request, timeout)
         self.failure, self.failures_in_a_row = None, 0
@@ -574,7 +578,7 @@ class Engine:
 
     def _answer_with_default(self, error: EngineError, request: Request, timeout: float) -> dict:
         if self._record_failure(error, "{default} answered this one"):
-            return self.process.call(build_request(request, self.name), timeout)
+            return self.process.call(without_stream(build_request(request, self.name)), timeout)
         default = DEFAULT[self.kind]
         stand_in = self.launch(self.kind, self.settings_for(default), self.home, self.env, unreported)
         try:

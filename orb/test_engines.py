@@ -758,6 +758,14 @@ def test_a_render_that_fails_after_a_piece_ends_there_and_the_default_does_not_r
     tts.close()
 
 
+def test_the_default_that_takes_over_for_good_is_never_asked_to_stream_the_render_that_made_it(tmp_path, monkeypatch):
+    tts, sent = streaming_tts(tmp_path, monkeypatch, pieces=1, fail_piece=0)
+    for _ in range(engines.STICKY_AFTER_FAILURES):
+        assert sizes(tts) == [FAKE_WORD]
+    assert tts.name == "fake" and sent["fake"] and all("stream" not in request for request in sent["fake"])
+    tts.close()
+
+
 def test_a_streamed_render_that_succeeds_after_a_failure_clears_it(tmp_path, monkeypatch):
     tts, _ = streaming_tts(tmp_path, monkeypatch, pieces=1, fail_renders=[1])
     assert sizes(tts) == [FAKE_WORD] and tts.failure is not None
