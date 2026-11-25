@@ -8,7 +8,7 @@ from pathlib import Path
 
 from orb import PLUGIN_ROOT
 from orb.pages import PageError, folders_in, listing, plain_name, reachable_folder
-from orb.config import ConfigError, credential_keys, validate_types
+from orb.config import SECTION_KEYS, ConfigError, credential_keys, validate_types
 
 DEFAULT = "default"
 BUILTIN_DIR = PLUGIN_ROOT / "themes"
@@ -79,8 +79,9 @@ def validate(folder: Path) -> Theme:
 def validate_tts(tts, manifest: Path) -> None:
     if not isinstance(tts, dict) or not isinstance(tts.get("engine"), str) or not tts["engine"]:
         raise ThemeError(f"{manifest}: tts must be an object naming an engine")
-    if "speed" in tts:
-        raise ThemeError(f"{manifest}: tts.speed is the user's pace, not a theme's")
+    for key in SECTION_KEYS["tts"]:
+        if key != "engine" and key in tts:
+            raise ThemeError(f"{manifest}: tts.{key} is the user's choice, not a theme's")
     secrets = credential_keys(tts, "tts.")
     if secrets:
         raise ThemeError(f"{manifest} must not hold credentials; remove {', '.join(secrets)}")

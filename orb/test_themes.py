@@ -81,6 +81,7 @@ def test_a_theme_may_name_a_speech_engine_and_its_blocks(tmp_path):
     ({"engine": ""}, "tts must be an object naming an engine"),
     ({"kokoro": {"voice": "af_heart"}}, "tts must be an object naming an engine"),
     ({"engine": "kokoro", "speed": 1.2}, "tts.speed"),
+    ({"engine": "kokoro", "stream": True}, "tts.stream"),
     ({"engine": "kokoro", "voice": "af_heart"}, "tts.voice must be an engine's settings block"),
     ({"engine": "voxtral", "voxtral": {"api_key": "x"}}, "remove tts.voxtral.api_key"),
 ])
