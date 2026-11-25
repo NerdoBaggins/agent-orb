@@ -925,7 +925,7 @@ def test_an_engine_that_fails_midway_ends_that_sentence_reports_it_and_the_next_
             await speaking
             assert len([m for m in seen if isinstance(m, bytes)]) == 2
             notices = [m["text"] for m in seen if isinstance(m, dict) and m.get("type") == "notice"]
-            assert notices == [f"speech: tts engine 'fake': fake tts was told to fail piece 1; {NO_ENGINE} answers the rest"]
+            assert notices == [f"speech: tts engine 'fake': fake tts was told to fail piece 1; the sentence was cut short"]
         server.tts.close()
     run(go())
 

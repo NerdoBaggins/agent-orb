@@ -552,13 +552,13 @@ class Engine:
                 yield reply
         except EngineError as e:
             if delivered:
-                self._record_failure(e, "answers the rest")
+                self._record_failure(e, "the sentence was cut short")
             else:
                 yield self._answer_with_default(e, request, timeout)
             return
         self.failure, self.failures_in_a_row = None, 0
 
-    def _record_failure(self, error: EngineError, rest: str) -> bool:
+    def _record_failure(self, error: EngineError, outcome: str) -> bool:
         """Counts a failed call; True when it was the last the selected engine gets, and the default now holds its place."""
         default = DEFAULT.get(self.kind)
         if self.name == default or default is None:
@@ -569,11 +569,11 @@ class Engine:
             self._fall_back(error)
             self.failure = f"{error}; {default} answers from now on"
             return True
-        self.failure = f"{error}; {default} {rest}"
+        self.failure = f"{error}; {outcome.format(default=default)}"
         return False
 
     def _answer_with_default(self, error: EngineError, request: Request, timeout: float) -> dict:
-        if self._record_failure(error, "answered this one"):
+        if self._record_failure(error, "{default} answered this one"):
             return self.process.call(build_request(request, self.name), timeout)
         default = DEFAULT[self.kind]
         stand_in = self.launch(self.kind, self.settings_for(default), self.home, self.env, unreported)
