@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from orb import actions, agents, browser, pages, skins, themes, widgets
-from orb.config import ConfigError, engine_settings, expand_dirs, load_for, widgets_on
+from orb.config import ConfigError, engine_settings, expand_dirs, load_for, wants_stream, widgets_on
 from orb.copilot import call_door, read_door
 from orb import engine_client, engines, wake, waking
 from orb.audio import SAMPLE_RATE
@@ -112,7 +112,7 @@ def stale_voice(settings: dict, remote: engine_client.RemoteEngine) -> str | Non
     return f"tts.{settings['engine']}.voice is {voice!r}, which the {settings['engine']} engine does not offer; it offers {ids}"
 
 
-def check_hosted_engine(kind: str, settings: dict, home: Path, launch) -> Check:
+def check_hosted_engine(kind: str, settings: dict, home: Path, launch, section: dict) -> Check:
     try:
         remote = launch(kind, settings, home)
     except EngineError as e:
@@ -120,8 +120,9 @@ def check_hosted_engine(kind: str, settings: dict, home: Path, launch) -> Check:
     try:
         stale = stale_voice(settings, remote) if kind == "tts" else None
         manifest = remote.manifest
+        streams = ", streams" if kind == "tts" and manifest.stream and wants_stream(section) else ""
         return Check(f"{kind} engine", stale is None,
-                     stale or f"{manifest.name} {manifest.version} loads from {manifest.path}, engine pid {remote.loaded['pid']}")
+                     stale or f"{manifest.name} {manifest.version} loads from {manifest.path}, engine pid {remote.loaded['pid']}{streams}")
     finally:
         remote.close()
 
@@ -183,8 +184,8 @@ def run(repo: Path, home: Path, engines: bool = True, spawn=engine_client.spawn_
     checks.append(check_engine_protocol(home))
     if engines:
         launch = engine_client.launcher({"pid": os.getpid(), "repo": str(repo), "agent": "doctor"}, spawn)
-        checks.append(check_hosted_engine("stt", engine_settings(config["stt"]), home, launch))
-        checks.append(check_hosted_engine("tts", engine_settings(config["tts"]), home, launch))
+        checks.append(check_hosted_engine("stt", engine_settings(config["stt"]), home, launch, config["stt"]))
+        checks.append(check_hosted_engine("tts", engine_settings(config["tts"]), home, launch, config["tts"]))
     if config["wake"] is not None:
         checks += check_wake(config["wake"], home, engines)
     if engines and config["capture"] is not None:

@@ -7,6 +7,13 @@ that has one adds it under Unreleased.
 
 ### Added
 
+- Streaming speech, off until you turn it on. An engine that says `"stream": true` in its `engine.json` can send a
+  sentence's audio in pieces, and with `tts.stream` set (the bar's `stream speech (start sooner)` box) the orb plays
+  each piece as it arrives instead of waiting for the whole sentence, so speech starts after a fraction of the time.
+  The box is greyed, with the reason, when the selected engine does not stream. A render that fails midway ends its
+  sentence and speech goes on with the next. Engine protocol stays 2: `stream` is optional in the manifest and in the
+  `render` request, and an engine that ignores it is still correct. `orb doctor` says `streams` on the `tts engine` line
+  when both are on ([#322](https://github.com/NerdoBaggins/agent-orb/issues/322)).
 - `orb open` returns once the window is open, without waiting for the speech engines. The window works in text and says
   what each engine is doing while it loads, speech turns on when they finish, and an engine that fails to load
   leaves the window open with the reason. A load is timed by silence, 30 s between the lines an engine writes, so a

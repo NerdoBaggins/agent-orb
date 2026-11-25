@@ -36,7 +36,7 @@ from orb.clips import LOSSY_SHARE, gap_notice, lost_share
 from orb.capture import Capture, Ended, Frame
 from orb.side import side_intent, status_sentence
 from orb.config import (WIDGET_PANE_KEYS, WIDGET_PLACE_KEYS, ConfigError, WidgetEntry, clamp_size, clamp_speed, engine_settings, expand_dirs, load_for,
-                        overlay, save_for_repo, save_skin_size, save_speed, save_widget, size_for, speed_for, speed_table, tts_call_settings, validate_widget_entry,
+                        overlay, save_for_repo, save_skin_size, save_speed, save_widget, size_for, speed_for, speed_table, tts_call_settings, validate_widget_entry, wants_stream,
                         widgets_on)
 from orb import waking
 from orb.engines import EngineError, Stt, Tts, Voiceprint, start
@@ -1862,7 +1862,7 @@ class OrbServer:
     @property
     def streaming(self) -> bool:
         """Speech is rendered in pieces only when the user asked for it and the engine declares it."""
-        return self.config["tts"].get("stream", False) is True and self.tts.streams
+        return wants_stream(self.config["tts"]) and self.tts.streams
 
     def renders(self, sentence: str):
         if self.streaming:
