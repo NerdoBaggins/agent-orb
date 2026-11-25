@@ -12,7 +12,7 @@ import pytest
 from orb import engines
 from orb.conftest import NO_ENGINE
 from orb.audio import SAMPLE_RATE
-from orb.engines import (BUILTIN_DIR, EngineError, EngineExited, EngineLoadError, EngineQueueTimeout, EngineTimeout, available, EngineProcess, Manifest, Stt, Tts, cache_dir, check, find,
+from orb.engines import (BUILTIN_DIR, decode_pcm, EngineError, EngineExited, EngineLoadError, EngineQueueTimeout, EngineTimeout, available, EngineProcess, Manifest, Stt, Tts, cache_dir, check, find,
                          load_settings, missing_env, read_manifest, split_at_quiet_points, start, Wake)
 from orb.state import kill_pid, pid_alive
 
@@ -597,6 +597,179 @@ def test_the_fallback_uses_the_defaults_own_settings_not_the_failed_engines(tmp_
 
     tts = Tts(settings_for, speaking, tmp_path)
     assert tts.render("word")[0].size == 8000
+    tts.close()
+
+
+# ---- a render answered in pieces ----
+
+def streamed(process, text="one two three four", **request):
+    return process.stream({"op": "render", "text": text, **request})
+
+
+def engine_process(tmp_path, **load):
+    process = start("tts", {"engine": "fake", **load}, tmp_path)
+    return process
+
+
+def test_a_streamed_render_gives_its_pieces_in_order_and_ends_with_the_final_reply(tmp_path):
+    process = engine_process(tmp_path, pieces=3)
+    try:
+        replies = list(streamed(process, stream=True))
+        assert [bool(r.get("more")) for r in replies] == [True, True, True, False]
+        assert sum(decode_pcm(r["pcm"]).size for r in replies) == 1600
+        assert replies[-1]["text"] == "one two three four"
+    finally:
+        process.close()
+
+
+def test_a_render_that_does_not_ask_to_stream_gets_one_reply_even_from_an_engine_that_could(tmp_path):
+    process = engine_process(tmp_path, pieces=3)
+    try:
+        assert [r.get("more") for r in streamed(process)] == [None]
+    finally:
+        process.close()
+
+
+def test_an_error_after_some_pieces_ends_the_render_and_leaves_the_engine_answering_the_next_request(tmp_path):
+    process = engine_process(tmp_path, pieces=3, fail_piece=1)
+    pieces = streamed(process, stream=True)
+    try:
+        assert next(pieces)["more"] is True
+        with pytest.raises(EngineError, match="fake tts was told to fail piece 1"):
+            next(pieces)
+        assert process.alive and process.call({"op": "render", "text": "next"})["text"] == "next"
+    finally:
+        process.close()
+
+
+def test_an_engine_that_goes_quiet_between_pieces_is_closed_and_named_by_how_many_pieces_it_gave(tmp_path, monkeypatch):
+    monkeypatch.setattr(engines, "STREAM_SILENCE_S", 0.4)
+    process = engine_process(tmp_path, pieces=3, quiet_after=1)
+    pieces = streamed(process, stream=True)
+    try:
+        next(pieces)
+        with pytest.raises(EngineTimeout, match=r"^tts engine 'fake' went quiet for 0.4 s after piece 1$"):
+            next(pieces)
+        assert not process.alive
+    finally:
+        process.close()
+
+
+def test_the_first_line_of_a_streamed_render_is_not_held_to_the_silence_limit(tmp_path, monkeypatch):
+    monkeypatch.setattr(engines, "STREAM_SILENCE_S", 0.4)
+    process = engine_process(tmp_path, pieces=1, delay_s=0.9)
+    try:
+        assert [bool(r.get("more")) for r in streamed(process, stream=True)] == [True, False]
+    finally:
+        process.close()
+
+
+def test_the_call_deadline_covers_a_whole_streamed_render_however_steadily_its_pieces_arrive(tmp_path):
+    process = engine_process(tmp_path, pieces=8, piece_delay_s=0.3)
+    try:
+        with pytest.raises(EngineTimeout, match=r"^tts engine 'fake' did not answer within 1 s$"):
+            list(process.stream({"op": "render", "text": "a b", "stream": True}, timeout=1))
+        assert not process.alive
+    finally:
+        process.close()
+
+
+def test_a_rate_that_changes_within_one_render_fails_it_and_closes_the_engine(tmp_path):
+    process = engine_process(tmp_path, pieces=3, change_rate_at=1)
+    pieces = streamed(process, stream=True)
+    try:
+        next(pieces)
+        with pytest.raises(EngineError, match="changed its rate within one render, from 8000 to 16000"):
+            next(pieces)
+        assert eventually(lambda: not process.alive)
+    finally:
+        process.close()
+
+
+def test_a_streamed_render_given_up_on_is_read_to_its_end_so_the_next_request_gets_its_own_reply(tmp_path):
+    process = engine_process(tmp_path, pieces=3, piece_delay_s=0.05)
+    pieces = streamed(process, stream=True)
+    try:
+        next(pieces)
+        pieces.close()
+        assert process.alive and process.call({"op": "render", "text": "next"})["text"] == "next"
+    finally:
+        process.close()
+
+
+def test_a_streamed_render_waits_behind_another_and_gives_up_when_its_time_runs_out_queued(tmp_path):
+    process = engine_process(tmp_path, pieces=2)
+    first = streamed(process, stream=True)
+    try:
+        next(first)
+        with pytest.raises(EngineQueueTimeout):
+            next(process.stream({"op": "render", "text": "x", "stream": True}, timeout=0.3))
+        assert process.alive
+    finally:
+        first.close()
+        process.close()
+
+
+def streaming_tts(tmp_path, monkeypatch, declared=True, **frail):
+    """The user engine `frail` over the default `fake`, each recording the requests it is sent."""
+    monkeypatch.setitem(engines.DEFAULT, "tts", "fake")
+    write_engine(tmp_path / ".config" / "voice-engines", "tts", "frail", (BUILTIN_DIR / "tts" / "fake" / "engine.py").read_text(),
+                 {"name": "frail", "version": "1", "kind": "tts", "protocol": 2, "stream": declared, "run": ["uv", "run", "--script", "engine.py"]})
+    sent = {"frail": [], "fake": []}
+
+    def launch(kind, settings, home, env=os.environ, report=engines.unreported):
+        process = start(kind, settings, home, env, report)
+        call, stream = process.call, process.stream
+        process.call = lambda request, *a, **k: (sent[settings["engine"]].append(request), call(request, *a, **k))[1]
+        process.stream = lambda request, *a, **k: (sent[settings["engine"]].append(request), stream(request, *a, **k))[1]
+        return process
+
+    tts = Tts(lambda name: {"engine": "fake"} if name == "fake" else {"engine": "frail", "seconds_per_word": 0.1, **frail}, speaking, tmp_path, launch=launch)
+    return tts, sent
+
+
+def sizes(tts, text="word"):
+    return [samples.size for samples, _ in tts.render_stream(text)]
+
+
+def test_an_engine_that_declares_stream_is_asked_to_and_gives_its_pieces(tmp_path, monkeypatch):
+    tts, sent = streaming_tts(tmp_path, monkeypatch, pieces=1)
+    assert sizes(tts) == [400, 400] and sent["frail"][-1]["stream"] is True
+    tts.close()
+
+
+def test_an_engine_that_does_not_declare_stream_is_never_sent_the_key(tmp_path, monkeypatch):
+    tts, sent = streaming_tts(tmp_path, monkeypatch, declared=False, pieces=1)
+    assert sizes(tts) == [FRAIL_WORD] and "stream" not in sent["frail"][-1]
+    tts.close()
+
+
+def test_a_render_that_fails_before_any_piece_is_answered_whole_by_the_default_without_asking_it_to_stream(tmp_path, monkeypatch):
+    tts, sent = streaming_tts(tmp_path, monkeypatch, pieces=1, fail_piece=0)
+    assert sizes(tts) == [FAKE_WORD] and "stream" not in sent["fake"][-1]
+    assert "told to fail piece 0" in tts.failure and tts.failure.endswith("; fake answered this one")
+    tts.close()
+
+
+def test_a_render_that_fails_after_a_piece_ends_there_and_the_default_does_not_repeat_what_was_heard(tmp_path, monkeypatch):
+    tts, sent = streaming_tts(tmp_path, monkeypatch, pieces=2, fail_piece=1)
+    assert sizes(tts) == [266] and sent["fake"] == []
+    assert "told to fail piece 1" in tts.failure and tts.failure.endswith("; fake answers the rest")
+    tts.close()
+
+
+def test_a_streamed_render_that_succeeds_after_a_failure_clears_it(tmp_path, monkeypatch):
+    tts, _ = streaming_tts(tmp_path, monkeypatch, pieces=1, fail_renders=[1])
+    assert sizes(tts) == [FAKE_WORD] and tts.failure is not None
+    assert sizes(tts) == [400, 400] and tts.failure is None and tts.failures_in_a_row == 0
+    tts.close()
+
+
+def test_an_engine_that_keeps_failing_midway_gives_way_to_the_default_for_good(tmp_path, monkeypatch):
+    tts, _ = streaming_tts(tmp_path, monkeypatch, pieces=2, fail_piece=1)
+    for _ in range(engines.STICKY_AFTER_FAILURES):
+        sizes(tts)
+    assert tts.name == "fake" and tts.failure.endswith("; fake answers from now on")
     tts.close()
 
 
