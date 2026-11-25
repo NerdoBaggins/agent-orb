@@ -230,7 +230,7 @@ def read_door(record: Path) -> Door | None:
 
 def call_door(door: Door, method: str, route: str, body: dict | None, timeout_s: float) -> dict:
     data = json.dumps(body).encode("utf-8") if body is not None else None
-    request = urllib.request.Request(f"http://127.0.0.1:{door.port}{route}", data, method=method,
+    request = urllib.request.Request(f"{loopback.origin(door.port)}{route}", data, method=method,
                                      headers={"X-Orb-Secret": door.secret, "Content-Type": "application/json"})
     try:
         with loopback.urlopen(request, timeout=timeout_s) as r:

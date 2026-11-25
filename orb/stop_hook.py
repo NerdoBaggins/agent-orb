@@ -28,7 +28,7 @@ def _call(server: dict, method: str, path: str, body: dict | None = None, *, unt
     if timeout <= 0:
         raise TimeoutError("the hook's time for calling the orb is spent")
     data = json.dumps(body).encode("utf-8") if body is not None else None
-    request = urllib.request.Request(f"http://127.0.0.1:{server['port']}{path}", data, method=method,
+    request = urllib.request.Request(f"{loopback.origin(server['port'])}{path}", data, method=method,
                                      headers={"X-Orb-Token": server["token"], "Content-Type": "application/json"})
     with loopback.urlopen(request, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8") or "{}")

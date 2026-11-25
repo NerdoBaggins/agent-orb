@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 
+from orb import loopback
 from orb.engines import names_one_process
 from orb.state import normalized_root, read_json, state_root, user_only, write_json
 
@@ -179,7 +180,7 @@ def connect(record: HostRecord, timeout: float = CONNECT_TIMEOUT_S) -> Link:
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.settimeout(timeout)
     try:
-        sock.connect(("127.0.0.1", record.port))
+        sock.connect((loopback.HOST, record.port))
     except OSError as e:
         sock.close()
         raise WireError(f"cannot reach the engine host: {e}")
