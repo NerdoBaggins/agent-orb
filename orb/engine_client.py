@@ -8,6 +8,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -193,17 +194,54 @@ class RemoteEngine:
                     self._release()
                     raise EngineTimeout(f"{self.label}: {e}")
                 except WireBroken as e:
-                    self._release()
-                    if repeat:
-                        raise EngineError(f"{self.label}: {e}")
-                    if not self.closed:
-                        self.link, self.loaded = attach(self.attachment)
-                    if self.closed:
-                        self._release()
-                        raise EngineError(f"{self.label} is no longer attached to the engine host")
+                    self._reattach(e, repeat)
         if "error" in reply:
             raise EngineError(reply["error"])
         return reply["reply"]
+
+    def stream(self, request: dict, timeout: float = CALL_TIMEOUT_S) -> Iterator[dict]:
+        """The engine's reply lines to a request it may answer in pieces, as EngineProcess.stream gives them. A connection
+        that breaks before the first line is attached again and the request made once more; after it the render fails,
+        since the pieces already heard cannot be taken back. A caller that stops early has the rest read and dropped, so
+        the connection can carry the next request."""
+        with self.lock:
+            delivered = False
+            for repeat in (False, True):
+                if self.link is None:
+                    raise EngineError(f"{self.label} is no longer attached to the engine host")
+                lines = self.link.stream({"op": "stream", "request": request, "timeout": timeout}, timeout + HOST_REPLY_MARGIN_S)
+                try:
+                    for reply in lines:
+                        if "error" in reply:
+                            raise EngineError(reply["error"])
+                        delivered = True
+                        yield reply["piece"] if "piece" in reply else reply["reply"]
+                    return
+                except GeneratorExit:
+                    self._finish(lines)
+                    raise
+                except WireTimeout as e:
+                    self._release()
+                    raise EngineTimeout(f"{self.label}: {e}")
+                except WireBroken as e:
+                    self._reattach(e, repeat or delivered)
+
+    def _finish(self, lines: Iterator[dict]) -> None:
+        try:
+            for _ in lines:
+                pass
+        except WireError:
+            self._release()
+
+    def _reattach(self, error: WireBroken, final: bool) -> None:
+        self._release()
+        if final:
+            raise EngineError(f"{self.label}: {error}")
+        if not self.closed:
+            self.link, self.loaded = attach(self.attachment)
+        if self.closed:
+            self._release()
+            raise EngineError(f"{self.label} is no longer attached to the engine host")
 
     def close(self) -> None:
         self.closed = True

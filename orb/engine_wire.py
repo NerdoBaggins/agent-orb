@@ -6,6 +6,7 @@ import json
 import socket
 import sys
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -121,9 +122,34 @@ class Link:
     def request(self, message: dict, timeout: float | None) -> dict:
         """The reply, within `timeout` seconds of sending; WireTimeout when none came, WireBroken when the connection
         ended or the host said something that is not a reply."""
+        self._write(message, timeout)
+        return self._read(timeout)
+
+    def stream(self, message: dict, timeout: float) -> Iterator[dict]:
+        """Every line the host sends to one request, up to the first that is not a `piece`, all within `timeout`
+        seconds of sending. A caller that stops before that line leaves the rest on the connection."""
+        deadline = time.monotonic() + timeout
+        self._write(message, timeout)
+        while True:
+            reply = self._read(max(deadline - time.monotonic(), 0.01))
+            yield reply
+            if "piece" not in reply:
+                return
+
+    def _write(self, message: dict, timeout: float | None) -> None:
         try:
             self.sock.settimeout(timeout)
             self.sock.sendall((json.dumps(message) + "\n").encode("utf-8"))
+        except TimeoutError:
+            self.close()
+            raise WireTimeout(f"the engine host did not answer within {timeout:g} s")
+        except (OSError, ValueError) as e:
+            self.close()
+            raise WireBroken(f"the engine host did not answer: {e}")
+
+    def _read(self, timeout: float | None) -> dict:
+        try:
+            self.sock.settimeout(timeout)
             line = self.reader.readline()
         except TimeoutError:
             self.close()

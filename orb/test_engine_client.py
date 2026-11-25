@@ -32,6 +32,17 @@ class FakeLink:
             raise reply
         return reply
 
+    def stream(self, message, timeout):
+        self.sent.append(message)
+        self.timeouts.append(timeout)
+        while True:
+            reply = self.replies.pop(0)
+            if isinstance(reply, Exception):
+                raise reply
+            yield reply
+            if "piece" not in reply:
+                return
+
     def close(self):
         self.closed = True
 
@@ -504,6 +515,73 @@ def test_a_host_that_cannot_be_reached_again_after_a_break_is_an_engine_error(tm
     engine = RemoteEngine(attachment(tmp_path), FakeLink(WireBroken("the engine host closed the connection")), {})
     with pytest.raises(EngineError, match="kept shutting down"):
         engine.call({"op": "transcribe"})
+    assert engine.alive is False
+
+
+PIECE = {"rate": 8000, "pcm": "", "more": True}
+FINAL = {"rate": 8000, "pcm": ""}
+
+
+def test_a_streamed_request_gives_each_piece_then_the_final_reply_and_waits_longer_than_the_limit_the_host_is_given(tmp_path):
+    link = FakeLink({"piece": PIECE}, {"piece": PIECE}, {"reply": FINAL})
+    engine = RemoteEngine(attachment(tmp_path), link, {})
+    assert list(engine.stream({"op": "render"}, 7)) == [PIECE, PIECE, FINAL]
+    assert link.sent == [{"op": "stream", "request": {"op": "render"}, "timeout": 7}] and link.timeouts[0] > 7
+
+
+def test_an_error_after_a_piece_fails_the_streamed_request_with_the_hosts_text(tmp_path):
+    engine = RemoteEngine(attachment(tmp_path), FakeLink({"piece": PIECE}, {"error": "fake engine exploded"}), {})
+    pieces = engine.stream({"op": "render"})
+    assert next(pieces) == PIECE
+    with pytest.raises(EngineError, match="^fake engine exploded$"):
+        next(pieces)
+
+
+def test_a_connection_that_breaks_before_the_first_line_is_attached_again_and_the_streamed_request_made_once_more(tmp_path, monkeypatch):
+    broken = FakeLink(WireBroken("the engine host closed the connection"))
+    mended = FakeLink({"attached": True}, {"loaded": {"pid": 5}}, {"piece": PIECE}, {"reply": FINAL})
+    links(monkeypatch, mended)
+    engine = RemoteEngine(attachment(tmp_path), broken, {})
+    assert list(engine.stream({"op": "render"})) == [PIECE, FINAL]
+    assert [m["op"] for m in mended.sent] == ["attach", "ready", "stream"] and engine.link is mended
+
+
+def test_a_connection_that_breaks_after_a_piece_fails_the_render_and_is_not_attached_again(tmp_path, monkeypatch):
+    monkeypatch.setattr(engine_client, "attach", lambda attached: pytest.fail("attached again after a piece was delivered"))
+    link = FakeLink({"piece": PIECE}, WireBroken("the engine host closed the connection"))
+    engine = RemoteEngine(attachment(tmp_path), link, {})
+    pieces = engine.stream({"op": "render"})
+    assert next(pieces) == PIECE
+    with pytest.raises(EngineError, match="stt engine 'fake': the engine host closed the connection"):
+        next(pieces)
+    assert engine.alive is False
+
+
+def test_a_streamed_request_the_host_did_not_answer_in_time_is_an_engine_timeout_and_the_attachment_is_over(tmp_path):
+    link = FakeLink({"piece": PIECE}, WireTimeout("the engine host did not answer within 125 s"))
+    engine = RemoteEngine(attachment(tmp_path), link, {})
+    pieces = engine.stream({"op": "render"})
+    next(pieces)
+    with pytest.raises(EngineTimeout, match=r"^stt engine 'fake': the engine host did not answer within 125 s$"):
+        next(pieces)
+    assert engine.alive is False
+
+
+def test_a_streamed_request_given_up_on_has_the_rest_of_its_lines_read_and_keeps_the_connection(tmp_path):
+    link = FakeLink({"piece": PIECE}, {"piece": PIECE}, {"reply": FINAL})
+    engine = RemoteEngine(attachment(tmp_path), link, {})
+    pieces = engine.stream({"op": "render"})
+    next(pieces)
+    pieces.close()
+    assert link.replies == [] and engine.alive is True and not link.closed
+
+
+def test_a_connection_that_breaks_while_the_rest_of_a_given_up_stream_is_read_is_let_go(tmp_path):
+    link = FakeLink({"piece": PIECE}, WireBroken("the engine host closed the connection"))
+    engine = RemoteEngine(attachment(tmp_path), link, {})
+    pieces = engine.stream({"op": "render"})
+    next(pieces)
+    pieces.close()
     assert engine.alive is False
 
 
