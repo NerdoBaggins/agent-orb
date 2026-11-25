@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from orb.feeds import command_env, failure_reason, kill_tree, resolve_program
-from orb.state import private_root
+from orb.state import config_root, private_root
 
 DEFAULT_SECONDS = 20
 MAX_SECONDS = 120
@@ -36,7 +36,7 @@ class Action:
 
 def actions_dirs(home: Path, repo_root: Path) -> list[Path]:
     """Where actions live, narrowest first: the user's for this repo only, the user's for every repo."""
-    return [private_root(home, repo_root) / "actions", Path(home) / ".config" / "orb" / "actions"]
+    return [private_root(home, repo_root) / "actions", config_root(home) / "actions"]
 
 
 def manifests(home: Path, repo_root: Path) -> list[Path]:

@@ -8,7 +8,7 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 from orb import skins, themes
 from orb.config import ConfigError, expand_dirs, insert_dir, load_for, own_dirs, remove_dir, user_config_path
 from orb.pages import PageError
-from orb.state import private_root
+from orb.state import config_root, private_root
 
 
 @dataclass(frozen=True)
@@ -34,7 +34,7 @@ def kind_named(name) -> Kind:
 
 
 def default_dirs(kind: Kind, repo_root: Path, home: Path) -> list[tuple[str, Path]]:
-    user = Path(home) / ".config" / "orb" / kind.plural
+    user = config_root(home) / kind.plural
     if kind.bundled is None:
         return [("mine", private_root(home, repo_root) / kind.plural), ("user", user)]
     return [("user", user), ("built-in", kind.bundled)]

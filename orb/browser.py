@@ -5,13 +5,13 @@ import subprocess
 import sys
 from pathlib import Path
 
-from orb.state import user_only
+from orb.state import config_root, user_only
 
 APP_FLAGS = ["--autoplay-policy=no-user-gesture-required", "--no-first-run", "--no-default-browser-check"]
 
 
 def profile_dir(home: Path) -> Path:
-    return Path(home) / ".config" / "orb" / "browser-profile"
+    return config_root(home) / "browser-profile"
 
 
 def candidates(platform: str = sys.platform, env=os.environ) -> list[tuple[str, list[str]]]:

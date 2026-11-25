@@ -10,7 +10,7 @@ from typing import TypedDict
 from orb.commands import is_name
 from orb.engines import PER_CALL
 from orb.finite import is_finite, is_number
-from orb.state import AGENTS, private_root
+from orb.state import AGENTS, config_root, private_root, repo_orb_folder
 
 DEFAULTS = {
     "ptt_key": "Space",
@@ -74,11 +74,11 @@ class Config:
 
 
 def user_config_path(home: Path) -> Path:
-    return Path(home) / ".config" / "orb" / "config.json"
+    return config_root(home) / "config.json"
 
 
 def repo_config_path(repo_root: Path) -> Path:
-    return Path(repo_root) / ".orb" / "config.json"
+    return repo_orb_folder(repo_root) / "config.json"
 
 
 def private_config_path(home: Path, repo_root: Path) -> Path:
