@@ -717,7 +717,7 @@ engine records the microphone instead of the browser:
 
 - Turn it on when the browser loses your audio: the orb says "your mic audio is arriving with gaps". A Remote
   Desktop microphone does this in Chrome and Edge, which read it with a 100 ms buffer it overflows; the capture
-  engine reads it with `buffer_ms` (500 by default) and keeps all of it. `orb doctor` opens the microphone for three
+  engine reads it with `buffer_ms` (500 by default) and keeps all of it. `orb doctor` opens the microphone for 3
   seconds and says how much of that time arrived as audio.
 - `livekit` (built in) runs WebRTC's noise suppression and auto gain, as Chrome does; echo cancellation is not on yet.
   Its first start downloads about 30 MB. `device` is part of a microphone's name; absent, the system's default.
@@ -748,7 +748,7 @@ engines, the wake word when one is on, and server capture when it is on. Each fa
 
 **Logs.** The server logs what happens: windows, states, what was heard, wake-word firings and follow-ups, requests
 and replies, speech and how long it took to render, engine, voice and skin switches, and errors from the window. It
-writes to `~/.config/orb/state/<repo id>/server.<agent>.log`, always on, rotating at 1 MB through four older files,
+writes to `~/.config/orb/state/<repo id>/server.<agent>.log`, always on, rotating at 1 MB through 4 older files,
 so it holds about 5 MB and drops the oldest. Once a minute it records how well the wake word kept up, and warns when
 it was starved (fewer than four fifths of the frames the mic sent: an overloaded machine or a throttled window).
 `orb log [-n N]` prints the newest lines. `server.<agent>.out` beside it holds the process's own output for the
