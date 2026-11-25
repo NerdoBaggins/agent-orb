@@ -1836,6 +1836,8 @@ class OrbServer:
             for sentence in sentences:
                 async with contextlib.aclosing(self.rendered(sentence)) as pieces:
                     async for samples, rate in pieces:
+                        if not samples.size:
+                            continue
                         first = first if first is not None else time.monotonic() - started
                         seconds += samples.size / rate
                         await self.broadcast_bytes(audio_frame(samples, rate))
