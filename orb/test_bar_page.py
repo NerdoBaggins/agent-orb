@@ -135,3 +135,33 @@ def test_the_streaming_switch_is_greyed_with_its_reason_only_when_the_engine_doe
 
     asyncio.run(run_page(tmp_path, [], act, server))
     assert seen == {"disabled": disabled, "title": title, "hidden": False, "grey": disabled}
+
+
+@pytest.mark.timeout(60)
+@pytest.mark.parametrize("saved", [False, True])
+def test_the_streaming_box_shows_the_saved_choice_when_the_page_loads(tmp_path, saved):
+    seen = {}
+    server = make(tmp_path, voice=True)
+    server.tts.streams = True
+    server.config["tts"]["stream"] = saved
+
+    async def act(page):
+        seen["checked"] = await page.evaluate("document.getElementById('stream-toggle').checked")
+
+    asyncio.run(run_page(tmp_path, [], act, server))
+    assert seen["checked"] is saved
+
+
+@pytest.mark.timeout(60)
+@pytest.mark.parametrize("saved", [False, True])
+def test_clicking_the_streaming_box_saves_the_state_the_box_was_left_in(tmp_path, saved):
+    server = make(tmp_path, voice=True)
+    server.tts.streams = True
+    server.config["tts"]["stream"] = saved
+
+    async def act(page):
+        await open_bar(page)
+        await page.click("#stream-toggle")
+
+    asyncio.run(run_page(tmp_path, [], act, server))
+    assert server.config["tts"]["stream"] is not saved
