@@ -538,7 +538,7 @@ class Engine:
     def call(self, request: Request, timeout: float = CALL_TIMEOUT_S) -> dict:
         self._running()
         try:
-            reply = self.process.call(without_stream(build_request(request, self.name)), timeout)
+            reply = self.process.call(build_request(request, self.name), timeout)
         except EngineError as e:
             return self._answer_with_default(e, request, timeout)
         self.failure, self.failures_in_a_row = None, 0
