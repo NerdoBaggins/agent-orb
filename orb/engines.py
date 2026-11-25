@@ -14,7 +14,7 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -35,6 +35,7 @@ BUILTIN_DIR = PLUGIN_ROOT / "engines"
 CACHE_ENV = "ORB_ENGINE_CACHE"
 ENGINE_START_TIMEOUT_S = 300.0
 LOAD_SILENCE_S = 30.0
+STREAM_SILENCE_S = 30.0
 CALL_TIMEOUT_S = 120.0
 FRAME_TIMEOUT_S = 5.0
 EXIT_WAIT_S = 5.0
@@ -282,6 +283,56 @@ class EngineProcess:
             self.lock.release()
         return self._reply(line)
 
+    def stream(self, request: dict, timeout: float = CALL_TIMEOUT_S, sent_at: float | None = None) -> Iterator[dict]:
+        """The engine's reply lines to a request it may answer in pieces: each line marked `more`, then the final one,
+        which is the only reply an engine that ignores `stream` sends. `timeout` covers the whole render, counted as in
+        `call`, and the engine may be silent for at most STREAM_SILENCE_S between two lines. The process lock is held
+        until the final line has been read: a consumer that stops early, or an engine that changes `rate` mid-render, is
+        read to its end (or the process is closed) so the next request never meets a line of this one."""
+        deadline = (time.monotonic() if sent_at is None else sent_at) + timeout
+        if not self.lock.acquire(timeout=max(deadline - time.monotonic(), 0.0)):
+            raise EngineQueueTimeout(self._silence(timeout))
+        ended, rate, received = False, None, 0
+        try:
+            self._send(request)
+            while True:
+                reply = self._parse(self._next_piece(deadline, timeout, received))
+                if "error" in reply:
+                    ended = True
+                    raise EngineError(f"{self.label}: {reply['error']}")
+                if received and reply.get("rate") != rate:
+                    raise EngineError(f"{self.label} changed its rate within one render, from {rate} to {reply.get('rate')}")
+                rate, received = reply.get("rate"), received + 1
+                ended = not reply.get("more")
+                yield reply
+                if ended:
+                    return
+        except GeneratorExit:
+            if not ended:
+                ended = self._drain(deadline, timeout)
+            raise
+        finally:
+            self.lock.release()
+            if not ended and self.alive:
+                self._condemn()
+
+    def _next_piece(self, deadline: float, timeout: float, received: int) -> str | None:
+        """The next line of a streamed render: the first has the whole deadline, each after it STREAM_SILENCE_S."""
+        quiet = time.monotonic() + STREAM_SILENCE_S
+        if received == 0 or deadline <= quiet:
+            return self._next_line(deadline, self._silence(timeout))
+        return self._next_line(quiet, f"{self.label} went quiet for {STREAM_SILENCE_S:g} s after piece {received}")
+
+    def _drain(self, deadline: float, timeout: float) -> bool:
+        """Reads the rest of an abandoned render; True when it ended cleanly."""
+        try:
+            while True:
+                reply = self._parse(self._next_piece(deadline, timeout, 1))
+                if "error" in reply or not reply.get("more"):
+                    return True
+        except EngineError:
+            return False
+
     def load(self, settings: dict, report: Callable[[str], None]) -> dict:
         """The load reply. Lines of `{"progress": text}` before it go to `report`; the engine has ENGINE_START_TIMEOUT_S
         for its first line and LOAD_SILENCE_S for each one after, so a download that keeps reporting is never cut off
@@ -313,11 +364,20 @@ class EngineProcess:
         try:
             return self.lines.get(timeout=max(deadline - time.monotonic(), 0.0))
         except queue.Empty:
-            self.condemned = True
-            threading.Thread(target=self.close, daemon=True).start()
+            self._condemn()
             raise EngineTimeout(silence)
 
+    def _condemn(self) -> None:
+        self.condemned = True
+        threading.Thread(target=self.close, daemon=True).start()
+
     def _reply(self, line: str | None) -> dict:
+        reply = self._parse(line)
+        if "error" in reply:
+            raise EngineError(f"{self.label}: {reply['error']}")
+        return reply
+
+    def _parse(self, line: str | None) -> dict:
         if line is None:
             raise EngineExited(f"{self.label} exited with code {self.process.wait()}")
         try:
@@ -326,8 +386,6 @@ class EngineProcess:
             raise EngineError(f"{self.label} answered with something that is not JSON: {line[:80]!r}")
         if not isinstance(reply, dict):
             raise EngineError(f"{self.label} answered with something that is not an object")
-        if "error" in reply:
-            raise EngineError(f"{self.label}: {reply['error']}")
         return reply
 
     def _gone(self) -> str:
@@ -466,12 +524,15 @@ class Engine:
     def manifest(self) -> Manifest:
         return self.process.manifest
 
-    def call(self, request: Request, timeout: float = CALL_TIMEOUT_S) -> dict:
+    def _running(self) -> None:
         if not self.process.alive:
             try:
                 self.process = self.launch(self.kind, self.settings_for(self.name), self.home, self.env, unreported)
             except EngineError as e:
                 self._fall_back(e)
+
+    def call(self, request: Request, timeout: float = CALL_TIMEOUT_S) -> dict:
+        self._running()
         try:
             reply = self.process.call(build_request(request, self.name), timeout)
         except EngineError as e:
@@ -479,7 +540,26 @@ class Engine:
         self.failure, self.failures_in_a_row = None, 0
         return reply
 
-    def _answer_with_default(self, error: EngineError, request: Request, timeout: float) -> dict:
+    def stream(self, request: Request, timeout: float = CALL_TIMEOUT_S) -> Iterator[dict]:
+        """The reply lines of a render answered in pieces, the last one without `more`. A failure before any piece is
+        answered by the default as `call` answers it; one after the first ends the render there, with what was already
+        delivered, and is counted and reported the same way, since the same text rendered again would be heard twice."""
+        self._running()
+        delivered = False
+        try:
+            for reply in self.process.stream(build_request(request, self.name), timeout):
+                delivered = True
+                yield reply
+        except EngineError as e:
+            if delivered:
+                self._record_failure(e, "answers the rest")
+            else:
+                yield self._answer_with_default(e, request, timeout)
+            return
+        self.failure, self.failures_in_a_row = None, 0
+
+    def _record_failure(self, error: EngineError, rest: str) -> bool:
+        """Counts a failed call; True when it was the last the selected engine gets, and the default now holds its place."""
         default = DEFAULT.get(self.kind)
         if self.name == default or default is None:
             raise error
@@ -488,8 +568,14 @@ class Engine:
             self.process.close()
             self._fall_back(error)
             self.failure = f"{error}; {default} answers from now on"
+            return True
+        self.failure = f"{error}; {default} {rest}"
+        return False
+
+    def _answer_with_default(self, error: EngineError, request: Request, timeout: float) -> dict:
+        if self._record_failure(error, "answered this one"):
             return self.process.call(build_request(request, self.name), timeout)
-        self.failure = f"{error}; {default} answered this one"
+        default = DEFAULT[self.kind]
         stand_in = self.launch(self.kind, self.settings_for(default), self.home, self.env, unreported)
         try:
             return stand_in.call(build_request(request, default), timeout)
@@ -566,6 +652,16 @@ class Tts(Engine):
     def render(self, text: str) -> tuple[np.ndarray, int]:
         reply = self.call(lambda name: {"op": "render", "text": text, **self.call_for(name)})
         return decode_pcm(reply["pcm"]), int(reply["rate"])
+
+    def render_stream(self, text: str) -> Iterator[tuple[np.ndarray, int]]:
+        """The audio of one render as the engine produces it. Only the engine the orb selected is asked to stream: the
+        default that answers for it renders the whole text in one reply."""
+        def request(name: str) -> dict:
+            asked = {"stream": True} if name == self.name and self.streams else {}
+            return {"op": "render", "text": text, **self.call_for(name), **asked}
+
+        for reply in self.stream(request):
+            yield decode_pcm(reply["pcm"]), int(reply["rate"])
 
     def voices(self) -> list[dict] | None:
         """The engine's catalogue, `[{"id", "label"}]`, or None from an engine that offers no choice. Asked of the
