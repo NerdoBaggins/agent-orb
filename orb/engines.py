@@ -162,7 +162,7 @@ class Refusal:
 
 def refusals(home: Path) -> tuple[int, list[Refusal]]:
     """How many engine folders with an `engine.json` were read, and each engine refused, once, for a manifest that
-    cannot be read or parsed as an object, its protocol or its `share`; its texts are joined with "; "."""
+    cannot be read or parsed as an object, its protocol, its `share` or its `stream`; its texts are joined with "; "."""
     read, refused = 0, []
     for root in engine_dirs(home):
         for kind in KINDS:
