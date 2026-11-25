@@ -754,7 +754,7 @@ def test_a_render_that_fails_before_any_piece_is_answered_whole_by_the_default_w
 def test_a_render_that_fails_after_a_piece_ends_there_and_the_default_does_not_repeat_what_was_heard(tmp_path, monkeypatch):
     tts, sent = streaming_tts(tmp_path, monkeypatch, pieces=2, fail_piece=1)
     assert sizes(tts) == [266] and sent["fake"] == []
-    assert "told to fail piece 1" in tts.failure and tts.failure.endswith("; fake answers the rest")
+    assert "told to fail piece 1" in tts.failure and tts.failure.endswith("; the sentence was cut short")
     tts.close()
 
 
