@@ -9,14 +9,14 @@ import numpy as np
 from orb import wake
 from orb.pages import plain_name
 from orb.engines import EngineError, Vad, Voiceprint, Wake, unreported
-from orb.state import write_json
+from orb.state import config_root, write_json
 from orb.wake import FollowUp, Health, Prebuffer, Recording, Settings, Trigger
 
 
 def voiceprint_path(home: Path, engine: str) -> Path:
     if not plain_name(engine):
         raise ValueError(f"voiceprint engine name {engine!r} is not a plain folder name")
-    return Path(home) / ".config" / "orb" / "voiceprint" / f"{engine}.json"
+    return config_root(home) / "voiceprint" / f"{engine}.json"
 
 
 def load_voiceprint(home: Path, engine: str) -> list[float] | None:

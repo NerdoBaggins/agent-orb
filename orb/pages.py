@@ -3,7 +3,7 @@ import json
 import re
 from pathlib import Path
 
-from orb.state import private_root
+from orb.state import config_root, private_root, repo_orb_folder
 
 MAX_NAME_CHARS = 64
 NAME = re.compile(rf"^[a-z0-9][a-z0-9_-]{{0,{MAX_NAME_CHARS - 1}}}$")
@@ -78,11 +78,11 @@ def folders_in(roots: list[Path]) -> tuple[list[Path], list[str]]:
 
 def scoped_dirs(kind: str, repo_root: Path, home: Path, named: list[Path]) -> list[tuple[str, Path]]:
     return [("mine", private_root(home, repo_root) / kind), *[("custom", folder) for folder in named],
-            ("user", Path(home) / ".config" / "orb" / kind)]
+            ("user", config_root(home) / kind)]
 
 
 def ignored_repo_pages(kind: str, repo_root: Path) -> list[str]:
-    folder = Path(repo_root) / ".orb" / kind
+    folder = repo_orb_folder(repo_root) / kind
     try:
         shipped = folder.is_dir() and any(p.is_dir() for p in folder.iterdir())
     except OSError:

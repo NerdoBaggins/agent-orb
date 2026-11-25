@@ -7,6 +7,7 @@ from pathlib import Path
 
 from orb import PLUGIN_ROOT
 from orb.pages import PageError, folders_in, listing, plain_name, reachable_folder
+from orb.state import config_root
 
 DEFAULT = "pulse"
 BUILTIN_DIR = PLUGIN_ROOT / "skins"
@@ -48,7 +49,7 @@ class SkinError(ValueError):
 
 
 def skin_dirs(home: Path, named: list[Path] = ()) -> list[Path]:
-    return [*named, Path(home) / ".config" / "orb" / "skins", BUILTIN_DIR]
+    return [*named, config_root(home) / "skins", BUILTIN_DIR]
 
 
 def _option(manifest: Path, name: str, data) -> Option:

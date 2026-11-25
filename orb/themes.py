@@ -9,6 +9,7 @@ from pathlib import Path
 from orb import PLUGIN_ROOT
 from orb.pages import PageError, folders_in, listing, plain_name, reachable_folder
 from orb.config import SECTION_KEYS, ConfigError, credential_keys, validate_types
+from orb.state import config_root
 
 DEFAULT = "default"
 BUILTIN_DIR = PLUGIN_ROOT / "themes"
@@ -42,7 +43,7 @@ class ThemeError(ValueError):
 
 
 def theme_dirs(home: Path, named: list[Path] = ()) -> list[Path]:
-    return [*named, Path(home) / ".config" / "orb" / "themes", BUILTIN_DIR]
+    return [*named, config_root(home) / "themes", BUILTIN_DIR]
 
 
 def validate(folder: Path) -> Theme:

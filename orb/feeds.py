@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from orb.finite import is_finite
-from orb.state import private_root
+from orb.state import config_root, private_root
 
 MIN_EVERY_S = 30
 TIMEOUT_S = 120
@@ -40,7 +40,7 @@ class Feed:
 
 def feeds_dirs(home: Path, repo_root: Path) -> list[Path]:
     """Where feeds live, narrowest first: the user's for this repo only, the user's for every repo."""
-    return [private_root(home, repo_root) / "feeds", Path(home) / ".config" / "orb" / "feeds"]
+    return [private_root(home, repo_root) / "feeds", config_root(home) / "feeds"]
 
 
 def read_feed(home: Path, repo_root: Path, name: str) -> Feed | None:

@@ -28,13 +28,21 @@ def repo_id(repo_root: Path) -> str:
     return f"{name}-{digest}"
 
 
+def config_root(home: Path) -> Path:
+    return Path(home) / ".config" / "orb"
+
+
+def repo_orb_folder(repo_root: Path) -> Path:
+    return Path(repo_root) / ".orb"
+
+
 def state_root(home: Path) -> Path:
-    return Path(home) / ".config" / "orb" / "state"
+    return config_root(home) / "state"
 
 
 def private_root(home: Path, repo_root: Path) -> Path:
     """The user's own folder for one repo, outside it."""
-    return Path(home) / ".config" / "orb" / "repos" / repo_id(repo_root)
+    return config_root(home) / "repos" / repo_id(repo_root)
 
 
 def state_dir(home: Path, repo_root: Path) -> Path:
@@ -152,7 +160,7 @@ def record_project(payload: dict, project: Path, home: Path) -> bool:
 
 
 def project_file(home: Path, session_id: str) -> Path:
-    return Path(home) / ".config" / "orb" / "sessions" / f"{session_id}.json"
+    return config_root(home) / "sessions" / f"{session_id}.json"
 
 
 def session_project(home: Path, session_id: str | None) -> Path | None:
