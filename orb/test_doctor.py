@@ -459,6 +459,12 @@ def test_engine_protocol_names_an_engine_with_several_faults_once(tmp_path):
                       f"; {manifest} 'share' must be true or false.")
 
 
+def test_engine_protocol_names_a_stream_that_is_not_a_boolean(tmp_path):
+    folder = users_engine(tmp_path, "tts", "loose", {**OLD, "protocol": 2, "stream": "yes"})
+    check = doctor.check_engine_protocol(tmp_path)
+    assert not check.ok and f"tts engine 'loose' ({folder}): {folder / 'engine.json'} 'stream' must be true or false." in check.detail
+
+
 def test_engine_protocol_names_a_share_that_is_not_a_boolean_and_every_refused_engine(tmp_path):
     users_engine(tmp_path, "tts", "loose", {**OLD, "protocol": 2, "share": "no"})
     users_engine(tmp_path, "stt", "older", {**OLD, "kind": "stt", "protocol": "2"})

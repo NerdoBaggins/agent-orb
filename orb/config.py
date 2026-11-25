@@ -23,7 +23,7 @@ DEFAULTS = {
     "panels_key": "KeyP",
     "theme": "default",
     "stt": {"engine": "moonshine", "moonshine": {}},
-    "tts": {"engine": "kokoro", "speed": 1.18, "kokoro": {"voice": "default", "lang": "en-gb"}},
+    "tts": {"engine": "kokoro", "speed": 1.18, "stream": False, "kokoro": {"voice": "default", "lang": "en-gb"}},
     "wake": None,
     "capture": None,
     "panel_dirs": [],
@@ -54,7 +54,7 @@ class WidgetEntry(TypedDict, total=False):
     pane_width: float
     pane_height: float
 ENGINE_SECTIONS = ("stt", "tts")
-SECTION_KEYS = {"stt": ("engine",), "tts": ("engine", "speed")}
+SECTION_KEYS = {"stt": ("engine",), "tts": ("engine", "speed", "stream")}
 LEGACY_TTS_KEYS = ("voice", "lang")  # the flat shape from before engine blocks: Kokoro's settings at the top
 # `ptt_key` and `voice` are not credentials; a name has to carry one of these words as a whole segment.
 CREDENTIAL_KEY = re.compile(r"(^|_)(api_?key|access_?key|token|secret|password|passwd|credential)s?($|_)", re.I)
@@ -125,6 +125,8 @@ def validate_types(data: dict, label: str) -> None:
                 raise ConfigError(f"{label} config: {section}.engine must be a string")
             elif name == "speed" and not (is_finite(value) or isinstance(value, dict) and all(map(is_finite, value.values()))):
                 raise ConfigError(f"{label} config: tts.speed must be a number or a table of a number per agent")
+            elif name == "stream" and not isinstance(value, bool):
+                raise ConfigError(f"{label} config: tts.stream must be true or false")
             elif name not in SECTION_KEYS[section] and not isinstance(value, dict):
                 raise ConfigError(f"{label} config: {section}.{name} must be an engine's settings block (an object)")
     for key in FOLDER_KEYS:

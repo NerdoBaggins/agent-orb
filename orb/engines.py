@@ -73,6 +73,7 @@ class Manifest:
     max_seconds: float | None = None  # stt: the longest clip the engine accepts; the orb cuts longer ones
     frame_samples: int | None = None  # wake, vad: samples per frame
     share: bool = True  # false: the engine's work is elsewhere, so each orb gets its own process
+    stream: bool = False  # tts: the engine answers a render that asks for it in pieces
 
 
 def engine_dirs(home: Path) -> list[Path]:
@@ -146,6 +147,10 @@ def share_refusal(manifest: Path, data: dict) -> str | None:
     return None if type(data.get("share", True)) is bool else f"{manifest} 'share' must be true or false."
 
 
+def stream_refusal(manifest: Path, data: dict) -> str | None:
+    return None if type(data.get("stream", False)) is bool else f"{manifest} 'stream' must be true or false."
+
+
 @dataclass(frozen=True)
 class Refusal:
     kind: str
@@ -156,7 +161,7 @@ class Refusal:
 
 def refusals(home: Path) -> tuple[int, list[Refusal]]:
     """How many engine folders with an `engine.json` were read, and each engine refused, once, for a manifest that
-    cannot be read or parsed as an object, its protocol or its `share`; its texts are joined with "; "."""
+    cannot be read or parsed as an object, its protocol, its `share` or its `stream`; its texts are joined with "; "."""
     read, refused = 0, []
     for root in engine_dirs(home):
         for kind in KINDS:
@@ -166,7 +171,7 @@ def refusals(home: Path) -> tuple[int, list[Refusal]]:
                     continue
                 read += 1
                 data = read_data(manifest)
-                faults = [data] if isinstance(data, str) else [t for t in (protocol_refusal(manifest, data), share_refusal(manifest, data)) if t]
+                faults = [data] if isinstance(data, str) else [t for t in (protocol_refusal(manifest, data), share_refusal(manifest, data), stream_refusal(manifest, data)) if t]
                 if faults:
                     refused.append(Refusal(kind, folder.name, folder, "; ".join(faults)))
     return read, refused
@@ -196,10 +201,10 @@ def read_manifest(folder: Path, kind: str) -> Manifest:
     frame_samples = data.get("frame_samples")
     if frame_samples is not None and not (isinstance(frame_samples, int) and frame_samples > 0):
         raise EngineError(f"{manifest} 'frame_samples' must be a positive integer")
-    if refusal := protocol_refusal(manifest, data) or share_refusal(manifest, data):
+    if refusal := protocol_refusal(manifest, data) or share_refusal(manifest, data) or stream_refusal(manifest, data):
         raise EngineError(refusal)
-    share = data.get("share", True)
-    return Manifest(data["name"], data["version"], kind, tuple(run), tuple(env), folder, max_seconds, frame_samples, share)
+    return Manifest(data["name"], data["version"], kind, tuple(run), tuple(env), folder, max_seconds, frame_samples,
+                    data.get("share", True), data.get("stream", False))
 
 
 def missing_env(manifest: Manifest, env=os.environ) -> list[str]:
@@ -553,6 +558,10 @@ class Tts(Engine):
     def __init__(self, settings_for, call_for, home: Path, env=os.environ, launch=start, report=unreported):
         super().__init__("tts", settings_for, home, env, launch, report)
         self.call_for = call_for
+
+    @property
+    def streams(self) -> bool:
+        return self.manifest.stream
 
     def render(self, text: str) -> tuple[np.ndarray, int]:
         reply = self.call(lambda name: {"op": "render", "text": text, **self.call_for(name)})

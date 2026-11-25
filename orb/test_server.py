@@ -79,7 +79,7 @@ class FakeStt:
 
 class FakeTts:
     """A tone per rendered text, `seconds_per_word` long per word, at 8 kHz so frames stay small."""
-    name, fallback_reason, failure = "fake", None, None
+    name, fallback_reason, failure, streams = "fake", None, None, False
 
     def __init__(self):
         self.rendered, self.seconds_per_word, self.closed = [], 0.05, False
@@ -1117,7 +1117,8 @@ def test_switching_the_voice_loads_the_engine_saves_it_for_this_repo_and_tells_e
             message = await ws.receive_json()
             assert message == {"type": "engines", "engines": {"stt": {"name": "fake", "fallback_reason": None},
                                                               "tts": {"name": "other", "fallback_reason": None}},
-                               "voices": None, "voice": True, "loading": {}, "speech_off": None,
+                               "voices": None, "stream": {"on": False, "offered": False, "reason": "the other engine does not stream speech"},
+                               "voice": True, "loading": {}, "speech_off": None,
                                "tts_engines": engines.available("tts", server.home), "stt_engines": engines.available("stt", server.home)}
             assert old.closed and server.tts.name == "other"
             saved = json.loads(private_config_path(tmp_path / "home", server.repo_root).read_text(encoding="utf-8"))
@@ -1217,6 +1218,42 @@ def test_picking_a_voice_sends_the_engine_nothing_saves_it_and_the_next_sentence
             saved = json.loads(private_config_path(tmp_path / "home", server.repo_root).read_text(encoding="utf-8"))
             assert saved["tts"] == {"engine": "other", "other": {"voice": "bob"}}
         server.tts.close()
+    run(go())
+
+
+def test_an_engine_that_does_not_stream_is_offered_the_switch_greyed_with_the_reason(tmp_path):
+    server = make(tmp_path, voice=True)
+    assert server.snapshot()["stream"] == {"on": False, "offered": False, "reason": "the fake engine does not stream speech"}
+
+
+def test_without_a_speech_engine_there_is_no_streaming_switch(tmp_path):
+    assert make(tmp_path).snapshot()["stream"] is None
+
+
+def test_turning_streaming_on_is_saved_for_this_repo_and_tells_every_window(tmp_path):
+    async def go():
+        server = make(tmp_path, voice=True)
+        server.tts.streams = True
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            assert (await ws.receive_json())["stream"] == {"on": False, "offered": True, "reason": None}
+            await ws.send_json({"type": "tts_stream", "on": True})
+            assert (await ws.receive_json())["stream"] == {"on": True, "offered": True, "reason": None}
+            saved = json.loads(private_config_path(tmp_path / "home", server.repo_root).read_text(encoding="utf-8"))
+            assert saved["tts"]["stream"] is True and server.config["tts"]["stream"] is True
+    run(go())
+
+
+@pytest.mark.parametrize("value", ["false", "no", 0, None])
+def test_a_streaming_request_that_is_not_true_leaves_streaming_off(tmp_path, value):
+    async def go():
+        server = make(tmp_path, voice=True)
+        await server.set_tts_stream(True)
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            await ws.send_json({"type": "tts_stream", "on": value})
+            assert (await ws.receive_json())["stream"]["on"] is False
     run(go())
 
 

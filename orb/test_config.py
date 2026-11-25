@@ -138,6 +138,21 @@ def test_speed_that_is_not_a_finite_number_or_a_table_of_them_is_rejected(tmp_pa
         load_layers(tmp_path, user={"tts": {"speed": speed}})
 
 
+def test_streaming_is_off_by_default():
+    assert DEFAULTS["tts"]["stream"] is False
+
+
+@pytest.mark.parametrize("stream", ["yes", 1, 0, None, {"claude": True}])
+def test_a_stream_that_is_not_true_or_false_is_rejected(tmp_path, stream):
+    with pytest.raises(ConfigError, match="tts.stream must be true or false"):
+        load_layers(tmp_path, user={"tts": {"stream": stream}})
+
+
+def test_a_tts_stream_overlays_without_replacing_the_other_defaults(tmp_path):
+    cfg = load_layers(tmp_path, user={"tts": {"stream": True}})
+    assert cfg["tts"]["stream"] is True and cfg["tts"]["engine"] == "kokoro"
+
+
 # ---- what the orb writes goes to the private layer only ----
 
 def test_save_speed_writes_this_repos_file_and_leaves_the_user_file_alone(tmp_path):
