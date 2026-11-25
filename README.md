@@ -664,7 +664,8 @@ and the render fails, as `went quiet for 30 s after piece N`.
 
 Without streaming, the orb renders a sentence and plays it once the whole render has returned, so the wait before the
 first sound is the sentence's length times how long the engine takes per second of speech. With streaming, an engine
-hands the orb the audio in pieces and the first one plays after a fraction of a second.
+hands the orb the audio in pieces, and playback starts once about a second of it is buffered (or once the reply is
+rendered, when it is shorter), so a piece that arrives late does not leave a gap.
 
 It is off unless both sides ask for it: the engine says `"stream": true` in its `engine.json`, and you turn on
 `tts.stream` in your config or the bar's `stream speech (start sooner)` box. The box is greyed, with the reason, when

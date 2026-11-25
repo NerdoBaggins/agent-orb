@@ -54,6 +54,7 @@ PAGE_POLL_S = 2
 WAIT_POLL_S = 1
 WAIT_STEADY_POLLS = 3  # a step must outlast this many polls before the orb says it is waiting on it
 PLAYBACK_GRACE_S = 5
+STREAM_LEAD_S = 1.0  # audio a streamed reply buffers before the window gets any of it
 WAKE_RETRY_S = 60.0
 INTERRUPT_SETTLE_S = 3.0
 PREROLL_FRAMES = 4
@@ -200,6 +201,26 @@ class ClaudeLink:
 def audio_frame(samples: np.ndarray, rate: int) -> bytes:
     """One rendered sentence for the page: little-endian uint32 sample rate, then float32 PCM."""
     return struct.pack("<I", rate) + np.asarray(samples, dtype="<f4").tobytes()
+
+
+class StreamLead:
+    """Holds a streamed reply's first audio back until STREAM_LEAD_S of it is buffered; later audio passes through."""
+
+    def __init__(self, streamed: bool):
+        self.holding = streamed
+        self.frames: list[bytes] = []
+        self.seconds = 0.0
+
+    def push(self, frame: bytes, seconds: float) -> list[bytes]:
+        if not self.holding:
+            return [frame]
+        self.frames.append(frame)
+        self.seconds += seconds
+        return self.release() if self.seconds >= STREAM_LEAD_S else []
+
+    def release(self) -> list[bytes]:
+        frames, self.frames, self.holding = self.frames, [], False
+        return frames
 
 
 @dataclass(frozen=True)
@@ -1831,6 +1852,14 @@ class OrbServer:
         self.played.clear()
         await self.set_state("speaking", said)
         seconds, started, first, streamed = 0.0, time.monotonic(), None, self.streaming
+        lead = StreamLead(streamed)
+
+        async def send(frames: list[bytes]) -> None:
+            nonlocal first
+            for frame in frames:
+                first = first if first is not None else time.monotonic() - started
+                await self.broadcast_bytes(frame)
+
         try:
             await self.broadcast({"type": "speak_start", "sentences": len(sentences)})
             for sentence in sentences:
@@ -1838,10 +1867,10 @@ class OrbServer:
                     async for samples, rate in pieces:
                         if not samples.size:
                             continue
-                        first = first if first is not None else time.monotonic() - started
                         seconds += samples.size / rate
-                        await self.broadcast_bytes(audio_frame(samples, rate))
+                        await send(lead.push(audio_frame(samples, rate), samples.size / rate))
                 await self.report_tts_failure()
+            await send(lead.release())
             await self.broadcast({"type": "speak_end"})
             log.info("speaking %d sentences with %s%s: %.1fs of audio, first after %.2fs, all rendered in %.2fs",
                      len(sentences), self.tts.name, " streaming" if streamed else "", seconds, first or 0.0, time.monotonic() - started)

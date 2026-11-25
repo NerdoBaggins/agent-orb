@@ -9,7 +9,8 @@ that has one adds it under Unreleased.
 
 - Streaming speech, off until you turn it on. An engine that says `"stream": true` in its `engine.json` can send a
   sentence's audio in pieces, and with `tts.stream` set (the bar's `stream speech (start sooner)` box) the orb plays
-  each piece as it arrives instead of waiting for the whole sentence, so speech starts after a fraction of the time.
+  each piece as it arrives instead of waiting for the whole sentence, with about a second of audio buffered before
+  playback starts so a late piece does not leave a gap, and speech starts after a fraction of the time.
   The box is greyed, with the reason, when the selected engine does not stream. A render that fails midway ends its
   sentence and speech goes on with the next. Engine protocol stays 2: `stream` is optional in the manifest and in the
   `render` request, and an engine that ignores it is still correct. `orb doctor` says `streams` on the `tts engine` line
