@@ -168,6 +168,20 @@ def test_a_share_that_is_not_true_or_false_is_refused_with_its_text(tmp_path, sh
     assert str(refused.value) == f"{folder / 'engine.json'} 'share' must be true or false."
 
 
+@pytest.mark.parametrize("stream", ["yes", "true", 1, 0, None, [], {}])
+def test_a_stream_that_is_not_true_or_false_is_refused_with_its_text(tmp_path, stream):
+    folder = write_engine(tmp_path, "tts", "a", "", _manifest_with(protocol=2, stream=stream))
+    with pytest.raises(EngineError) as refused:
+        read_manifest(folder, "tts")
+    assert str(refused.value) == f"{folder / 'engine.json'} 'stream' must be true or false."
+
+
+@pytest.mark.parametrize("extra, streams", [({}, False), ({"stream": True}, True), ({"stream": False}, False)])
+def test_stream_defaults_to_false(tmp_path, extra, streams):
+    folder = write_engine(tmp_path, "tts", "a", "", _manifest_with(protocol=2, **extra))
+    assert read_manifest(folder, "tts").stream is streams
+
+
 @pytest.mark.parametrize("extra, shared", [({}, True), ({"share": True}, True), ({"share": False}, False)])
 def test_protocol_2_is_accepted_and_share_defaults_to_true(tmp_path, extra, shared):
     folder = write_engine(tmp_path, "tts", "a", "", _manifest_with(protocol=2, **extra))

@@ -996,6 +996,23 @@ class OrbServer:
         self.voice_menu = self.menu_of(menu["voices"])
         await self.broadcast({"type": "voices", "voices": self.voice_menu})
 
+    async def set_tts_stream(self, on: bool) -> None:
+        """Saved for this repo whether or not the current engine streams, so the choice holds across engine switches."""
+        if self.tts is None or on == self.config["tts"].get("stream", False):
+            return
+
+        def update(data: dict) -> None:
+            saved = data.get("tts") if isinstance(data.get("tts"), dict) else {}
+            data["tts"] = {**saved, "stream": on}
+
+        await asyncio.to_thread(save_for_repo, self.home, self.repo_root, update)
+        self.config["tts"]["stream"] = on
+        log.info("speech streaming switched %s", "on" if on else "off")
+        await self.broadcast(self.speech_message())
+
+    def stream_state(self) -> dict | None:
+        return None if self.tts is None else stream_menu(self.tts.name, self.tts.streams, self.config["tts"].get("stream", False))
+
     def call_for(self, engine: str) -> dict:
         return tts_call_settings(self.config["tts"], self.agent, engine)
 
@@ -1007,7 +1024,7 @@ class OrbServer:
         return "; ".join(self.load_failures[kind] for kind in sorted(self.load_failures)) or None
 
     def speech_message(self) -> dict:
-        return {"type": "engines", "engines": self.engines_snapshot(), "voices": self.voice_menu, "voice": bool(self.stt and self.tts),
+        return {"type": "engines", "engines": self.engines_snapshot(), "voices": self.voice_menu, "stream": self.stream_state(), "voice": bool(self.stt and self.tts),
                 "loading": self.loading, "speech_off": self.speech_off, **self.engine_names()}
 
     def engine_names(self) -> dict:
@@ -1195,7 +1212,7 @@ class OrbServer:
         return {"type": "snapshot", "state": self.state, "attached": self.attached, "agent": self.link.name,
                 "attach_text": self.link.describe(self.attached), "repo": str(self.repo_root),
                 "engines": self.engines_snapshot(), "capture": self.capture_snapshot(), **self.engine_names(),
-                "voices": self.voice_menu, "loading": self.loading, "speech_off": self.speech_off,
+                "voices": self.voice_menu, "stream": self.stream_state(), "loading": self.loading, "speech_off": self.speech_off,
                 "voice": bool(self.stt and self.tts), "speak": self.voice, "said": self.said, "mute_key": self.config["mute_key"], "panels_key": self.config["panels_key"], "wake": self.wake_snapshot(), "enrolling": self.enroll_snapshot(), "ptt_key": self.config["ptt_key"], "speed": self.speed, "background": self.background, "waiting": self.waiting, "session": self.session,
                 "skin": self.skin.describe() | {"values": self.skin_values, "size": size_for(self.config["skin_sizes"], self.skin.name)}, "skin_key": self.config["skin_key"],
                 **self.installed_pickers(),
@@ -1979,6 +1996,8 @@ class OrbServer:
             await self.speak_text(str(message.get("text", "")), message.get("said"))
         elif kind == "log":
             log.warning("page: %s", str(message.get("text", ""))[:500])
+        elif kind == "tts_stream":
+            await self.set_tts_stream(message.get("on") is True)
         elif kind == "tts_voice":
             await self.set_tts_voice(str(message.get("id", "")))
         elif kind == "tts_engine":
@@ -2119,6 +2138,11 @@ def page_sender(message: dict) -> str:
 
 def engine_launcher(repo: Path, agent: str):
     return engine_client.launcher({"pid": os.getpid(), "repo": str(repo), "agent": agent})
+
+
+def stream_menu(engine: str, offered: bool, on: bool) -> dict:
+    """The speech streaming switch as the page shows it: `reason` says why it cannot be turned on, when it cannot."""
+    return {"on": on, "offered": offered, "reason": None if offered else f"the {engine} engine does not stream speech"}
 
 
 def voice_menu(catalogue: list[dict] | None, configured) -> dict | None:

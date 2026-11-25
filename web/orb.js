@@ -255,6 +255,7 @@
         backgroundUi.set(m.background);
         showEngines(m.engines, m.tts_engines || [], m.stt_engines || []);
         showVoices(m.voices);
+        showStream(m.stream);
         for (const kind of ["stt", "tts"]) {
           if (m.engines[kind] && m.engines[kind].fallback_reason) notice(`${kind}: ${m.engines[kind].fallback_reason}`, "error");
         }
@@ -309,6 +310,7 @@
         updateMic();
         showEngines(m.engines, m.tts_engines, m.stt_engines);
         showVoices(m.voices);
+        showStream(m.stream);
         break;
       case "voices":
         showVoices(m.voices);
@@ -2014,6 +2016,16 @@
     $("voice-pick").hidden = !menu || menu.voices.length < 2;
   }
   $("voice-select").addEventListener("change", (ev) => send({ type: "tts_voice", id: ev.target.value }));
+  const streamHint = $("stream-pick").title;
+  function showStream(menu) {
+    $("stream-pick").hidden = !menu;
+    if (!menu) return;
+    $("stream-toggle").checked = menu.on;
+    $("stream-toggle").disabled = !menu.offered;
+    $("stream-pick").classList.toggle("unavailable", !menu.offered);
+    $("stream-pick").title = menu.reason || streamHint;
+  }
+  $("stream-toggle").addEventListener("change", (ev) => send({ type: "tts_stream", on: ev.target.checked }));
 
   function withActive(names, active) {
     return names.includes(active) ? names : [...names, active];

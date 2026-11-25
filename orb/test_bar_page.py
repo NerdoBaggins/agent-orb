@@ -3,6 +3,7 @@ import asyncio
 import pytest
 
 from orb.test_panel_bridge import run_page
+from orb.test_server import make
 
 pytestmark = pytest.mark.browser
 
@@ -115,3 +116,22 @@ def test_the_voice_speed_slider_shows_a_speed_label_when_the_toolbar_is_open(tmp
 
     asyncio.run(run_page(tmp_path, [], act))
     assert seen["label"] and seen["label"]["width"] > 0 and seen["label"]["height"] > 0 and seen["label"]["opacity"] == "1"
+
+
+@pytest.mark.timeout(60)
+@pytest.mark.parametrize("offered, disabled, title", [
+    (False, True, "the fake engine does not stream speech"),
+    (True, False, "Play each sentence while it is still being spoken, so speech starts sooner"),
+])
+def test_the_streaming_switch_is_greyed_with_its_reason_only_when_the_engine_does_not_stream(tmp_path, offered, disabled, title):
+    seen = {}
+    server = make(tmp_path, voice=True)
+    server.tts.streams = offered
+
+    async def act(page):
+        seen.update(await page.evaluate("""() => ({disabled: document.getElementById('stream-toggle').disabled,
+            title: document.getElementById('stream-pick').title, hidden: document.getElementById('stream-pick').hidden,
+            grey: document.getElementById('stream-pick').classList.contains('unavailable')})"""))
+
+    asyncio.run(run_page(tmp_path, [], act, server))
+    assert seen == {"disabled": disabled, "title": title, "hidden": False, "grey": disabled}
