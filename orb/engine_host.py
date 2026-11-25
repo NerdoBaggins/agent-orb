@@ -29,7 +29,7 @@ TICK_S = 1.0
 FIRST_MESSAGE_TIMEOUT_S = 5.0
 FIRST_MESSAGE_MAX_BYTES = 1024
 LOCK_WAIT_S = 3.0
-BLOCKING_OPS = ("ready", "call", "stop")
+BLOCKING_OPS = ("ready", "call", "stream", "stop")
 HOST_STOP_REPLY_S = EXIT_WAIT_S + 5.0
 STOP_REPLY_SENT_WAIT_S = 2.0
 
@@ -95,7 +95,7 @@ class Host:
     def handle(self, session: Session, message: dict) -> dict | None:
         """The reply, or None when the connection was answered through `session.send` or is being ended instead."""
         op = message.get("op")
-        handler = {"attach": self.attach, "ready": self.ready, "call": self.call, "list": self.listing, "ping": self.ping,
+        handler = {"attach": self.attach, "ready": self.ready, "call": self.call, "stream": self.stream, "list": self.listing, "ping": self.ping,
                    "stop": self.stop}.get(op) if isinstance(op, str) else None
         if handler is None:
             return {"error": f"unknown op {op!r}"}
@@ -207,6 +207,25 @@ class Host:
         return {"loaded": slot.process.loaded}
 
     def call(self, session: Session, message: dict) -> dict | None:
+        return self.serve(session, message, lambda process, request, timeout, received: {"reply": process.call(request, timeout, received)})
+
+    def stream(self, session: Session, message: dict) -> dict | None:
+        """A call the engine may answer in pieces: each is sent to the connection as `{"piece": line}` as it arrives, and
+        the final line is the reply, as for `call`."""
+        def relay(process, request, timeout, received):
+            final = None
+            for line in process.stream(request, timeout, received):
+                if line.get("more"):
+                    session.send({"piece": line})
+                else:
+                    final = line
+            return {"reply": final}
+
+        return self.serve(session, message, relay)
+
+    def serve(self, session: Session, message: dict, ask) -> dict | None:
+        """The reply of `ask(process, request, timeout, received)` on the engine the connection is attached to, with the
+        engine's failures answered, and its death handled, as one call's."""
         received = time.monotonic()
         request, timeout = message.get("request"), message.get("timeout", CALL_TIMEOUT_S)
         if not isinstance(request, dict) or not isinstance(timeout, (int, float)) or timeout <= 0:
@@ -222,7 +241,7 @@ class Host:
         if process is None:
             return {"error": "the engine has not finished loading"}
         try:
-            return {"reply": process.call(request, timeout, received)}
+            return ask(process, request, timeout, received)
         except EngineExited:
             self._retire(key, slot)
             return None

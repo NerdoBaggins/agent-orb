@@ -211,6 +211,40 @@ def test_a_request_the_host_hangs_up_on_raises_broken(linked):
         link.request({"op": "ping"}, 5)
 
 
+def test_a_streamed_request_gives_every_line_up_to_the_first_that_is_not_a_piece(linked):
+    link, host = linked
+    host.sendall(b'{"piece": 1}\n{"piece": 2}\n{"reply": 3}\n{"ok": true}\n')
+    assert list(link.stream({"op": "stream"}, 5)) == [{"piece": 1}, {"piece": 2}, {"reply": 3}]
+    assert link.request({"op": "ping"}, 5) == {"ok": True}
+
+
+def test_a_streamed_request_has_one_limit_for_all_its_lines_however_steadily_they_come(linked):
+    link, host = linked
+
+    def trickle():
+        try:
+            for _ in range(5):
+                host.sendall(b'{"piece": 1}\n')
+                time.sleep(0.1)
+            host.sendall(b'{"reply": 1}\n')
+        except OSError:
+            pass
+
+    threading.Thread(target=trickle, daemon=True).start()
+    with pytest.raises(WireTimeout, match="did not answer within"):
+        list(link.stream({"op": "stream"}, 0.35))
+
+
+def test_a_streamed_request_the_host_hangs_up_on_midway_raises_broken(linked):
+    link, host = linked
+    host.sendall(b'{"piece": 1}\n')
+    lines = link.stream({"op": "stream"}, 5)
+    assert next(lines) == {"piece": 1}
+    host.close()
+    with pytest.raises(WireBroken):
+        next(lines)
+
+
 @pytest.mark.parametrize("sent", [b"not json\n", b"[1]\n"])
 def test_a_reply_that_is_not_an_object_raises_broken(linked, sent):
     link, host = linked

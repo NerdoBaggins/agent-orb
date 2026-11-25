@@ -884,3 +884,80 @@ def test_a_second_orb_waits_out_a_hung_host_being_replaced_and_connects(home):
             link.close()
         hung.kill()
         hung.wait()
+
+
+def counting_attaches(monkeypatch):
+    attaches = []
+    attach = engine_client.attach
+    monkeypatch.setattr(engine_client, "attach", lambda attachment, *rest: (attaches.append(attachment), attach(attachment, *rest))[1])
+    return attaches
+
+
+def remote(home, **settings):
+    return launcher()("tts", {"engine": "fake", **settings}, home)
+
+
+STREAMED = {"op": "render", "text": "one two three four", "stream": True}
+
+
+def test_a_streamed_render_comes_through_the_host_piece_by_piece(home):
+    engine = remote(home, pieces=3)
+    lines = list(engine.stream(STREAMED))
+    assert [bool(line.get("more")) for line in lines] == [True, True, True, False]
+    assert sum(decode_pcm(line["pcm"]).size for line in lines) == 1600
+    engine.close()
+
+
+def test_one_orb_streams_through_the_host_while_another_orbs_plain_render_waits_behind_it_and_both_complete(home, tmp_path):
+    release = tmp_path / "release"
+    settings = {"pieces": 2, "hold_final_until": str(release)}
+    streaming = launcher({**OWNER, "pid": 1})("tts", {"engine": "fake", **settings}, home)
+    waiting = launcher({**OWNER, "pid": 2})("tts", {"engine": "fake", **settings}, home)
+    [shared] = running(home)
+    assert owners_of(shared) == [1, 2]
+    heard, answered = [], []
+    pieces = streaming.stream(STREAMED)
+    heard.append(next(pieces))
+    streamer = threading.Thread(target=lambda: heard.extend(pieces), daemon=True)
+    streamer.start()
+    queued = threading.Thread(target=lambda: answered.append(waiting.call({"op": "render", "text": "plain"})), daemon=True)
+    queued.start()
+    assert eventually(lambda: len(heard) == 2)
+    assert answered == [] and queued.is_alive()
+    release.write_text("go")
+    streamer.join(30)
+    queued.join(30)
+    assert [bool(line.get("more")) for line in heard] == [True, True, False] and answered[0]["text"] == "plain"
+    streaming.close()
+    waiting.close()
+
+
+def test_a_connection_that_breaks_after_the_first_piece_fails_the_render_and_attaches_no_second_time(home, monkeypatch):
+    engine = remote(home, pieces=3, piece_delay_s=0.2)
+    attaches = counting_attaches(monkeypatch)
+    pieces = engine.stream(STREAMED)
+    next(pieces)
+    engine.link.sock.shutdown(socket.SHUT_RDWR)
+    with pytest.raises(EngineError):
+        list(pieces)
+    assert attaches == []
+    engine.close()
+
+
+def test_a_connection_that_broke_before_a_streamed_render_is_attached_again_and_the_render_made_once_more(home, monkeypatch):
+    engine = remote(home, pieces=2)
+    attaches = counting_attaches(monkeypatch)
+    engine.link.sock.shutdown(socket.SHUT_RDWR)
+    assert [bool(line.get("more")) for line in engine.stream(STREAMED)] == [True, True, False]
+    assert len(attaches) == 1
+    engine.close()
+
+
+def test_a_streamed_render_given_up_on_leaves_the_connection_answering_the_next_request(home, monkeypatch):
+    engine = remote(home, pieces=3, piece_delay_s=0.05)
+    attaches = counting_attaches(monkeypatch)
+    pieces = engine.stream(STREAMED)
+    next(pieces)
+    pieces.close()
+    assert engine.call({"op": "render", "text": "next"})["text"] == "next" and attaches == []
+    engine.close()

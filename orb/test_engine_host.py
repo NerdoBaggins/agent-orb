@@ -35,6 +35,7 @@ class FakeProcess:
     def __init__(self, pid, stubborn=False):
         self.process = FakeLauncher(pid)
         self.loaded, self.alive, self.closed, self.calls, self.fail = {"ok": True, "pid": pid + 5000}, True, False, [], None
+        self.pieces: list[dict] = []
         self.stubborn, self.killed = stubborn, False
         self.label = f"fake engine {pid}"
 
@@ -43,6 +44,13 @@ class FakeProcess:
         if self.fail:
             raise self.fail if isinstance(self.fail, Exception) else EngineError(self.fail)
         return {"echo": request}
+
+    def stream(self, request, timeout, sent_at=None):
+        self.calls.append(request)
+        yield from self.pieces
+        if self.fail:
+            raise self.fail if isinstance(self.fail, Exception) else EngineError(self.fail)
+        yield {"echo": request}
 
     def close_input(self):
         self.closed = True
@@ -450,6 +458,47 @@ def test_the_sweep_drops_an_engine_found_dead_and_hangs_up_every_connection_on_i
     assert sorted(events) == [("one", "hung up"), ("two", "hung up")] and host.slots == {} and host.registry.owners == {}
 
 
+STREAM = {"op": "stream", "request": {"op": "x"}, "timeout": 5}
+PIECES = [{"rate": 8000, "pcm": "a", "more": True}, {"rate": 8000, "pcm": "b", "more": True}]
+
+
+def test_a_stream_sends_each_piece_to_its_connection_and_answers_with_the_final_line(host, starter):
+    events = []
+    caller, _ = join(host, heard(events, "caller"))
+    processes(starter)[0].pieces = PIECES
+    assert host.handle(caller, STREAM) == {"reply": {"echo": {"op": "x"}}}
+    assert events == [("caller", "reply", {"piece": PIECES[0]}), ("caller", "reply", {"piece": PIECES[1]})]
+
+
+def test_a_stream_that_fails_after_a_piece_sends_the_piece_then_answers_with_the_error(host, starter):
+    events = []
+    caller, _ = join(host, heard(events, "caller"))
+    process = processes(starter)[0]
+    process.pieces, process.fail = PIECES[:1], "fake engine exploded"
+    assert host.handle(caller, STREAM) == {"error": "fake engine exploded"}
+    assert events == [("caller", "reply", {"piece": PIECES[0]})]
+
+
+def test_a_stream_that_times_out_answers_the_caller_then_drops_the_engine_like_a_call(host, starter):
+    events = []
+    caller, _ = join(host, heard(events, "caller"))
+    process = processes(starter)[0]
+    process.pieces, process.fail = PIECES[:1], EngineTimeout("fake engine 100 went quiet for 30 s after piece 1")
+    assert host.handle(caller, STREAM) is None
+    assert events == [("caller", "reply", {"piece": PIECES[0]}), ("caller", "reply", {"error": "fake engine 100 went quiet for 30 s after piece 1"}),
+                      ("caller", "hung up")]
+    assert host.slots == {} and process.closed
+
+
+def test_a_stream_on_a_connection_that_has_not_attached_is_an_error(host):
+    assert host.handle(Session(), STREAM) == {"error": "this connection has not attached to an engine"}
+
+
+@pytest.mark.parametrize("message", [{"op": "stream"}, {"op": "stream", "request": "x", "timeout": 5}, {"op": "stream", "request": {}, "timeout": 0}])
+def test_a_malformed_stream_is_an_error_reply(host, message):
+    assert "error" in host.handle(Session(), message)
+
+
 class StuckProcess(FakeProcess):
     """A call that does not return until `release` is set."""
 
@@ -839,6 +888,37 @@ def test_a_connection_that_ends_while_its_call_runs_drops_its_owner_before_the_c
     wire.client.close()
     assert eventually(lambda: host.registry.owners == {})
     process.release.set()
+
+
+class StuckStream(FakeProcess):
+    """A stream that does not end until `release` is set."""
+
+    def __init__(self, pid):
+        super().__init__(pid)
+        self.in_stream, self.release = threading.Event(), threading.Event()
+
+    def stream(self, request, timeout, sent_at=None):
+        self.in_stream.set()
+        assert self.release.wait(10)
+        yield from super().stream(request, timeout, sent_at)
+
+
+def test_a_connection_is_still_read_while_its_stream_runs(host, wire):
+    process = StuckStream(7)
+    host.start = lambda kind, settings, home, env, report, started: process
+    wire.greet()
+    wire.send(attach_message())
+    assert json.loads(wire.client.recv(1024)) == {"attached": True}
+    wire.send({"op": "ready"})
+    assert "loaded" in json.loads(wire.client.recv(1024))
+    wire.send(STREAM)
+    assert process.in_stream.wait(10)
+    wire.client.settimeout(3)
+    wire.send({"op": "ping"})
+    try:
+        assert json.loads(wire.client.recv(1024))["ok"] is True
+    finally:
+        process.release.set()
 
 
 def test_a_connection_that_ends_while_its_ready_waits_for_the_load_drops_its_owner_before_the_load_ends(host, wire, gated):
