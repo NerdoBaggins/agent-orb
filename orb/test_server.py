@@ -840,6 +840,22 @@ def test_a_streamed_sentence_reaches_the_window_piece_by_piece_before_its_render
     assert any("speaking 1 sentences with fake streaming:" in record.message for record in caplog.records)
 
 
+def test_a_streamed_render_that_ends_with_empty_audio_sends_the_window_no_empty_frame(tmp_path):
+    async def go():
+        server = streaming_server(tmp_path, pieces=2, empty_final=True)
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            speaking = asyncio.create_task(server.speak("one two three four"))
+            await messages_until(ws, {"type": "speak_start", "sentences": 1})
+            frames = [m for m in await messages_until(ws, {"type": "speak_end"}) if isinstance(m, bytes)]
+            await ws.send_json({"type": "played"})
+            await speaking
+            assert [(len(frame) - 4) // 4 for frame in frames] == [533, 533]
+        server.tts.close()
+    run(go())
+
+
 def test_a_sentence_is_rendered_whole_when_the_user_has_not_turned_streaming_on(tmp_path):
     async def go():
         server = streaming_server(tmp_path, stream=False, pieces=2)

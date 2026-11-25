@@ -94,13 +94,14 @@ def stream_pieces(n: int) -> int:
         time.sleep(piece_delay_s)
         write({"rate": RATE * 2 if i == change_rate_at else RATE, "pcm": encode(size), "more": True})
     wait_for(hold_final_until)
-    return n - size * pieces
+    return 0 if empty_final else n - size * pieces
 
 
 RATE = 8_000
 seconds_per_word, die_after, count, voices, fail_renders = 0.05, None, 0, None, ()
 delay_s, hold, hang = 0.0, False, False
 pieces, piece_delay_s, fail_piece, quiet_after, change_rate_at, hold_final_until = 0, 0.0, None, None, None, None
+empty_final = False
 for line in requests():
     req = json.loads(line)
     if req["op"] != "load":
@@ -126,6 +127,7 @@ for line in requests():
             piece_delay_s = float(settings.get("piece_delay_s", 0))
             fail_piece, quiet_after = settings.get("fail_piece"), settings.get("quiet_after")
             change_rate_at, hold_final_until = settings.get("change_rate_at"), settings.get("hold_final_until")
+            empty_final = bool(settings.get("empty_final"))
             download(float(settings.get("download_s", 0)), float(settings.get("download_tick_s", 1.0)))
             time.sleep(float(settings.get("load_delay_s", 0)))
             if settings.get("log_loads"):
