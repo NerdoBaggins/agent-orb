@@ -19,7 +19,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from orb import PLUGIN_ROOT, engine_wire, engines, logs
+from orb import PLUGIN_ROOT, engine_wire, engines, logs, loopback
 from orb.engine_registry import GRACE_S, HOST_IDLE_S, Key, Registry, make_key
 from orb.engines import CALL_TIMEOUT_S, EXIT_WAIT_S, EngineError, EngineExited, EngineQueueTimeout, EngineTimeout
 
@@ -411,7 +411,7 @@ def accept_loop(host: Host, listener: socket.socket, token: str) -> None:
 
 def listen(version: str | None) -> tuple[socket.socket, engine_wire.HostRecord]:
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    listener.bind(("127.0.0.1", 0))
+    listener.bind((loopback.HOST, 0))
     listener.listen()
     return listener, engine_wire.HostRecord(listener.getsockname()[1], secrets.token_urlsafe(24), os.getpid(), version)
 

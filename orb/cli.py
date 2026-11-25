@@ -25,13 +25,13 @@ SPEECH_LOADING = "speech engines are still loading; the window shows what they a
 
 def free_port() -> int:
     with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
+        s.bind((loopback.HOST, 0))
         return s.getsockname()[1]
 
 
 def port_free(port: int) -> bool:
     with socket.socket() as s:
-        return s.connect_ex(("127.0.0.1", port)) != 0
+        return s.connect_ex((loopback.HOST, port)) != 0
 
 
 def stable_port(last: dict | None) -> int:
@@ -56,13 +56,13 @@ def spawn_detached(command: list[str], out_path: Path, stdin_text: str) -> subpr
 
 
 def page_address(server: dict) -> str:
-    return f"http://127.0.0.1:{server['port']}/"
+    return f"{loopback.origin(server['port'])}/"
 
 
 def window_url(state: Path, agent: str, server: dict) -> str:
     page = state / f"open.{agent}.html"
     tmp = page.with_suffix(".tmp")
-    target = json.dumps(f"http://127.0.0.1:{server['port']}/?token={server['token']}")
+    target = json.dumps(f"{loopback.origin(server['port'])}/?token={server['token']}")
     tmp.write_text(f"<!doctype html><script>location.replace({target})</script>", encoding="utf-8")
     user_only(tmp)
     os.replace(tmp, page)
@@ -81,7 +81,7 @@ def wait_healthy(port: int, token: str, proc: subprocess.Popen, log_path: Path, 
         if proc.poll() is not None:
             raise SystemExit(f"orb server exited with {proc.returncode}; see {log_path} and {crash_path}")
         try:
-            with loopback.urlopen(f"http://127.0.0.1:{port}/health?token={token}", timeout=1) as r:
+            with loopback.urlopen(f"{loopback.origin(port)}/health?token={token}", timeout=1) as r:
                 return json.loads(r.read().decode("utf-8"))
         except (urllib.error.URLError, OSError, ValueError):
             time.sleep(0.3)
@@ -92,7 +92,7 @@ def open_windows(server: dict) -> int:
     """How many pages are connected to a running server; 1 when it will not say, so an unanswering server is
     left alone rather than given a second window."""
     try:
-        with loopback.urlopen(f"http://127.0.0.1:{server['port']}/health?token={server['token']}", timeout=2) as r:
+        with loopback.urlopen(f"{loopback.origin(server['port'])}/health?token={server['token']}", timeout=2) as r:
             return int(json.loads(r.read().decode("utf-8")).get("windows", 1))
     except (urllib.error.URLError, OSError, ValueError):
         return 1
@@ -192,7 +192,7 @@ def pick_server(state: Path, requested: str | None) -> dict:
 
 def post(server: dict, path: str, body: dict) -> dict:
     data = json.dumps(body).encode("utf-8")
-    request = urllib.request.Request(f"http://127.0.0.1:{server['port']}{path}", data, method="POST",
+    request = urllib.request.Request(f"{loopback.origin(server['port'])}{path}", data, method="POST",
                                      headers={"X-Orb-Token": server["token"], "Content-Type": "application/json"})
     try:
         with loopback.urlopen(request, timeout=10) as r:

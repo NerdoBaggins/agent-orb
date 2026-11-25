@@ -59,7 +59,7 @@ def channel_bound(info: ChannelInfo | None) -> bool:
     if not info:
         return False
     try:
-        request = urllib.request.Request(f"http://127.0.0.1:{info.port}/health", headers={"X-Orb-Secret": info.secret})
+        request = urllib.request.Request(f"{loopback.origin(info.port)}/health", headers={"X-Orb-Secret": info.secret})
         with loopback.urlopen(request, timeout=PROBE_TIMEOUT_S) as r:
             return bool(json.loads(r.read().decode("utf-8")).get("ok"))
     except (urllib.error.URLError, OSError, ValueError):
@@ -68,7 +68,7 @@ def channel_bound(info: ChannelInfo | None) -> bool:
 
 def post_prompt(info: ChannelInfo, text: str, request_id: str) -> None:
     body = json.dumps({"text": text, "req": request_id}).encode("utf-8")
-    request = urllib.request.Request(f"http://127.0.0.1:{info.port}/prompt", body, method="POST",
+    request = urllib.request.Request(f"{loopback.origin(info.port)}/prompt", body, method="POST",
                                      headers={"X-Orb-Secret": info.secret, "Content-Type": "application/json"})
     try:
         with loopback.urlopen(request, timeout=PROBE_TIMEOUT_S) as r:

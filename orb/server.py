@@ -29,7 +29,7 @@ from pathlib import Path
 import numpy as np
 from aiohttp import WSMsgType, web
 
-from orb import PLUGIN_ROOT, actions, agents, engine_client, engines, feeds, folders, logs, pages, panels, releases, skins, themes, widgets
+from orb import PLUGIN_ROOT, actions, agents, engine_client, engines, feeds, folders, logs, loopback, pages, panels, releases, skins, themes, widgets
 from orb import commands, terminal
 from orb.audio import SAMPLE_RATE, TAP_S, speakable, split_sentences
 from orb.clips import LOSSY_SHARE, gap_notice, lost_share
@@ -336,7 +336,7 @@ class OrbServer:
 
     @property
     def origin(self) -> str:
-        return f"http://127.0.0.1:{self.port}"
+        return loopback.origin(self.port)
 
     def own_page_asset(self, request: web.Request) -> bool:
         """A skin's module imports and a theme's fonts and images carry no token; the browser marks them as coming
@@ -2156,7 +2156,7 @@ class OrbServer:
         self.voice_menu = self.menu_of(await asyncio.to_thread(self.tts.voices)) if self.tts else None
         runner = web.AppRunner(self.app, access_log=None)
         await runner.setup()
-        await web.TCPSite(runner, "127.0.0.1", self.port).start()
+        await web.TCPSite(runner, loopback.HOST, self.port).start()
         write_json(port_file(state_dir(self.home, self.repo_root), self.agent), {"port": self.port})
         write_json(server_file(state_dir(self.home, self.repo_root), self.agent),
                    {"port": self.port, "token": self.token, "pid": os.getpid(), "agent": self.agent,
