@@ -6,6 +6,7 @@ writes server.<agent>.json."""
 import argparse
 import asyncio
 import base64
+import contextlib
 import hashlib
 import hmac
 import html as html_text
@@ -1830,18 +1831,19 @@ class OrbServer:
         sentences = split_sentences(speakable(text))
         self.played.clear()
         await self.set_state("speaking", said)
-        seconds, started, first = 0.0, time.monotonic(), None
+        seconds, started, first, streamed = 0.0, time.monotonic(), None, self.streaming
         try:
             await self.broadcast({"type": "speak_start", "sentences": len(sentences)})
             for sentence in sentences:
-                samples, rate = await asyncio.to_thread(self.tts.render, sentence)
+                async with contextlib.aclosing(self.rendered(sentence)) as pieces:
+                    async for samples, rate in pieces:
+                        first = first if first is not None else time.monotonic() - started
+                        seconds += samples.size / rate
+                        await self.broadcast_bytes(audio_frame(samples, rate))
                 await self.report_tts_failure()
-                first = first if first is not None else time.monotonic() - started
-                seconds += samples.size / rate
-                await self.broadcast_bytes(audio_frame(samples, rate))
             await self.broadcast({"type": "speak_end"})
-            log.info("speaking %d sentences with %s: %.1fs of audio, first after %.2fs, all rendered in %.2fs",
-                     len(sentences), self.tts.name, seconds, first or 0.0, time.monotonic() - started)
+            log.info("speaking %d sentences with %s%s: %.1fs of audio, first after %.2fs, all rendered in %.2fs",
+                     len(sentences), self.tts.name, " streaming" if streamed else "", seconds, first or 0.0, time.monotonic() - started)
             try:
                 await asyncio.wait_for(self.played.wait(), seconds + PLAYBACK_GRACE_S)
             except asyncio.TimeoutError:
@@ -1856,6 +1858,44 @@ class OrbServer:
                     self.waker.follow_up.open(time.monotonic())
                     self.spawn(self.send_queued_after(self.waker.follow_up.seconds))
                 await self.set_state(self.resume_state())
+
+    @property
+    def streaming(self) -> bool:
+        """Speech is rendered in pieces only when the user asked for it and the engine declares it."""
+        return self.config["tts"].get("stream", False) is True and self.tts.streams
+
+    def renders(self, sentence: str):
+        if self.streaming:
+            yield from self.tts.render_stream(sentence)
+        else:
+            yield self.tts.render(sentence)
+
+    async def rendered(self, sentence: str):
+        """The audio of one sentence, each piece as the engine produces it. The engine is driven on a thread of its own to
+        the end of the render, even when the caller stops listening, since a render cannot be taken back."""
+        loop = asyncio.get_running_loop()
+        arrived: asyncio.Queue = asyncio.Queue()
+        finished = object()
+
+        def deliver(item) -> None:
+            try:
+                loop.call_soon_threadsafe(arrived.put_nowait, item)
+            except RuntimeError:
+                pass
+
+        def produce() -> None:
+            try:
+                for piece in self.renders(sentence):
+                    deliver(piece)
+            except Exception as e:
+                deliver(e)
+            deliver(finished)
+
+        threading.Thread(target=produce, daemon=True).start()
+        while (item := await arrived.get()) is not finished:
+            if isinstance(item, Exception):
+                raise item
+            yield item
 
     async def report_tts_failure(self) -> None:
         failure = self.tts.failure
