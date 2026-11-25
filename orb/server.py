@@ -54,7 +54,7 @@ PAGE_POLL_S = 2
 WAIT_POLL_S = 1
 WAIT_STEADY_POLLS = 3  # a step must outlast this many polls before the orb says it is waiting on it
 PLAYBACK_GRACE_S = 5
-STREAM_LEAD_S = 1.0  # audio a streamed reply buffers before the window gets any of it
+STREAM_LEAD_S = 1.0
 WAKE_RETRY_S = 60.0
 INTERRUPT_SETTLE_S = 3.0
 PREROLL_FRAMES = 4
@@ -204,8 +204,6 @@ def audio_frame(samples: np.ndarray, rate: int) -> bytes:
 
 
 class StreamLead:
-    """Holds a streamed reply's first audio back until STREAM_LEAD_S of it is buffered; later audio passes through."""
-
     def __init__(self, streamed: bool):
         self.holding = streamed
         self.frames: list[bytes] = []
@@ -219,7 +217,7 @@ class StreamLead:
         return self.release() if self.seconds >= STREAM_LEAD_S else []
 
     def release(self) -> list[bytes]:
-        frames, self.frames, self.holding = self.frames, [], False
+        frames, self.frames = self.frames, []
         return frames
 
 
