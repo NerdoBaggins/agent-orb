@@ -7,7 +7,7 @@ frames stay small; the reply echoes the text, and the speed, voice and language 
 load; `die_after` exits after that many renders; `fail_renders`, a list of render counts, answers those renders with an error.
 `voices`, a list of ids, is the catalogue, its first entry the default voice, and a render naming another is an error;
 without it the engine knows no `voices` op, like an engine that offers no choice. `delay_s` makes every request after
-the load take that long; `hold` ignores the hang-up; `hang_once`, a marker path, makes the first process to find
+the load take that long; `hold` ignores the hang-up; `hold_piece_until`, a marker path, makes a streamed render wait for it before piece `hold_piece`; `hang_once`, a marker path, makes the first process to find
 none never answer its first request; `load_delay_s` makes the load take that long; `download_s` makes it first report a
 download of that many seconds, a line every `download_tick_s` (default 1); `log_loads`, a path, gets the pid on one line per
 load."""
@@ -91,6 +91,8 @@ def stream_pieces(n: int) -> int:
         if i == fail_piece:
             write({"error": f"fake tts was told to fail piece {i}"})
             return -1
+        if i == hold_piece:
+            wait_for(hold_piece_until)
         time.sleep(piece_delay_s)
         write({"rate": RATE * 2 if i == change_rate_at else RATE, "pcm": encode(size), "more": True})
     wait_for(hold_final_until)
@@ -102,6 +104,7 @@ seconds_per_word, die_after, count, voices, fail_renders = 0.05, None, 0, None, 
 delay_s, hold, hang = 0.0, False, False
 pieces, piece_delay_s, fail_piece, quiet_after, change_rate_at, hold_final_until = 0, 0.0, None, None, None, None
 empty_final = False
+hold_piece, hold_piece_until = None, None
 for line in requests():
     req = json.loads(line)
     if req["op"] != "load":
@@ -128,6 +131,7 @@ for line in requests():
             fail_piece, quiet_after = settings.get("fail_piece"), settings.get("quiet_after")
             change_rate_at, hold_final_until = settings.get("change_rate_at"), settings.get("hold_final_until")
             empty_final = bool(settings.get("empty_final"))
+            hold_piece, hold_piece_until = settings.get("hold_piece"), settings.get("hold_piece_until")
             download(float(settings.get("download_s", 0)), float(settings.get("download_tick_s", 1.0)))
             time.sleep(float(settings.get("load_delay_s", 0)))
             if settings.get("log_loads"):

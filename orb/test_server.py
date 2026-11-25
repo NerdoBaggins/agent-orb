@@ -4,6 +4,7 @@ import io
 import json
 import os
 import queue
+import re
 import shutil
 import struct
 import sys
@@ -816,11 +817,32 @@ async def messages_until(ws, closing):
     return seen
 
 
+def renders_started_at_each_broadcast(server):
+    """The count of renders the engine had been asked for as each audio frame went out to the window."""
+    started, seen = [], []
+    render, render_stream, broadcast_bytes = server.tts.render, server.tts.render_stream, server.broadcast_bytes
+
+    def counting_render(text):
+        started.append(text)
+        return render(text)
+
+    def counting_render_stream(text):
+        started.append(text)
+        yield from render_stream(text)
+
+    async def spy(frame):
+        seen.append(len(started))
+        await broadcast_bytes(frame)
+
+    server.tts.render, server.tts.render_stream, server.broadcast_bytes = counting_render, counting_render_stream, spy
+    return seen
+
+
 def test_a_streamed_sentence_reaches_the_window_piece_by_piece_before_its_render_returns_and_the_log_names_it(tmp_path, caplog):
     release = tmp_path / "release"
 
     async def go():
-        server = streaming_server(tmp_path, pieces=2, hold_final_until=str(release))
+        server = streaming_server(tmp_path, pieces=2, seconds_per_word=0.5, hold_final_until=str(release))
         async with await client_for(server) as c:
             ws = await c.ws_connect("/ws", params={"token": TOKEN})
             await ws.receive_json()
@@ -834,7 +856,7 @@ def test_a_streamed_sentence_reaches_the_window_piece_by_piece_before_its_render
                 assert await next_message(ws) == {"type": "speak_end"}
                 await ws.send_json({"type": "played"})
                 await speaking
-            assert [(len(frame) - 4) // 4 for frame in (first, second, final)] == [533, 533, 534]
+            assert [(len(frame) - 4) // 4 for frame in (first, second, final)] == [5333, 5333, 5334]
         server.tts.close()
     run(go())
     assert any("speaking 1 sentences with fake streaming:" in record.message for record in caplog.records)
@@ -856,6 +878,103 @@ def test_a_streamed_render_that_ends_with_empty_audio_sends_the_window_no_empty_
     run(go())
 
 
+def test_a_streamed_reply_sends_the_window_nothing_until_a_lead_of_audio_is_buffered_then_all_of_it(tmp_path):
+    release = tmp_path / "release"
+
+    async def go():
+        server = streaming_server(tmp_path, pieces=3, seconds_per_word=0.4, hold_piece=2, hold_piece_until=str(release))
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            speaking = asyncio.create_task(server.speak("one two three four"))
+            await messages_until(ws, {"type": "speak_start", "sentences": 1})
+            with pytest.raises(asyncio.TimeoutError):
+                await ws.receive(timeout=0.5)
+            release.write_text("go")
+            frames = [m for m in await messages_until(ws, {"type": "speak_end"}) if isinstance(m, bytes)]
+            await ws.send_json({"type": "played"})
+            await speaking
+            assert [(len(frame) - 4) // 4 for frame in frames] == [3200, 3200, 3200, 3200]
+        server.tts.close()
+    run(go())
+
+
+def test_a_streamed_reply_shorter_than_the_lead_is_sent_in_full_when_its_render_ends(tmp_path):
+    async def go():
+        server = streaming_server(tmp_path, pieces=2)
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            speaking = asyncio.create_task(server.speak("one two three four"))
+            frames = [m for m in await messages_until(ws, {"type": "speak_end"}) if isinstance(m, bytes)]
+            await ws.send_json({"type": "played"})
+            await speaking
+            assert [(len(frame) - 4) // 4 for frame in frames] == [533, 533, 534]
+        server.tts.close()
+    run(go())
+
+
+def test_the_lead_of_a_streamed_reply_is_measured_across_its_sentences(tmp_path):
+    async def go():
+        server = streaming_server(tmp_path, pieces=1, seconds_per_word=0.15)
+        sent_when_broadcast = renders_started_at_each_broadcast(server)
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            speaking = asyncio.create_task(server.speak("First sentence is here. Second sentence is there."))
+            await messages_until(ws, {"type": "speak_end"})
+            await ws.send_json({"type": "played"})
+            await speaking
+            assert sent_when_broadcast[0] == 2
+        server.tts.close()
+    run(go())
+
+
+def test_first_after_in_the_log_is_measured_to_the_first_audio_sent_to_the_window(tmp_path, caplog):
+    release = tmp_path / "release"
+
+    async def go():
+        server = streaming_server(tmp_path, pieces=3, seconds_per_word=0.4, hold_piece=2, hold_piece_until=str(release))
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            with caplog.at_level("INFO", logger="orb"):
+                speaking = asyncio.create_task(server.speak("one two three four"))
+                await messages_until(ws, {"type": "speak_start", "sentences": 1})
+                await asyncio.sleep(0.6)
+                release.write_text("go")
+                await messages_until(ws, {"type": "speak_end"})
+                await ws.send_json({"type": "played"})
+                await speaking
+        server.tts.close()
+    run(go())
+    [line] = [r.message for r in caplog.records if r.message.startswith("speaking")]
+    assert float(re.search(r"first after ([\d.]+)s", line).group(1)) >= 0.6
+
+
+def test_stop_while_audio_is_held_back_sends_the_window_none_of_it(tmp_path):
+    release = tmp_path / "release"
+
+    async def go():
+        server = streaming_server(tmp_path, pieces=2, hold_final_until=str(release))
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            server.speaking = asyncio.create_task(server.speak("one two three four"))
+            await messages_until(ws, {"type": "speak_start", "sentences": 1})
+            await asyncio.sleep(0.5)
+            await server.stop_speaking()
+            release.write_text("go")
+            seen = [await next_message(ws)]
+            with contextlib.suppress(asyncio.TimeoutError):
+                while True:
+                    seen.append((await ws.receive(timeout=0.5)).data)
+            assert seen[0] == {"type": "speak_stop"}
+            assert not [m for m in seen if isinstance(m, bytes)]
+        server.tts.close()
+    run(go())
+
+
 def test_a_sentence_is_rendered_whole_when_the_user_has_not_turned_streaming_on(tmp_path):
     async def go():
         server = streaming_server(tmp_path, stream=False, pieces=2)
@@ -868,6 +987,22 @@ def test_a_sentence_is_rendered_whole_when_the_user_has_not_turned_streaming_on(
             await ws.send_json({"type": "played"})
             await speaking
             assert [(len(frame) - 4) // 4 for frame in frames] == [1600] and "stream" not in sent[0]
+        server.tts.close()
+    run(go())
+
+
+def test_a_reply_that_is_not_streamed_sends_each_sentence_the_moment_it_is_rendered(tmp_path):
+    async def go():
+        server = streaming_server(tmp_path, stream=False)
+        sent_when_broadcast = renders_started_at_each_broadcast(server)
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            speaking = asyncio.create_task(server.speak("First sentence is here. Second sentence is there."))
+            await messages_until(ws, {"type": "speak_end"})
+            await ws.send_json({"type": "played"})
+            await speaking
+            assert sent_when_broadcast == [1, 2]
         server.tts.close()
     run(go())
 
@@ -891,7 +1026,7 @@ def test_a_sentence_is_rendered_whole_when_streaming_is_on_but_the_engine_does_n
 
 def test_speech_stopped_between_pieces_leaves_the_engine_answering_the_next_render(tmp_path):
     async def go():
-        server = streaming_server(tmp_path, pieces=3, piece_delay_s=0.1)
+        server = streaming_server(tmp_path, pieces=3, piece_delay_s=0.1, seconds_per_word=0.5)
         async with await client_for(server) as c:
             ws = await c.ws_connect("/ws", params={"token": TOKEN})
             await ws.receive_json()
@@ -901,7 +1036,7 @@ def test_speech_stopped_between_pieces_leaves_the_engine_answering_the_next_rend
             speaking.cancel()
             with pytest.raises(asyncio.CancelledError):
                 await speaking
-            assert (await asyncio.to_thread(server.tts.render, "next"))[0].size == 400
+            assert (await asyncio.to_thread(server.tts.render, "next"))[0].size == 4000
         server.tts.close()
     run(go())
 
@@ -912,7 +1047,7 @@ def test_pieces_still_arriving_after_the_window_has_closed_are_dropped_without_a
     servers = []
 
     async def go():
-        server = streaming_server(tmp_path, pieces=3, piece_delay_s=0.3)
+        server = streaming_server(tmp_path, pieces=3, piece_delay_s=0.3, seconds_per_word=0.5)
         servers.append(server)
         async with await client_for(server) as c:
             ws = await c.ws_connect("/ws", params={"token": TOKEN})
