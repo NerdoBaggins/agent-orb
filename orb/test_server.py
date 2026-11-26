@@ -847,12 +847,12 @@ def test_a_streamed_sentence_reaches_the_window_piece_by_piece_before_its_render
             await ws.receive_json()
             with caplog.at_level("INFO", logger="orb"):
                 speaking = asyncio.create_task(server.speak("one two three four"))
-                await messages_until(ws, {"type": "speak_start", "sentences": 1})
+                assert (await messages_until(ws, {"type": "speak_start", "sentences": 1}))[-2:] == [{"type": "rendering", "on": True}, {"type": "speak_start", "sentences": 1}]
                 first, second = await next_message(ws), await next_message(ws)
                 assert not speaking.done() and not release.exists()
                 release.write_text("go")
                 final = await next_message(ws)
-                assert await next_message(ws) == {"type": "speak_end"}
+                assert await messages_until(ws, {"type": "speak_end"}) == [{"type": "rendering", "on": False}, {"type": "speak_end"}]
                 await ws.send_json({"type": "played"})
                 await speaking
             assert [(len(frame) - 4) // 4 for frame in (first, second, final)] == [5333, 5333, 5334]
@@ -968,7 +968,7 @@ def test_stop_while_audio_is_held_back_sends_the_window_none_of_it(tmp_path):
             with contextlib.suppress(asyncio.TimeoutError):
                 while True:
                     seen.append((await ws.receive(timeout=0.5)).data)
-            assert seen[0] == {"type": "speak_stop"}
+            assert [seen[0], json.loads(seen[1])] == [{"type": "rendering", "on": False}, {"type": "speak_stop"}]
             assert not [m for m in seen if isinstance(m, bytes)]
         server.tts.close()
     run(go())
@@ -992,6 +992,48 @@ def test_a_stopped_streamed_reply_logs_the_render_factor_of_the_audio_it_rendere
     run(go())
     [line] = [r.message for r in caplog.records if r.message.startswith("speech stopped")]
     assert re.search(r"[\d.]+s of audio from fake streaming rendered in [\d.]+s, render factor [\d.]+$", line), line
+
+
+def test_a_window_that_connects_while_a_streamed_render_runs_is_told_it_runs_and_one_after_is_told_it_ended(tmp_path):
+    release = tmp_path / "release"
+
+    async def go():
+        server = streaming_server(tmp_path, pieces=2, hold_final_until=str(release))
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            speaking = asyncio.create_task(server.speak("one two three four"))
+            await messages_until(ws, {"type": "speak_start", "sentences": 1})
+            during = (await (await c.ws_connect("/ws", params={"token": TOKEN})).receive_json())["rendering"]
+            release.write_text("go")
+            await messages_until(ws, {"type": "speak_end"})
+            after = (await (await c.ws_connect("/ws", params={"token": TOKEN})).receive_json())["rendering"]
+            await ws.send_json({"type": "played"})
+            await speaking
+            assert (during, after) == (True, False)
+        server.tts.close()
+    run(go())
+
+
+def test_a_reply_rendered_whole_tells_the_window_of_no_streamed_render(tmp_path):
+    async def go():
+        server = streaming_server(tmp_path, stream=False, pieces=2)
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            speaking = asyncio.create_task(server.speak("one two three four"))
+            seen = await messages_until(ws, {"type": "speak_end"})
+            await ws.send_json({"type": "played"})
+            await speaking
+            assert not [m for m in seen if isinstance(m, dict) and m["type"] == "rendering"]
+        server.tts.close()
+    run(go())
+
+
+def test_the_window_is_given_the_render_settings_the_config_holds(tmp_path):
+    server = make(tmp_path)
+    server.config.values["render"] = {"max_dpr": 2, "fps": 60, "idle_fps": 20}
+    assert server.snapshot()["render"] == {"max_dpr": 2, "fps": 60, "idle_fps": 20}
 
 
 def test_the_render_factor_is_the_render_time_over_the_audio_time():

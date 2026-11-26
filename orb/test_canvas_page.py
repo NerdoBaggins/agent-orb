@@ -4,6 +4,7 @@ import base64
 import pytest
 from aiohttp import ClientSession
 
+from orb.config import DEFAULTS
 from orb.test_panel_bridge import run_page
 from orb.test_server import TOKEN
 
@@ -61,3 +62,34 @@ def test_the_orb_stays_drawn_while_the_panels_slide_in(tmp_path):
     asyncio.run(run_page(tmp_path, [], act))
     assert seen["samples"] > 20
     assert seen["cleared"] == 0
+
+
+@pytest.mark.timeout(60)
+def test_a_retina_window_draws_the_orb_canvas_within_the_pixel_budget_rather_than_at_the_displays_ratio(tmp_path):
+    seen = {}
+
+    async def act(page):
+        seen.update(await page.evaluate("""() => { const c = document.getElementById('orb'); const r = c.parentElement.getBoundingClientRect();
+          return {pixels: c.width * c.height, full: Math.floor(r.width * devicePixelRatio) * Math.floor(r.height * devicePixelRatio), budget: MAX_CANVAS_PIXELS}; }"""))
+
+    asyncio.run(run_page(tmp_path, [], act, device_scale=2))
+    assert seen["full"] > seen["budget"] >= seen["pixels"]
+
+
+@pytest.mark.timeout(60)
+def test_an_idle_orb_paints_at_its_idle_rate_rather_than_every_animation_frame(tmp_path):
+    seen = {}
+
+    async def act(page):
+        seen.update(await page.evaluate("""() => new Promise((done) => {
+          const paint = window.paintFrame;
+          let paints = 0, frames = 0;
+          window.paintFrame = (...a) => { paints += 1; return paint(...a); };
+          const count = () => { frames += 1; requestAnimationFrame(count); };
+          requestAnimationFrame(count);
+          setTimeout(() => { window.paintFrame = paint; done({ paints, frames, state: window.orbPage.orb.state }); }, 2000);
+        })"""))
+
+    asyncio.run(run_page(tmp_path, [], act))
+    assert seen["state"] == "idle" and seen["frames"] > 60
+    assert 0 < seen["paints"] <= 2 * DEFAULTS["render"]["idle_fps"] + 2

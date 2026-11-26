@@ -32,15 +32,16 @@ DEFAULTS = {
     "widget_dirs": [],
     "widgets": {},
     "commands": ["compact", "context"],
+    "render": {"max_dpr": 1.5, "fps": 30, "idle_fps": 10},
 }
 TYPES = {"ptt_key": str, "skin": str, "skin_options": dict, "skin_sizes": dict, "speak": bool, "mute_key": str, "skin_key": str, "panels_key": str, "theme": str, "stt": dict, "tts": dict,
          "wake": dict, "capture": dict, "panel_dirs": list,
-         "theme_dirs": list, "skin_dirs": list, "widget_dirs": list, "widgets": dict, "commands": list}
+         "theme_dirs": list, "skin_dirs": list, "widget_dirs": list, "widgets": dict, "commands": list, "render": dict}
 FOLDER_KEYS = ("panel_dirs", "theme_dirs", "skin_dirs", "widget_dirs")
 REPO_KEYS = ("ptt_key", "mute_key", "skin_key", "panels_key", "speak")
 # How far a layer's value overlays the one beneath: a section merges per key, its blocks (one per engine, skin
 # or widget) merge per key, and anything inside a block replaces. A voice blend is one value, not a merge.
-MERGE_DEPTH = {"stt": 2, "tts": 2, "skin_options": 2, "skin_sizes": 1, "wake": 1, "capture": 1, "widgets": 2}
+MERGE_DEPTH = {"stt": 2, "tts": 2, "skin_options": 2, "skin_sizes": 1, "wake": 1, "capture": 1, "widgets": 2, "render": 1}
 WIDGET_PLACE_KEYS = ("x", "y", "width", "height")
 WIDGET_PANE_KEYS = ("pane_width", "pane_height")  # the orb pane's size when the widget was placed; its size scales from it
 
@@ -141,6 +142,11 @@ def validate_types(data: dict, label: str) -> None:
             raise ConfigError(f"{label} config: skin_sizes.{skin} must be a number, the orb's scale with that skin")
     for name, entry in data.get("widgets", {}).items():
         validate_widget_entry(entry, f"{label} config: widgets.{name}")
+    for name, value in data.get("render", {}).items():
+        if name not in DEFAULTS["render"]:
+            raise ConfigError(f"{label} config: render.{name} is not a render setting; they are {', '.join(DEFAULTS['render'])}")
+        if not (is_finite(value) and value > 0):
+            raise ConfigError(f"{label} config: render.{name} must be a positive number")
     for name in data.get("commands", []):
         if not is_name(name):
             raise ConfigError(f"{label} config: commands holds command names without the slash, got {name!r}")

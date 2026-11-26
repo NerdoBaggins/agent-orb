@@ -52,6 +52,11 @@ that has one adds it under Unreleased.
 - Every engine now exits within 5 s of its standard input closing, even in the middle of a call, and whatever started it kills one
   that does not, by the `pid` it reported.
 - A leftover `engines` key in your config is now ignored with the usual unknown-key warning.
+- The orb canvas no longer draws at full Retina resolution on every animation frame, which took most of the GPU from
+  a GPU-bound speech engine and made its speech stutter. It draws at most 1.5 device pixels per CSS pixel and about
+  1.5 megapixels, at 30 fps while listening, speaking or thinking in the focused window and 10 fps otherwise, at
+  10 fps in every window while a streamed reply renders, and not at all in a hidden window. The new `render` settings
+  raise these. A stopped reply now logs its render time and render factor, as a finished one does.
 
 ### Fixed
 
