@@ -23,7 +23,7 @@ from orb.capture import Ended, Frame, Notice
 from orb.conftest import NO_ENGINE
 from orb.config import DEFAULTS, private_config_path
 from orb.engines import EngineError, Tts, start, unreported
-from orb.server import SERVER_STATES, OrbServer, audio_frame, page_sender, start_capture, voice_menu
+from orb.server import SERVER_STATES, OrbServer, audio_frame, page_sender, render_factor_text, start_capture, voice_menu
 from orb.test_engines import eventually, requests_sent
 from orb.skins import STATES as SKIN_STATES
 
@@ -972,6 +972,34 @@ def test_stop_while_audio_is_held_back_sends_the_window_none_of_it(tmp_path):
             assert not [m for m in seen if isinstance(m, bytes)]
         server.tts.close()
     run(go())
+
+
+def test_a_stopped_streamed_reply_logs_the_render_factor_of_the_audio_it_rendered(tmp_path, caplog):
+    release = tmp_path / "release"
+
+    async def go():
+        server = streaming_server(tmp_path, pieces=2, hold_final_until=str(release))
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            with caplog.at_level("INFO", logger="orb"):
+                server.speaking = asyncio.create_task(server.speak("one two three four"))
+                await messages_until(ws, {"type": "speak_start", "sentences": 1})
+                await asyncio.sleep(0.5)
+                await server.stop_speaking()
+            release.write_text("go")
+        server.tts.close()
+    run(go())
+    [line] = [r.message for r in caplog.records if r.message.startswith("speech stopped")]
+    assert re.search(r"[\d.]+s of audio from fake streaming rendered in [\d.]+s, render factor [\d.]+$", line), line
+
+
+def test_the_render_factor_is_the_render_time_over_the_audio_time():
+    assert render_factor_text(16.8, 10.0) == "render factor 1.68"
+
+
+def test_a_render_stopped_before_any_audio_names_no_factor():
+    assert render_factor_text(2.0, 0.0) == "no audio rendered"
 
 
 def test_a_sentence_is_rendered_whole_when_the_user_has_not_turned_streaming_on(tmp_path):

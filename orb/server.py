@@ -1849,7 +1849,7 @@ class OrbServer:
         sentences = split_sentences(speakable(text))
         self.played.clear()
         await self.set_state("speaking", said)
-        seconds, started, first, streamed = 0.0, time.monotonic(), None, self.streaming
+        seconds, rendered, started, first, streamed = 0.0, 0.0, time.monotonic(), None, self.streaming
         lead = StreamLead(streamed)
 
         async def send(frames: list[bytes]) -> None:
@@ -1866,18 +1866,22 @@ class OrbServer:
                         if not samples.size:
                             continue
                         seconds += samples.size / rate
+                        rendered = time.monotonic() - started
                         await send(lead.push(audio_frame(samples, rate), samples.size / rate))
                 await self.report_tts_failure()
             await send(lead.release())
+            rendered = time.monotonic() - started
             await self.broadcast({"type": "speak_end"})
-            log.info("speaking %d sentences with %s%s: %.1fs of audio, first after %.2fs, all rendered in %.2fs",
-                     len(sentences), self.tts.name, " streaming" if streamed else "", seconds, first or 0.0, time.monotonic() - started)
+            log.info("speaking %d sentences with %s%s: %.1fs of audio, first after %.2fs, all rendered in %.2fs, %s",
+                     len(sentences), self.tts.name, " streaming" if streamed else "", seconds, first or 0.0, rendered,
+                     render_factor_text(rendered, seconds))
             try:
                 await asyncio.wait_for(self.played.wait(), seconds + PLAYBACK_GRACE_S)
             except asyncio.TimeoutError:
                 log.warning("page did not report playback done within %.0fs", seconds + PLAYBACK_GRACE_S)
         except asyncio.CancelledError:
-            log.info("speech stopped")
+            log.info("speech stopped: %.1fs of audio from %s%s rendered in %.2fs, %s", seconds, self.tts.name,
+                     " streaming" if streamed else "", rendered, render_factor_text(rendered, seconds))
             await self.broadcast({"type": "speak_stop"})
             raise
         finally:
@@ -2203,6 +2207,10 @@ def page_sender(message: dict) -> str:
 
 def engine_launcher(repo: Path, agent: str):
     return engine_client.launcher({"pid": os.getpid(), "repo": str(repo), "agent": agent})
+
+
+def render_factor_text(rendered_s: float, audio_s: float) -> str:
+    return f"render factor {rendered_s / audio_s:.2f}" if audio_s else "no audio rendered"
 
 
 def stream_menu(engine: str, offered: bool, on: bool) -> dict:
