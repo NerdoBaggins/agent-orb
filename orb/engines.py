@@ -22,6 +22,7 @@ import numpy as np
 
 from orb import PLUGIN_ROOT
 from orb.audio import SAMPLE_RATE
+from orb.finite import is_finite
 from orb.pages import plain_name
 from orb.state import PID_LIMIT, kill_pid
 
@@ -40,6 +41,7 @@ CALL_TIMEOUT_S = 120.0
 FRAME_TIMEOUT_S = 5.0
 EXIT_WAIT_S = 5.0
 STICKY_AFTER_FAILURES = 3
+QUIET_SEARCH_S = 5.0  # how far back from its cap a clip is searched for the quiet point to cut at; an engine's max_seconds cannot be less
 PROTOCOL = 2
 
 
@@ -197,8 +199,8 @@ def read_manifest(folder: Path, kind: str) -> Manifest:
     if not isinstance(env, list) or not all(isinstance(x, str) for x in env):
         raise EngineError(f"{manifest} 'env' must be a list of variable names")
     max_seconds = data.get("max_seconds")
-    if max_seconds is not None and not (isinstance(max_seconds, (int, float)) and max_seconds > 0):
-        raise EngineError(f"{manifest} 'max_seconds' must be a positive number")
+    if max_seconds is not None and not (is_finite(max_seconds) and max_seconds >= QUIET_SEARCH_S):
+        raise EngineError(f"{manifest} 'max_seconds' must be a finite number of at least {QUIET_SEARCH_S:g} seconds")
     frame_samples = data.get("frame_samples")
     if frame_samples is not None and not (isinstance(frame_samples, int) and frame_samples > 0):
         raise EngineError(f"{manifest} 'frame_samples' must be a positive integer")
@@ -577,7 +579,7 @@ class Engine:
         self.process.close()
 
 
-def split_at_quiet_points(samples: np.ndarray, max_s: float, search_s: float = 5.0) -> list[np.ndarray]:
+def split_at_quiet_points(samples: np.ndarray, max_s: float, search_s: float = QUIET_SEARCH_S) -> list[np.ndarray]:
     """Pieces of at most `max_s`, each cut at the quietest tenth of a second in the last `search_s` before the cap."""
     window = SAMPLE_RATE // 10
     cap, back = int(max_s * SAMPLE_RATE), int(search_s * SAMPLE_RATE)
