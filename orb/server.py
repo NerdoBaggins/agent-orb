@@ -1873,6 +1873,7 @@ class OrbServer:
                             await send(lead.push(audio_frame(samples, rate), samples.size / rate))
                     await self.report_tts_failure()
                 await send(lead.release())
+            rendered = time.monotonic() - started
             await self.broadcast({"type": "speak_end"})
             log.info("speaking %d sentences with %s%s: %.1fs of audio, first after %.2fs, all rendered in %.2fs, %s",
                      len(sentences), self.tts.name, " streaming" if streamed else "", seconds, first or 0.0, rendered,
