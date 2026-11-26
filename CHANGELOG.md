@@ -57,7 +57,7 @@ that has one adds it under Unreleased.
   1.5 megapixels, at 30 fps while listening, speaking or thinking in the focused window and 10 fps otherwise, at
   10 fps in every window while a streamed reply renders, and not at all in a hidden window. The new `render` settings
   raise these; `idle_fps` never goes above `fps`. A stopped reply now logs its render time and render factor, as a
-  finished one does. [#333]
+  finished one does. ([#333](https://github.com/NerdoBaggins/agent-orb/issues/333))
 
 ### Fixed
 
