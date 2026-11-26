@@ -614,7 +614,7 @@ doctor` and by the orb that tries to start it, which uses the built-in default i
 - **Load settings** are the engine's block in the config, except `voice` and `lang` for a `tts` engine.
 - **In `engine.json`**, `env` names the variables the engine needs (credentials never go in config), and an engine
   that needs a tool found through `PATH` lists `PATH` there too (see [Shared engines](#shared-engines)); `max_seconds`
-  is the longest clip an STT engine accepts, and the orb cuts longer ones at quiet points; `frame_samples` is how many
+  is the longest clip an STT engine accepts (a finite number, at least 5), and the orb cuts longer ones at quiet points; `frame_samples` is how many
   samples a `wake` or `vad` engine takes per frame.
 - **Progress.** Before its `load` reply an engine may write lines `{"progress": "<what it is doing>"}`: one as it starts,
   before it imports anything slow, and at least every 10 s while it downloads. The orb shows the latest.
