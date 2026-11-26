@@ -972,6 +972,27 @@ def test_a_finished_reply_logs_the_render_factor_of_its_render(tmp_path, caplog)
     assert rendered >= 0.3 and factor == pytest.approx(rendered / audio, rel=0.1), line
 
 
+def test_a_finished_reply_whose_last_piece_is_silent_logs_the_render_time_through_that_piece(tmp_path, caplog):
+    release = tmp_path / "release"
+
+    async def go():
+        server = streaming_server(tmp_path, pieces=2, seconds_per_word=0.1, empty_final=True, hold_final_until=str(release))
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            with caplog.at_level("INFO", logger="orb"):
+                speaking = asyncio.create_task(server.speak("one two three four"))
+                await asyncio.sleep(0.5)
+                release.write_text("go")
+                await messages_until(ws, {"type": "speak_end"})
+                await ws.send_json({"type": "played"})
+                await speaking
+        server.tts.close()
+    run(go())
+    [line] = [r.message for r in caplog.records if r.message.startswith("speaking")]
+    assert float(re.search(r"all rendered in ([\d.]+)s", line).group(1)) >= 0.5, line
+
+
 def test_windows_are_told_a_streamed_render_started_before_speech_starts_and_ended_before_speech_ends(tmp_path):
     async def go():
         server = streaming_server(tmp_path, pieces=2)
