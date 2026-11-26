@@ -6,7 +6,7 @@ from aiohttp import ClientSession
 
 from orb.config import DEFAULTS
 from orb.test_panel_bridge import run_page
-from orb.test_server import TOKEN
+from orb.test_server import TOKEN, make
 
 pytestmark = pytest.mark.browser
 
@@ -76,20 +76,57 @@ def test_a_retina_window_draws_the_orb_canvas_within_the_pixel_budget_rather_tha
     assert seen["full"] > seen["budget"] >= seen["pixels"]
 
 
-@pytest.mark.timeout(60)
-def test_an_idle_orb_paints_at_its_idle_rate_rather_than_every_animation_frame(tmp_path):
+COUNT_SECONDS = 2
+PAINTS_AND_FRAMES = f"""() => new Promise((done) => {{
+  const paint = window.paintFrame;
+  let paints = 0, frames = 0;
+  window.paintFrame = (...a) => {{ paints += 1; return paint(...a); }};
+  const count = () => {{ frames += 1; requestAnimationFrame(count); }};
+  requestAnimationFrame(count);
+  setTimeout(() => {{ window.paintFrame = paint; done({{ paints, frames, state: window.orbPage.orb.state }}); }}, {COUNT_SECONDS * 1000});
+}})"""
+IDLE_PAINTS_AT_MOST = COUNT_SECONDS * DEFAULTS["render"]["idle_fps"] + 2
+ACTIVE_PAINTS_AT_LEAST = COUNT_SECONDS * DEFAULTS["render"]["fps"] // 2
+
+
+def paints_counted(tmp_path, state="idle", before="() => {}", message=None):
     seen = {}
+    server = make(tmp_path, voice=True)
 
     async def act(page):
-        seen.update(await page.evaluate("""() => new Promise((done) => {
-          const paint = window.paintFrame;
-          let paints = 0, frames = 0;
-          window.paintFrame = (...a) => { paints += 1; return paint(...a); };
-          const count = () => { frames += 1; requestAnimationFrame(count); };
-          requestAnimationFrame(count);
-          setTimeout(() => { window.paintFrame = paint; done({ paints, frames, state: window.orbPage.orb.state }); }, 2000);
-        })"""))
+        await server.set_state(state)
+        await page.evaluate(before)
+        if message:
+            await server.broadcast(message)
+        await page.wait_for_timeout(300)
+        seen.update(await page.evaluate(PAINTS_AND_FRAMES))
 
-    asyncio.run(run_page(tmp_path, [], act))
-    assert seen["state"] == "idle" and seen["frames"] > 60
-    assert 0 < seen["paints"] <= 2 * DEFAULTS["render"]["idle_fps"] + 2
+    asyncio.run(run_page(tmp_path, [], act, server=server))
+    assert seen["state"] == state and seen["frames"] > 60
+    return seen["paints"]
+
+
+@pytest.mark.timeout(60)
+def test_an_idle_orb_paints_at_its_idle_rate_rather_than_every_animation_frame(tmp_path):
+    assert 0 < paints_counted(tmp_path) <= IDLE_PAINTS_AT_MOST
+
+
+@pytest.mark.timeout(60)
+def test_a_thinking_orb_in_the_focused_window_paints_at_the_full_frame_rate(tmp_path):
+    assert paints_counted(tmp_path, "thinking") >= ACTIVE_PAINTS_AT_LEAST
+
+
+@pytest.mark.timeout(60)
+def test_a_thinking_orb_in_an_unfocused_window_paints_at_the_idle_rate(tmp_path):
+    assert 0 < paints_counted(tmp_path, "thinking", before="() => { document.hasFocus = () => false; }") <= IDLE_PAINTS_AT_MOST
+
+
+@pytest.mark.timeout(60)
+def test_a_thinking_orb_paints_at_the_idle_rate_while_a_streamed_render_is_in_flight(tmp_path):
+    assert 0 < paints_counted(tmp_path, "thinking", message={"type": "rendering", "on": True}) <= IDLE_PAINTS_AT_MOST
+
+
+@pytest.mark.timeout(60)
+def test_a_hidden_window_does_not_paint_the_orb(tmp_path):
+    hide = "() => { Object.defineProperty(document, 'visibilityState', { get: () => 'hidden' }); }"
+    assert paints_counted(tmp_path, "thinking", before=hide) == 0
