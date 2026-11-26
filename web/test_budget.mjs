@@ -64,6 +64,6 @@ test("a frame that lands a little early from display jitter is still painted", (
   assert.equal(isPaintDue(1000 + 1000 / 30 - VSYNC_SLACK_MS / 2, 1000, 30), true);
 });
 
-test("nothing is due at a rate of zero, however long since the last paint", () => {
-  assert.equal(isPaintDue(1e9, 0, 0), false);
+test("nothing is due at a rate of zero, even before the first paint", () => {
+  assert.equal(isPaintDue(0, -Infinity, 0), false);
 });
