@@ -30,7 +30,7 @@ async def browser(p):
         pytest.fail(f"{e}, or deselect the browser tests with -m \"not {pytestmark.name}\"", pytrace=False)
 
 
-async def run_page(tmp_path, panels, act, server=None):
+async def run_page(tmp_path, panels, act, server=None, device_scale=1):
     server = server or make(tmp_path, voice=True)
     runner = web.AppRunner(server.app)
     await runner.setup()
@@ -41,7 +41,7 @@ async def run_page(tmp_path, panels, act, server=None):
     try:
         async with playwright.async_playwright() as p:
             b = await browser(p)
-            page = await b.new_page(viewport={"width": 1400, "height": 900})
+            page = await b.new_page(viewport={"width": 1400, "height": 900}, device_scale_factor=device_scale)
             await page.goto(f"{base}/?token={TOKEN}")
             await page.wait_for_timeout(1000)
             async with ClientSession() as s:

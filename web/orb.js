@@ -28,6 +28,8 @@
     widgets: new Map(),
     activePanel: null,
     size: NORMAL_SIZE,
+    render: null,
+    rendering: false,
   };
 
   // ---- header and notices ----
@@ -256,6 +258,9 @@
         showEngines(m.engines, m.tts_engines || [], m.stt_engines || []);
         showVoices(m.voices);
         showStream(m.stream);
+        orb.render = m.render;
+        orb.rendering = m.rendering;
+        paneResized = true;
         for (const kind of ["stt", "tts"]) {
           if (m.engines[kind] && m.engines[kind].fallback_reason) notice(`${kind}: ${m.engines[kind].fallback_reason}`, "error");
         }
@@ -369,6 +374,9 @@
       case "notice":
         notice(m.text, m.level === "error" ? "error" : "info", true);
         if (m.ref) { panelsBridge.reject(m.ref, m.text); explainer.ended(m.ref); typedBox.restore(m.ref); }
+        break;
+      case "rendering":
+        orb.rendering = m.on;
         break;
       case "speak_start":
         player.start();
@@ -1861,10 +1869,12 @@
     resize();
     return ctx;
   }
+  let canvasDpr = devicePixelRatio;
   function resize() {
     const pane = canvas.parentElement.getBoundingClientRect();
-    canvas.width = Math.max(1, Math.floor(pane.width * devicePixelRatio));
-    canvas.height = Math.max(1, Math.floor(pane.height * devicePixelRatio));
+    if (orb.render) canvasDpr = pixelRatio(pane.width, pane.height, devicePixelRatio, orb.render.max_dpr);
+    canvas.width = Math.max(1, Math.floor(pane.width * canvasDpr));
+    canvas.height = Math.max(1, Math.floor(pane.height * canvasDpr));
     placeBar();
     widgetsUi.layout();
   }
@@ -2090,17 +2100,22 @@
     }
   });
 
+  let lastPaint = -Infinity;
   function frame(t) {
+    requestAnimationFrame(frame);
+    if (!orb.render) return;
+    const view = { state: orb.state, visibility: document.visibilityState, focused: document.hasFocus(), rendering: orb.rendering };
+    if (!isPaintDue(t, lastPaint, paintRate(view, orb.render))) return;
+    lastPaint = t;
     if (paneResized) { paneResized = false; resize(); }
     orb.level = orb.state === "listening" ? Math.min(1, ptt.micLevel * 6) : orb.state === "speaking" ? player.level() : 0;
-    const dpr = devicePixelRatio;
+    const dpr = canvasDpr;
     const f = { state: skin.shown(shownState()), level: orb.level, time: t, width: canvas.width / dpr, height: canvas.height / dpr, scale: orb.size, options: skin.values };
     try {
       paintFrame(ctx, { skin, dpr, frame: f });
     } catch (err) {
       skin.giveUp(`skin threw (${err.message})`);
     }
-    requestAnimationFrame(frame);
   }
   requestAnimationFrame(frame);
 

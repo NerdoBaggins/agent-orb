@@ -288,6 +288,7 @@ class OrbServer:
         self.speaking: asyncio.Task | None = None
         self.tasks: set[asyncio.Task] = set()
         self.played = asyncio.Event()
+        self.rendering = False
         self.reported_tts_failure: str | None = None
         # Panels are served under an unguessable prefix that is not the token, so a panel never holds the token
         # and the sandboxed iframe (opaque origin) cannot call anything else here.
@@ -1232,6 +1233,7 @@ class OrbServer:
                 "attach_text": self.link.describe(self.attached), "repo": str(self.repo_root),
                 "engines": self.engines_snapshot(), "capture": self.capture_snapshot(), **self.engine_names(),
                 "voices": self.voice_menu, "stream": self.stream_state(), "loading": self.loading, "speech_off": self.speech_off,
+                "render": self.config["render"], "rendering": self.rendering,
                 "voice": bool(self.stt and self.tts), "speak": self.voice, "said": self.said, "mute_key": self.config["mute_key"], "panels_key": self.config["panels_key"], "wake": self.wake_snapshot(), "enrolling": self.enroll_snapshot(), "ptt_key": self.config["ptt_key"], "speed": self.speed, "background": self.background, "waiting": self.waiting, "session": self.session,
                 "skin": self.skin.describe() | {"values": self.skin_values, "size": size_for(self.config["skin_sizes"], self.skin.name)}, "skin_key": self.config["skin_key"],
                 **self.installed_pickers(),
@@ -1859,17 +1861,18 @@ class OrbServer:
                 await self.broadcast_bytes(frame)
 
         try:
-            await self.broadcast({"type": "speak_start", "sentences": len(sentences)})
-            for sentence in sentences:
-                async with contextlib.aclosing(self.rendered(sentence)) as pieces:
-                    async for samples, rate in pieces:
-                        if not samples.size:
-                            continue
-                        seconds += samples.size / rate
-                        rendered = time.monotonic() - started
-                        await send(lead.push(audio_frame(samples, rate), samples.size / rate))
-                await self.report_tts_failure()
-            await send(lead.release())
+            async with self.streamed_render() if streamed else contextlib.nullcontext():
+                await self.broadcast({"type": "speak_start", "sentences": len(sentences)})
+                for sentence in sentences:
+                    async with contextlib.aclosing(self.rendered(sentence)) as pieces:
+                        async for samples, rate in pieces:
+                            if not samples.size:
+                                continue
+                            seconds += samples.size / rate
+                            rendered = time.monotonic() - started
+                            await send(lead.push(audio_frame(samples, rate), samples.size / rate))
+                    await self.report_tts_failure()
+                await send(lead.release())
             rendered = time.monotonic() - started
             await self.broadcast({"type": "speak_end"})
             log.info("speaking %d sentences with %s%s: %.1fs of audio, first after %.2fs, all rendered in %.2fs, %s",
@@ -1890,6 +1893,16 @@ class OrbServer:
                     self.waker.follow_up.open(time.monotonic())
                     self.spawn(self.send_queued_after(self.waker.follow_up.seconds))
                 await self.set_state(self.resume_state())
+
+    @contextlib.asynccontextmanager
+    async def streamed_render(self):
+        self.rendering = True
+        await self.broadcast({"type": "rendering", "on": True})
+        try:
+            yield
+        finally:
+            self.rendering = False
+            await self.broadcast({"type": "rendering", "on": False})
 
     @property
     def streaming(self) -> bool:

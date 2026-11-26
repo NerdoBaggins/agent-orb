@@ -465,3 +465,19 @@ def test_the_example_config_loads_without_warnings(tmp_path):
 def test_a_capture_setting_in_the_private_file_for_this_repo_keeps_the_engine_the_users_file_chose(tmp_path):
     cfg = load_layers(tmp_path, user={"capture": {"engine": "livekit", "buffer_ms": 500}}, private={"capture": {"buffer_ms": 200}})
     assert cfg["capture"] == {"engine": "livekit", "buffer_ms": 200}
+
+
+# ---- canvas render budget ----
+
+def test_a_raised_frame_rate_keeps_the_other_render_settings_at_their_defaults(tmp_path):
+    assert load_layers(tmp_path, user={"render": {"fps": 60}})["render"] == {**DEFAULTS["render"], "fps": 60}
+
+
+def test_a_render_setting_that_is_not_one_is_rejected(tmp_path):
+    with pytest.raises(ConfigError, match="render.max_fps is not a render setting"):
+        load_layers(tmp_path, user={"render": {"max_fps": 60}})
+
+
+def test_a_render_setting_of_zero_is_rejected(tmp_path):
+    with pytest.raises(ConfigError, match="render.idle_fps must be a positive number"):
+        load_layers(tmp_path, user={"render": {"idle_fps": 0}})

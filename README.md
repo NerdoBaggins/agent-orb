@@ -330,6 +330,7 @@ a choice made in one repo stays there.
 | `skin_dirs` | `[]` — extra folders for skins, absolute or `~/…`, searched first; only your own two files may set it |
 | `widget_dirs` | `[]` — extra folders for widgets, absolute or `~/…`; only your own two files may set it |
 | `commands` | `["compact", "context"]` — the built-in Claude Code commands `orb command` and `orb.command` may run, without the slash; replaces rather than adds; only your own files may set it |
+| `render` | `{"max_dpr": 1.5, "fps": 30, "idle_fps": 10}` — the orb canvas's budget: drawn at no more than `max_dpr` device pixels per CSS pixel and about 1.5 megapixels, at `fps` while listening, speaking or thinking in the focused window, and at `idle_fps` otherwise and in every window while a streamed reply renders; a hidden window does not paint. Raise them on a machine with GPU to spare |
 | `widgets` | `{}` — per widget, `{"on": true, "x": 0.02, "y": 0.04, "width": 180, "height": 44}`: whether it shows and where, with `pane_width` and `pane_height` (the orb pane's size when it was placed, written by the orb) so the widget's size scales with the pane afterwards; merges per widget; only your own files may set it |
 
 The four `*_dirs` lists add up across your files: a folder one file lists stays searched when another lists more.
