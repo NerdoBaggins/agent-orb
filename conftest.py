@@ -24,6 +24,13 @@ for name in STARTS_A_BROWSER:
     setattr(BrowserType, name, refused_unless_marked(name))
 
 
+@pytest.fixture(scope="session", autouse=True)
+def uv_cache_in_basetemp(tmp_path_factory):
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("UV_CACHE_DIR", str(tmp_path_factory.mktemp("uv-cache")))
+        yield
+
+
 @pytest.hookimpl(wrapper=True)
 def pytest_runtest_protocol(item):
     running.update(item=item, started=False)
