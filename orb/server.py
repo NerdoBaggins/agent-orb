@@ -1896,9 +1896,9 @@ class OrbServer:
 
     @contextlib.asynccontextmanager
     async def streamed_render(self):
-        self.rendering = True
-        await self.broadcast({"type": "rendering", "on": True})
         try:
+            self.rendering = True
+            await self.broadcast({"type": "rendering", "on": True})
             yield
         finally:
             self.rendering = False
