@@ -76,6 +76,41 @@ def test_a_retina_window_draws_the_orb_canvas_within_the_pixel_budget_rather_tha
     assert seen["full"] > seen["budget"] >= seen["pixels"]
 
 
+@pytest.mark.timeout(60)
+def test_a_skin_on_a_retina_window_is_given_the_capped_pixel_ratio_and_the_panes_css_size(tmp_path):
+    seen = {}
+
+    async def act(page):
+        seen.update(await page.evaluate("""() => new Promise((done) => {
+          const paint = window.paintFrame;
+          window.paintFrame = (ctx, args) => {
+            window.paintFrame = paint;
+            const c = document.getElementById('orb');
+            done({ dpr: args.dpr, width: args.frame.width, canvas: c.width, css: c.parentElement.getBoundingClientRect().width });
+            return paint(ctx, args);
+          };
+        })"""))
+
+    asyncio.run(run_page(tmp_path, [], act, device_scale=2))
+    assert seen["dpr"] < 2
+    assert abs(seen["width"] - seen["css"]) < 1 and abs(seen["width"] * seen["dpr"] - seen["canvas"]) < 1
+
+
+@pytest.mark.timeout(60)
+def test_new_render_settings_on_a_reconnect_resize_the_canvas_to_them(tmp_path):
+    seen = {}
+    server = make(tmp_path, voice=True)
+
+    async def act(page):
+        server.config.values["render"] = {**DEFAULTS["render"], "max_dpr": 1}
+        await server.broadcast(server.snapshot())
+        await page.wait_for_timeout(500)
+        seen.update(await page.evaluate(SIZES))
+
+    asyncio.run(run_page(tmp_path, [], act, server=server, device_scale=2))
+    assert seen["canvas"] == seen["pane"] // 2
+
+
 COUNT_SECONDS = 2
 PAINTS_AND_FRAMES = f"""() => new Promise((done) => {{
   const paint = window.paintFrame;
@@ -89,15 +124,15 @@ IDLE_PAINTS_AT_MOST = COUNT_SECONDS * DEFAULTS["render"]["idle_fps"] + 2
 ACTIVE_PAINTS_AT_LEAST = COUNT_SECONDS * DEFAULTS["render"]["fps"] // 2
 
 
-def paints_counted(tmp_path, state="idle", before="() => {}", message=None):
+def paints_counted(tmp_path, state="idle", before="() => {}", message=None, server=None):
     seen = {}
-    server = make(tmp_path, voice=True)
+    server = server or make(tmp_path, voice=True)
 
     async def act(page):
         await server.set_state(state)
         await page.evaluate(before)
         if message:
-            await server.broadcast(message)
+            await server.broadcast(message() if callable(message) else message)
         await page.wait_for_timeout(300)
         seen.update(await page.evaluate(PAINTS_AND_FRAMES))
 
@@ -124,6 +159,13 @@ def test_a_thinking_orb_in_an_unfocused_window_paints_at_the_idle_rate(tmp_path)
 @pytest.mark.timeout(60)
 def test_a_thinking_orb_paints_at_the_idle_rate_while_a_streamed_render_is_in_flight(tmp_path):
     assert 0 < paints_counted(tmp_path, "thinking", message={"type": "rendering", "on": True}) <= IDLE_PAINTS_AT_MOST
+
+
+@pytest.mark.timeout(60)
+def test_a_window_that_connects_during_a_streamed_render_paints_at_the_idle_rate(tmp_path):
+    server = make(tmp_path, voice=True)
+    server.rendering = True
+    assert 0 < paints_counted(tmp_path, "thinking", message=server.snapshot, server=server) <= IDLE_PAINTS_AT_MOST
 
 
 @pytest.mark.timeout(60)
