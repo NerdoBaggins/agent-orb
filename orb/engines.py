@@ -582,10 +582,11 @@ class Engine:
 def split_at_quiet_points(samples: np.ndarray, max_s: float, search_s: float = QUIET_SEARCH_S) -> list[np.ndarray]:
     """Pieces of at most `max_s`, each cut at the quietest tenth of a second in the last `search_s` before the cap."""
     window = SAMPLE_RATE // 10
-    cap, back = int(max_s * SAMPLE_RATE), int(search_s * SAMPLE_RATE)
+    cap, back = max_s * SAMPLE_RATE, int(search_s * SAMPLE_RATE)
     pieces, start = [], 0
     while samples.size - start > cap:
-        lo, hi = start + cap - back, start + cap
+        hi = start + int(cap)
+        lo = hi - back
         rms = [float(np.sqrt(np.mean(samples[i:i + window] ** 2))) for i in range(lo, hi - window + 1, window)]
         cut = lo + int(np.argmin(rms)) * window + window // 2
         pieces.append(samples[start:cut])
