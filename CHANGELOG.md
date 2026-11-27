@@ -70,6 +70,11 @@ that has one adds it under Unreleased.
   reason. A NaN `threshold` used to keep the wake word from ever firing, a NaN `voice_auth_threshold` refused every
   speaker, and an infinite `follow_up_s` never closed the follow-up window
   ([#316](https://github.com/NerdoBaggins/agent-orb/issues/316)).
+- Server capture comes back after a dropout. When the microphone went silent and the orb fell back to the browser's
+  microphone, it stayed there until the orb restarted, which over Remote Desktop loses about a quarter of the audio.
+  The orb now reopens server capture every few seconds, backing off to every 30 s, and switches back once it delivers
+  audio, saying `server capture is back`. A capture engine that fails to load at start is retried the same way
+  ([#357](https://github.com/NerdoBaggins/agent-orb/issues/357)).
 - A feed's `every` and `tts.speed`, one number or a table per agent, must now be finite numbers: NaN, infinity
   or an integer too large for a float is refused at load with the file named. NaN and infinity used to make a feed
   never run and were clamped as a speed. A speed or size from the window that large no longer closes its socket
