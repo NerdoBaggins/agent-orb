@@ -57,7 +57,7 @@ that has one adds it under Unreleased.
 
 - An engine's `max_seconds` must now be a finite number of at least 5 seconds, the length of the window the orb
   searches for a quiet point to cut a long clip at; anything else is refused when the engine loads, with its
-  `engine.json` named. A value under 5 used to make transcription never return, and infinity crashed it
+  `engine.json` named. A value under 5 could make transcription never return, and infinity crashed it
   ([#315](https://github.com/NerdoBaggins/agent-orb/issues/315)).
 - A feed's `every` and `tts.speed`, one number or a table per agent, must now be finite numbers: NaN, infinity
   or an integer too large for a float is refused at load with the file named. NaN and infinity used to make a feed

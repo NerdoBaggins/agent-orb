@@ -41,7 +41,7 @@ CALL_TIMEOUT_S = 120.0
 FRAME_TIMEOUT_S = 5.0
 EXIT_WAIT_S = 5.0
 STICKY_AFTER_FAILURES = 3
-QUIET_SEARCH_S = 5.0  # how far back from its cap a clip is searched for the quiet point to cut at; an engine's max_seconds cannot be less
+QUIET_SEARCH_S = 5.0
 PROTOCOL = 2
 
 
