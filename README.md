@@ -728,7 +728,8 @@ engine records the microphone instead of the browser:
 - The microphone stays open while the orb is up. The words just before you press are kept, and the orb waits out the
   buffer after you let go, so the last word is whole.
 - An engine that fails to start, or sends no audio for a couple of seconds past its buffer, hands the microphone back
-  to the browser, and the orb says why.
+  to the browser, and the orb says why. It then reopens the engine, after 5 s and backing off to every 30 s, and takes
+  the microphone back once the engine sends audio again and nothing is being recorded, saying `server capture is back`.
 
 ## Troubleshooting
 
