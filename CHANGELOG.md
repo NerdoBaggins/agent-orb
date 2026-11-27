@@ -59,6 +59,11 @@ that has one adds it under Unreleased.
   searches for a quiet point to cut a long clip at; anything else is refused when the engine loads, with its
   `engine.json` named. A value under 5 could make transcription never return, and infinity crashed it
   ([#315](https://github.com/NerdoBaggins/agent-orb/issues/315)).
+- The wake settings `threshold`, `silence_s`, `prespeech_s`, `follow_up_s` and `voice_auth_threshold` must now be
+  finite numbers: NaN, infinity or an integer too large for a float is refused, and the wake word stays off with the
+  reason. A NaN `threshold` used to keep the wake word from ever firing, a NaN `voice_auth_threshold` refused every
+  speaker, and an infinite `follow_up_s` never closed the follow-up window
+  ([#316](https://github.com/NerdoBaggins/agent-orb/issues/316)).
 - A feed's `every` and `tts.speed`, one number or a table per agent, must now be finite numbers: NaN, infinity
   or an integer too large for a float is refused at load with the file named. NaN and infinity used to make a feed
   never run and were clamped as a speed. A speed or size from the window that large no longer closes its socket
