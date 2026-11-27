@@ -825,6 +825,11 @@ def test_audio_up_to_the_piece_length_is_one_piece_and_one_sample_more_is_two():
     assert len(split_at_quiet_points(np.append(audio, np.float32(0.3)), 20)) == 2
 
 
+def test_a_piece_length_too_large_to_count_in_samples_leaves_the_clip_whole():
+    audio = _tone(20)
+    assert [p.size for p in split_at_quiet_points(audio, 1e305)] == [audio.size]
+
+
 def test_a_long_clip_is_cut_in_the_pause_inside_the_search_window_and_loses_nothing():
     pause = 17 * SAMPLE_RATE
     audio = _tone(50)
