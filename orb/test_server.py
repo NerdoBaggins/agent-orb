@@ -9,6 +9,7 @@ import shutil
 import struct
 import sys
 import threading
+from collections.abc import Callable
 from types import SimpleNamespace
 
 import aiohttp
@@ -17,6 +18,7 @@ import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
 from orb import PLUGIN_ROOT, agents, engines
+from orb import capture as capture_module
 from orb import server as server_module
 from orb.audio import SAMPLE_RATE
 from orb.capture import Ended, Frame, Notice
@@ -756,7 +758,7 @@ def test_a_lost_capture_hands_the_microphone_back_to_the_page_and_says_why(tmp_p
 
 
 
-def reopening(tmp_path, monkeypatch, *opened: FakeCapture | EngineError) -> list:
+def reopening(tmp_path, monkeypatch, *opened: FakeCapture | EngineError | Callable[[], FakeCapture]) -> list:
     config = tmp_path / "home" / ".config" / "orb" / "config.json"
     config.parent.mkdir(parents=True, exist_ok=True)
     config.write_text(json.dumps({"capture": {"engine": "fake"}}), encoding="utf-8")
@@ -764,13 +766,13 @@ def reopening(tmp_path, monkeypatch, *opened: FakeCapture | EngineError) -> list
     queued = list(opened)
 
     def open_capture(section, home):
-        assert section == {"engine": "fake"}
+        assert (section, home) == ({"engine": "fake"}, tmp_path / "home")
         result = queued.pop(0)
         if isinstance(result, Exception):
             raise result
-        return result
+        return result if isinstance(result, FakeCapture) else result()
 
-    monkeypatch.setattr(server_module, "Capture", open_capture)
+    monkeypatch.setattr(capture_module, "Capture", open_capture)
     return queued
 
 
@@ -857,6 +859,20 @@ def test_a_capture_reopened_during_a_browser_recording_is_closed_and_the_recordi
     run(go())
 
 
+def test_a_capture_reopened_during_a_wake_word_clip_is_closed(tmp_path, monkeypatch):
+    async def go():
+        late = FakeCapture()
+        queued = reopening(tmp_path, monkeypatch, late)
+        server, capture, pump = await captured_server(tmp_path)
+        server.waker = SimpleNamespace(recording=[])
+        capture.events.put(Ended("no audio from the microphone for 2.5 s"))
+        await wait_for(lambda: not queued)
+        late.frame(0.08)
+        await wait_for(lambda: late.closed)
+        assert server.capture is None
+        pump.cancel()
+    run(go())
+
 def test_a_capture_still_reopening_when_the_orb_stops_is_closed(tmp_path, monkeypatch):
     async def go():
         opening = FakeCapture()
@@ -866,6 +882,58 @@ def test_a_capture_still_reopening_when_the_orb_stops_is_closed(tmp_path, monkey
         await wait_for(lambda: not queued)
         pump.cancel()
         await wait_for(lambda: opening.closed)
+    run(go())
+
+
+def test_a_capture_the_orb_stops_while_it_loads_is_closed_once_loaded(tmp_path, monkeypatch):
+    async def go():
+        loading, loaded, made = threading.Event(), threading.Event(), FakeCapture()
+
+        def load():
+            loading.set()
+            loaded.wait(2)
+            return made
+
+        reopening(tmp_path, monkeypatch, load)
+        server, capture, pump = await captured_server(tmp_path)
+        capture.events.put(Ended("no audio from the microphone for 2.5 s"))
+        await wait_for(loading.is_set)
+        pump.cancel()
+        await asyncio.sleep(0)
+        loaded.set()
+        await wait_for(lambda: made.closed)
+    run(go())
+
+
+def test_a_capture_engine_that_failed_at_start_is_reopened(tmp_path, monkeypatch):
+    async def go():
+        back = FakeCapture()
+        reopening(tmp_path, monkeypatch, back)
+        server = make(tmp_path, voice=True, wake_off=None)
+        server.capture_off = "no microphone found"
+        pump = asyncio.create_task(server.pump_capture())
+        back.frame(0.08)
+        await wait_for(lambda: server.capture is back)
+        finish(back, pump)
+    run(go())
+
+
+def test_reopening_backs_off_by_doubling_up_to_its_ceiling(tmp_path, monkeypatch):
+    async def go():
+        back = FakeCapture()
+        back.frame(0.08)
+        reopening(tmp_path, monkeypatch, *[EngineError("no microphone found")] * 4, back)
+        monkeypatch.setattr(server_module, "RECAPTURE_FIRST_S", 5.0)
+        monkeypatch.setattr(server_module, "RECAPTURE_MAX_S", 12.0)
+        delays = []
+
+        async def no_wait(seconds):
+            delays.append(seconds)
+
+        monkeypatch.setattr(server_module.asyncio, "sleep", no_wait)
+        server = make(tmp_path, voice=True)
+        await server.recapture()
+        assert delays == [5.0, 10.0, 12.0, 12.0, 12.0]
     run(go())
 
 def test_a_long_hold_is_not_cut_off_and_is_transcribed_whole_on_release(tmp_path):
