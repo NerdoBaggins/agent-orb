@@ -1093,6 +1093,28 @@ def test_a_stopped_streamed_reply_logs_the_render_factor_of_the_audio_it_rendere
     assert rendered >= 0.3 and factor == pytest.approx(rendered / audio, rel=0.1), line
 
 
+@pytest.mark.parametrize("hold_piece", [0, 1])
+def test_a_reply_stopped_while_its_next_piece_renders_logs_the_render_time_up_to_the_stop(tmp_path, caplog, hold_piece):
+    held = tmp_path / "held"
+
+    async def go():
+        server = streaming_server(tmp_path, pieces=3, seconds_per_word=0.1, hold_piece=hold_piece,
+                                  hold_piece_until=str(held))
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            with caplog.at_level("INFO", logger="orb"):
+                server.speaking = asyncio.create_task(server.speak("one two three four"))
+                await messages_until(ws, {"type": "speak_start", "sentences": 1})
+                await asyncio.sleep(1.0)
+                await server.stop_speaking()
+            held.write_text("go")
+        server.tts.close()
+    run(go())
+    [line] = [r.message for r in caplog.records if r.message.startswith("speech stopped")]
+    assert float(re.search(r"rendered in ([\d.]+)s", line).group(1)) >= 0.9, line
+
+
 def test_a_window_that_connects_while_a_streamed_render_runs_is_told_it_runs_and_one_after_is_told_it_ended(tmp_path):
     release = tmp_path / "release"
 
