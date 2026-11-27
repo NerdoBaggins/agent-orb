@@ -1,6 +1,8 @@
 import json
+import logging
 import os
 import queue
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -10,6 +12,8 @@ import numpy as np
 from orb import engines
 from orb.engines import decode_pcm
 from orb.finite import is_finite
+
+log = logging.getLogger(__name__)
 
 BURST_S = 0.3
 STALL_S = 2.0
@@ -86,3 +90,32 @@ class Capture:
 
     def close(self) -> bool:
         return self.process.close()
+
+
+def first_frame(capture: Capture) -> Frame | Ended:
+    while not isinstance(event := capture.next_event(), (Frame, Ended)):
+        log.info("capture engine: %s", event.text)
+    return event
+
+
+class Reopening:
+    def __init__(self, settings: dict, home: Path):
+        self.settings, self.home = settings, home
+        self.lock = threading.Lock()
+        self.capture: Capture | None = None
+        self.abandoned = False
+
+    def listen(self) -> tuple[Capture, Frame | Ended]:
+        capture = Capture(self.settings, self.home)
+        with self.lock:
+            self.capture = capture
+            abandoned = self.abandoned
+        if abandoned:
+            capture.close()
+        return capture, first_frame(capture)
+
+    def abandon(self) -> None:
+        with self.lock:
+            self.abandoned, capture = True, self.capture
+        if capture is not None:
+            capture.close()
