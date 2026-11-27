@@ -820,22 +820,6 @@ def test_a_reopened_capture_that_ends_before_any_audio_is_closed_without_taking_
     run(go())
 
 
-def test_a_capture_engine_that_fails_to_reopen_is_tried_again(tmp_path, monkeypatch):
-    async def go():
-        back = FakeCapture()
-        reopening(tmp_path, monkeypatch, EngineError("no microphone found"), back)
-        server, capture, pump = await captured_server(tmp_path)
-        async with await client_for(server) as c:
-            ws = await c.ws_connect("/ws", params={"token": TOKEN})
-            await ws.receive_json()
-            capture.events.put(Ended("no audio from the microphone for 2.5 s"))
-            assert (await capture_message(ws))["source"] == "browser"
-            back.frame(0.08)
-            assert (await capture_message(ws))["source"] == "server"
-        finish(back, pump)
-    run(go())
-
-
 def test_a_capture_reopened_during_a_browser_recording_is_closed_and_the_recording_kept(tmp_path, monkeypatch):
     async def go():
         late = FakeCapture()
@@ -871,6 +855,21 @@ def test_a_capture_reopened_during_a_wake_word_clip_is_closed(tmp_path, monkeypa
         await wait_for(lambda: late.closed)
         assert server.capture is None
         pump.cancel()
+    run(go())
+
+def test_a_reopened_capture_records_none_of_the_audio_from_before_it_was_lost(tmp_path, monkeypatch):
+    async def go():
+        back = FakeCapture()
+        reopening(tmp_path, monkeypatch, back)
+        server, capture, pump = await captured_server(tmp_path)
+        capture.frame(0.08, value=0.1)
+        await wait_for(lambda: len(server.preroll) == 1)
+        capture.events.put(Ended("no audio from the microphone for 2.5 s"))
+        await wait_for(lambda: server.capture is None)
+        back.frame(0.08, value=0.9)
+        await wait_for(lambda: server.capture is back)
+        assert [float(samples[0]) for samples in server.preroll] == [pytest.approx(0.9)]
+        finish(back, pump)
     run(go())
 
 def test_a_capture_still_reopening_when_the_orb_stops_is_closed(tmp_path, monkeypatch):

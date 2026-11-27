@@ -1,9 +1,11 @@
 import time
+from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
 from orb import capture as capture_module
-from orb.capture import Capture, Ended, Frame, Notice
+from orb.capture import Capture, Ended, Frame, Notice, first_frame
 from orb.engines import EngineError
 
 
@@ -135,3 +137,9 @@ def test_a_capture_engines_tail_is_its_latency_and_a_burst(tmp_path):
 def test_a_capture_engine_that_leaves_its_latency_out_does_not_load(tmp_path):
     with pytest.raises(EngineError, match="did not report its latency"):
         fake(tmp_path, omit_latency=True)
+
+
+def test_the_first_frame_of_a_reopened_capture_is_awaited_past_its_notices():
+    frame = Frame(np.zeros(4, dtype=np.float32), 0.0)
+    events = iter([Notice("the microphone is not available"), Notice("retrying"), frame])
+    assert first_frame(SimpleNamespace(next_event=lambda: next(events))) is frame

@@ -1565,6 +1565,7 @@ class OrbServer:
 
     async def capture_lost(self, reason: str) -> None:
         capture, self.capture, self.capture_off = self.capture, None, reason
+        self.preroll.clear()
         await asyncio.to_thread(capture.close)
         log.warning("capture engine stopped: %s; using the browser's microphone", reason)
         if self.recording is not None:
@@ -1590,7 +1591,7 @@ class OrbServer:
             if isinstance(event, Frame) and self.recording is None and not self.wake_recording:
                 await self.adopt_capture(capture, event)
                 return
-            log.info("server capture still off: %s", event.reason if isinstance(event, Ended) else "a recording began while it opened")
+            log.info("server capture still off: %s", event.reason if isinstance(event, Ended) else "a recording is in progress")
             await asyncio.to_thread(capture.close)
 
     async def adopt_capture(self, capture: Capture, frame: Frame) -> None:
