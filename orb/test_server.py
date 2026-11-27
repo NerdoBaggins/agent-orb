@@ -755,6 +755,119 @@ def test_a_lost_capture_hands_the_microphone_back_to_the_page_and_says_why(tmp_p
     run(go())
 
 
+
+def reopening(tmp_path, monkeypatch, *opened: FakeCapture | EngineError) -> list:
+    config = tmp_path / "home" / ".config" / "orb" / "config.json"
+    config.parent.mkdir(parents=True, exist_ok=True)
+    config.write_text(json.dumps({"capture": {"engine": "fake"}}), encoding="utf-8")
+    monkeypatch.setattr(server_module, "RECAPTURE_FIRST_S", 0.01)
+    queued = list(opened)
+
+    def open_capture(section, home):
+        assert section == {"engine": "fake"}
+        result = queued.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    monkeypatch.setattr(server_module, "Capture", open_capture)
+    return queued
+
+
+async def capture_message(ws):
+    while (m := await ws.receive_json())["type"] != "capture":
+        pass
+    return m["capture"]
+
+
+def test_a_lost_capture_is_reopened_and_takes_the_microphone_back_once_it_delivers_audio(tmp_path, monkeypatch):
+    async def go():
+        back = FakeCapture()
+        reopening(tmp_path, monkeypatch, back)
+        server, capture, pump = await captured_server(tmp_path)
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            capture.events.put(Ended("no audio from the microphone for 2.5 s"))
+            assert (await capture_message(ws))["source"] == "browser"
+            back.frame(0.08)
+            assert await capture_message(ws) == {"source": "server", "engine": "fake", "device": "Fake Mic"}
+            notice = await ws.receive_json()
+            assert (notice["level"], notice["text"]) == ("info", "server capture is back (Fake Mic)")
+            assert server.capture is back and len(server.preroll) == 1
+        finish(back, pump)
+    run(go())
+
+
+def test_a_reopened_capture_that_ends_before_any_audio_is_closed_without_taking_the_microphone(tmp_path, monkeypatch):
+    async def go():
+        silent, back = FakeCapture(), FakeCapture()
+        silent.events.put(Ended("no audio from the microphone for 2.5 s"))
+        reopening(tmp_path, monkeypatch, silent, back)
+        server, capture, pump = await captured_server(tmp_path)
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            capture.events.put(Ended("no audio from the microphone for 2.5 s"))
+            assert (await capture_message(ws))["source"] == "browser"
+            await wait_for(lambda: silent.closed)
+            back.frame(0.08)
+            assert (await capture_message(ws))["source"] == "server"
+            assert server.capture is back
+        finish(back, pump)
+    run(go())
+
+
+def test_a_capture_engine_that_fails_to_reopen_is_tried_again(tmp_path, monkeypatch):
+    async def go():
+        back = FakeCapture()
+        reopening(tmp_path, monkeypatch, EngineError("no microphone found"), back)
+        server, capture, pump = await captured_server(tmp_path)
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            capture.events.put(Ended("no audio from the microphone for 2.5 s"))
+            assert (await capture_message(ws))["source"] == "browser"
+            back.frame(0.08)
+            assert (await capture_message(ws))["source"] == "server"
+        finish(back, pump)
+    run(go())
+
+
+def test_a_capture_reopened_during_a_browser_recording_is_closed_and_the_recording_kept(tmp_path, monkeypatch):
+    async def go():
+        late = FakeCapture()
+        queued = reopening(tmp_path, monkeypatch, late)
+        server, capture, pump = await captured_server(tmp_path)
+        async with await client_for(server) as c:
+            ws = await c.ws_connect("/ws", params={"token": TOKEN})
+            await ws.receive_json()
+            capture.events.put(Ended("no audio from the microphone for 2.5 s"))
+            assert (await capture_message(ws))["source"] == "browser"
+            await wait_for(lambda: not queued)
+            await ws.send_json({"type": "ptt_start"})
+            await until_state(ws, "listening")
+            late.frame(0.08)
+            await wait_for(lambda: late.closed)
+            await ws.send_bytes(pcm(0.5))
+            await ws.send_json({"type": "ptt_stop"})
+            await wait_for(lambda: server.stt.received)
+            assert server.capture is None and server.stt.received == [int(0.5 * SAMPLE_RATE)]
+        pump.cancel()
+    run(go())
+
+
+def test_a_capture_still_reopening_when_the_orb_stops_is_closed(tmp_path, monkeypatch):
+    async def go():
+        opening = FakeCapture()
+        queued = reopening(tmp_path, monkeypatch, opening)
+        server, capture, pump = await captured_server(tmp_path)
+        capture.events.put(Ended("no audio from the microphone for 2.5 s"))
+        await wait_for(lambda: not queued)
+        pump.cancel()
+        await wait_for(lambda: opening.closed)
+    run(go())
+
 def test_a_long_hold_is_not_cut_off_and_is_transcribed_whole_on_release(tmp_path):
     async def go():
         server = make(tmp_path, voice=True)

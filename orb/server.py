@@ -56,6 +56,8 @@ WAIT_STEADY_POLLS = 3  # a step must outlast this many polls before the orb says
 PLAYBACK_GRACE_S = 5
 STREAM_LEAD_S = 1.0
 WAKE_RETRY_S = 60.0
+RECAPTURE_FIRST_S = 5.0
+RECAPTURE_MAX_S = 30.0
 INTERRUPT_SETTLE_S = 3.0
 PREROLL_FRAMES = 4
 BASE64_BLOCK = 3
@@ -1546,7 +1548,10 @@ class OrbServer:
         await self.heard_clip(samples)
 
     async def pump_capture(self) -> None:
-        while self.capture is not None:
+        while self.capture is not None or self.config["capture"] is not None:
+            if self.capture is None:
+                await self.recapture()
+                continue
             capture = self.capture
             event = await asyncio.to_thread(capture.next_event)
             if self.capture is not capture:
@@ -1567,6 +1572,37 @@ class OrbServer:
             await self.set_state(self.resume_state())
         await self.broadcast({"type": "capture", "capture": self.capture_snapshot()})
         await self.notify("error", f"server capture stopped: {reason}; using the browser's microphone")
+
+    async def recapture(self) -> None:
+        delay = RECAPTURE_FIRST_S
+        while True:
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, RECAPTURE_MAX_S)
+            try:
+                capture = await asyncio.to_thread(Capture, self.config["capture"], self.home)
+            except EngineError as e:
+                log.info("server capture still off: %s", e)
+                continue
+            try:
+                event = await asyncio.to_thread(self.first_frame, capture)
+            except BaseException:
+                capture.close()
+                raise
+            if isinstance(event, Frame) and self.recording is None:
+                self.capture, self.capture_off = capture, None
+                log.info("capturing the microphone with %s again (%s)", capture.name, capture.device)
+                await self.broadcast({"type": "capture", "capture": self.capture_snapshot()})
+                await self.notify("info", f"server capture is back ({capture.device})")
+                await self.captured_frame(event)
+                return
+            log.info("server capture still off: %s", event.reason if isinstance(event, Ended) else "a recording began while it opened")
+            await asyncio.to_thread(capture.close)
+
+    @staticmethod
+    def first_frame(capture: Capture) -> Frame | Ended:
+        while not isinstance(event := capture.next_event(), (Frame, Ended)):
+            log.info("capture engine: %s", event.text)
+        return event
 
     def capture_snapshot(self) -> dict:
         if self.capture is not None:
