@@ -1851,7 +1851,7 @@ class OrbServer:
         sentences = split_sentences(speakable(text))
         self.played.clear()
         await self.set_state("speaking", said)
-        seconds, rendered, started, first, streamed = 0.0, 0.0, time.monotonic(), None, self.streaming
+        seconds, rendered, started, first, streamed = 0.0, None, time.monotonic(), None, self.streaming
         lead = StreamLead(streamed)
 
         async def send(frames: list[bytes]) -> None:
@@ -1869,7 +1869,6 @@ class OrbServer:
                             if not samples.size:
                                 continue
                             seconds += samples.size / rate
-                            rendered = time.monotonic() - started
                             await send(lead.push(audio_frame(samples, rate), samples.size / rate))
                     await self.report_tts_failure()
                 await send(lead.release())
@@ -1883,6 +1882,7 @@ class OrbServer:
             except asyncio.TimeoutError:
                 log.warning("page did not report playback done within %.0fs", seconds + PLAYBACK_GRACE_S)
         except asyncio.CancelledError:
+            rendered = rendered if rendered is not None else time.monotonic() - started
             log.info("speech stopped: %.1fs of audio from %s%s rendered in %.2fs, %s", seconds, self.tts.name,
                      " streaming" if streamed else "", rendered, render_factor_text(rendered, seconds))
             await self.broadcast({"type": "speak_stop"})
