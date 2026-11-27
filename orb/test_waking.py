@@ -48,7 +48,7 @@ def test_building_the_waker_passes_what_each_of_its_engines_says_to_the_report(t
 
 
 def test_bad_settings_keep_the_wake_word_off_with_the_reason(tmp_path):
-    with pytest.raises(WakeOff, match="wake.threshold must be a non-negative number"):
+    with pytest.raises(WakeOff, match="wake.threshold must be a finite non-negative number"):
         build(fake_section(threshold="x"), tmp_path)
 
 

@@ -17,10 +17,13 @@ def test_settings_fill_in_the_defaults_and_name_the_phrase_from_the_model():
 
 @pytest.mark.parametrize("section, problem", [
     ({"engine": ""}, "wake.engine must be a non-empty string"),
-    ({"threshold": "high"}, "wake.threshold must be a non-negative number"),
-    ({"follow_up_s": -1}, "wake.follow_up_s must be a non-negative number"),
+    ({"threshold": "high"}, "wake.threshold must be a finite non-negative number"),
+    ({"follow_up_s": -1}, "wake.follow_up_s must be a finite non-negative number"),
     ({"voice_auth": "yes"}, "wake.voice_auth must be true or false"),
-    ({"silence_s": True}, "wake.silence_s must be a non-negative number"),
+    ({"silence_s": True}, "wake.silence_s must be a finite non-negative number"),
+    ({"threshold": float("nan")}, "wake.threshold must be a finite non-negative number"),
+    ({"follow_up_s": float("inf")}, "wake.follow_up_s must be a finite non-negative number"),
+    ({"prespeech_s": 10**400}, "wake.prespeech_s must be a finite non-negative number"),
 ])
 def test_bad_settings_are_refused_with_the_key_named(section, problem):
     with pytest.raises(WakeConfigError, match=problem):

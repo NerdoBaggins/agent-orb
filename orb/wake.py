@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from orb.audio import SAMPLE_RATE
+from orb.finite import is_finite
 from orb.pages import plain_name
 
 DEFAULTS = {"engine": "openwakeword", "threshold": 0.5, "vad": "silero", "voiceprint": "resemblyzer",
@@ -51,8 +52,8 @@ def settings(section: dict) -> Settings:
         if not plain_name(data[key]):
             raise WakeConfigError(f"wake.{key} must be a plain engine name (lowercase letters, digits, - or _), got {data[key]!r}")
     for key in ("threshold", "silence_s", "prespeech_s", "follow_up_s", "voice_auth_threshold"):
-        if not isinstance(data[key], (int, float)) or isinstance(data[key], bool) or data[key] < 0:
-            raise WakeConfigError(f"wake.{key} must be a non-negative number")
+        if not is_finite(data[key]) or data[key] < 0:
+            raise WakeConfigError(f"wake.{key} must be a finite non-negative number")
     if not isinstance(data["voice_auth"], bool):
         raise WakeConfigError("wake.voice_auth must be true or false")
     return Settings(**{k: data[k] for k in Settings.__dataclass_fields__})
