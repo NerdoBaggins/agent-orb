@@ -2,7 +2,7 @@ import importlib.util
 import json
 import re
 
-from orb import PLUGIN_ROOT, actions, doctor, feeds, logs, pages, wake
+from orb import PLUGIN_ROOT, actions, doctor, engines, feeds, logs, pages, wake
 from orb.config import SIZE_MAX, SIZE_MIN
 from orb.server import WINDOW_GRACE_S
 
@@ -68,3 +68,7 @@ def test_the_readme_states_how_long_the_doctor_probes_the_microphone():
 
 def test_the_readme_states_the_skin_size_range_the_code_clamps_to():
     assert f"`{{<skin>: <scale, {SIZE_MIN:g} to {SIZE_MAX:g}>}}`" in README
+
+
+def test_the_readme_states_the_shortest_max_seconds_the_code_accepts():
+    assert f"(a finite number, at least {engines.QUIET_SEARCH_S:g})" in flat(README)
