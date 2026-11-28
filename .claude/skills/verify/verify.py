@@ -6,6 +6,7 @@ import fnmatch
 import json
 import os
 import secrets
+import signal
 import shutil
 import socket
 import subprocess
@@ -131,17 +132,31 @@ class FakeSession:
         for group in self.hooks.get(event, []):
             for hook in group["hooks"]:
                 process = await asyncio.create_subprocess_shell(
-                    hook["command"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+                    hook["command"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env,
+                    **OWN_GROUP)
                 limit = hook.get("timeout", HOOK_TIMEOUT_S)
                 try:
                     _, err = await asyncio.wait_for(process.communicate(json.dumps(payload).encode("utf-8")), limit)
                 except asyncio.TimeoutError:
-                    process.kill()
+                    end_tree(process.pid)
                     await process.wait()
                     self.hook_failures.append(f"{event}: {hook['command']} ran past its {limit}s timeout")
                     continue
                 if process.returncode:
                     self.hook_failures.append(f"{event}: {hook['command']} exited {process.returncode}: {err.decode()[-500:]}")
+
+
+OWN_GROUP = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if sys.platform == "win32" else {"start_new_session": True}
+
+
+def end_tree(pid: int) -> None:
+    if sys.platform == "win32":
+        subprocess.run(["taskkill", "/T", "/F", "/PID", str(pid)], capture_output=True, check=False)
+    else:
+        try:
+            os.killpg(pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
 
 
 def channel_entry(server: str, text: str, request_id: str) -> dict:

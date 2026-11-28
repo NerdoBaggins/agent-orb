@@ -238,11 +238,36 @@ def test_a_hook_exiting_non_zero_is_recorded(tmp_path):
     assert "exited 3" in session.hook_failures[0]
 
 
-def test_a_hook_running_past_its_timeout_is_recorded_and_stopped(tmp_path):
-    session = session_with(tmp_path, hooks={"Stop": [{"hooks": [{"command": "sleep 30", "timeout": 0.3}]}]})
+def test_a_hook_running_past_its_timeout_is_recorded_and_stopped_with_what_it_started(tmp_path):
+    script = tmp_path / "spawns_a_child.py"
+    script.write_text("import subprocess, sys, time\n"
+                      "subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])\n"
+                      "time.sleep(30)\n", encoding="utf-8")
+    hook = {"command": f'"{sys.executable}" "{script}"', "timeout": 0.3}
+    session = session_with(tmp_path, hooks={"Stop": [{"hooks": [hook]}]})
     started = time.monotonic()
     asyncio.run(session.run_hooks("Stop", {}))
     assert "past its 0.3s timeout" in session.hook_failures[0] and time.monotonic() - started < 5
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="signals a POSIX process group")
+@pytest.mark.parametrize("reaped", [True, False])
+def test_ending_a_hook_whose_group_has_already_exited_does_not_raise(reaped):
+    gone = subprocess.Popen([sys.executable, "-c", "pass"], start_new_session=True)
+    if reaped:
+        gone.wait()
+    else:
+        time.sleep(1)
+    verify.end_tree(gone.pid)
+    gone.wait()
+
+
+def test_on_windows_a_timed_out_hook_is_ended_with_its_whole_tree(monkeypatch):
+    calls = []
+    monkeypatch.setattr(verify.sys, "platform", "win32")
+    monkeypatch.setattr(verify.subprocess, "run", lambda cmd, **kw: calls.append(cmd))
+    verify.end_tree(4321)
+    assert calls == [["taskkill", "/T", "/F", "/PID", "4321"]]
 
 
 def test_a_benchmark_run_past_its_timeout_says_so(monkeypatch):
