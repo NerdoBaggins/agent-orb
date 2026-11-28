@@ -13,7 +13,7 @@ from pathlib import Path
 from orb import agents, loopback
 from orb.background import copilot_running_tasks
 from orb import commands
-from orb.feed import ORB_TAG, copilot_busy, copilot_compacted, copilot_feed, failed_request, task_summary, turn_ended_since, turn_since
+from orb.feed import ORB_TAG, closing_text, copilot_busy, copilot_compacted, copilot_feed, failed_request, turn_ended_since, turn_since
 from orb.state import read_turn
 
 SEND_TIMEOUT_S = 30
@@ -133,8 +133,8 @@ def reply_to(events: list[dict], message_id: str) -> str | None:
     for event in events:
         kind, data = event.get("type"), _data(event)
         if kind == "assistant.message" and data.get("originatingMessageId") == origin:
-            summary = task_summary(data)
-            final = summary if summary is not None else None if data.get("toolRequests") else (data.get("content") or "")
+            closing = closing_text(data)
+            final = closing if closing is not None else None if data.get("toolRequests") else (data.get("content") or "")
         elif kind == "assistant.turn_end" and final is not None:
             return final
     return None

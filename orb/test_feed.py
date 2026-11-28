@@ -385,9 +385,9 @@ def test_a_copilot_sub_agents_own_messages_are_not_the_sessions_replies():
     assert [i["text"] for i in copilot_feed([sub, message("Done.", mid="m2")])] == ["Done."]
 
 
-def completes(summary, mid="m3", origin=None):
+def completes(summary, mid="m3", origin=None, content=""):
     call = {"toolCallId": "t9", "name": "task_complete", "arguments": {"summary": summary}, "toolTitle": "Task complete"}
-    data = {"messageId": mid, "content": "", "toolRequests": [call]}
+    data = {"messageId": mid, "content": content, "toolRequests": [call]}
     return {"type": "assistant.message", "timestamp": "t", "data": data | ({"originatingMessageId": origin} if origin else {})}
 
 
@@ -395,6 +395,12 @@ def test_a_turn_ended_by_task_complete_is_over_and_its_summary_is_the_final_repl
     events = [typed("open it"), completes("Opened the orb."), {"type": "assistant.turn_end"}]
     assert not copilot_busy(events)
     assert [(i["kind"], i["text"], i["final"]) for i in copilot_feed(events) if i["kind"] != "you"] == [("reply", "Opened the orb.", True)]
+
+
+def test_a_turn_ended_by_task_complete_shows_the_messages_own_text_over_its_summary():
+    events = [typed("show it"), completes("Findings panel shown.", content="The panel is up. It lists seven findings."),
+              {"type": "assistant.turn_end"}]
+    assert [(i["text"], i["final"]) for i in copilot_feed(events) if i["kind"] == "reply"] == [("The panel is up. It lists seven findings.", True)]
 
 
 def test_task_complete_does_not_end_a_turn_before_the_turn_does():

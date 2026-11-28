@@ -61,6 +61,11 @@ that has one adds it under Unreleased.
 
 ### Fixed
 
+- Under Copilot, the orb now speaks the answer rather than a note about it. When Copilot ended a turn with
+  `task_complete`, the orb spoke its summary, which was often a one-line description of what Copilot had done
+  ("Findings panel shown.") while the answer sat unspoken in the same message. The orb now speaks that message's
+  text and falls back to the summary only when there is none, and each orb request tells Copilot that the summary
+  must hold the whole answer, never a description of the turn ([#318](https://github.com/NerdoBaggins/agent-orb/issues/318)).
 - An engine's `max_seconds` must now be a finite number of at least 5 seconds, the length of the window the orb
   searches for a quiet point to cut a long clip at; anything else is refused when the engine loads, with its
   `engine.json` named. A value under 5 could make transcription never return, and infinity crashed it

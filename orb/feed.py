@@ -14,7 +14,8 @@ ECHO_START = "<command-"
 COMMAND_NAME = re.compile(r"<command-name>\s*(/?[^<\s]+)\s*</command-name>")
 INTERRUPTED = "[Request interrupted"
 NOTIFICATION_TURN_GRACE_S = 15.0
-ORB_TAG = "[orb: your final message is read aloud, so put the whole answer in it]"
+ORB_TAG = ("[orb: the text of your last message is read aloud, or your task_complete summary when that message has "
+           "no text, so put the whole answer to the user there, never a description of what you did]")
 ORB_TAG_AT_START = re.compile(r"^\[orb[^\]]*\]\s*")  # this tag, and the shorter one earlier sessions carry
 NOISE_PREFIXES = ("<local-command", "<system-reminder", "Base directory for this skill:", "<task-notification")
 
@@ -238,6 +239,13 @@ def task_summary(message: dict) -> str | None:
     return None
 
 
+def closing_text(message: dict) -> str | None:
+    summary = task_summary(message)
+    if summary is None:
+        return None
+    return str(message.get("content") or "").strip() or summary
+
+
 def copilot_feed(events: list[dict] | None, orb_message_ids: frozenset = frozenset(),
                  orb_answer_ids: frozenset = frozenset()) -> list[dict]:
     """As `claude_feed`. A reply is the orb's when it carries one of `orb_answer_ids`: the ids replies to the orb's
@@ -251,8 +259,8 @@ def copilot_feed(events: list[dict] | None, orb_message_ids: frozenset = frozens
                           "ts": stamp, "orb": data.get("messageId") in orb_message_ids})
         # A sub-agent's own messages are logged in the parent session, marked with the tool call that started it.
         elif kind == "assistant.message" and not data.get("parentToolCallId"):
-            summary = task_summary(data)
-            said = (summary if summary is not None else str(data.get("content") or "")).strip()
+            closing = closing_text(data)
+            said = (closing if closing is not None else str(data.get("content") or "")).strip()
             calls = [c for c in data.get("toolRequests") or () if c.get("name") != "task_complete"]
             if said:
                 items.append({"id": data.get("messageId") or event.get("id"), "kind": "reply", "text": said, "ts": stamp,
