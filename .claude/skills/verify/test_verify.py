@@ -238,8 +238,12 @@ def test_a_hook_exiting_non_zero_is_recorded(tmp_path):
     assert "exited 3" in session.hook_failures[0]
 
 
-def test_a_hook_running_past_its_timeout_is_recorded_and_stopped(tmp_path):
-    session = session_with(tmp_path, hooks={"Stop": [{"hooks": [{"command": "sleep 30", "timeout": 0.3}]}]})
+SPAWNS_A_CHILD = (f'"{sys.executable}" -c "import subprocess, sys, time; '
+                  f"subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)']); time.sleep(30)\"")
+
+
+def test_a_hook_running_past_its_timeout_is_recorded_and_stopped_with_what_it_started(tmp_path):
+    session = session_with(tmp_path, hooks={"Stop": [{"hooks": [{"command": SPAWNS_A_CHILD, "timeout": 0.3}]}]})
     started = time.monotonic()
     asyncio.run(session.run_hooks("Stop", {}))
     assert "past its 0.3s timeout" in session.hook_failures[0] and time.monotonic() - started < 5
