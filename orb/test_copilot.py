@@ -371,6 +371,17 @@ def test_the_answer_is_the_task_complete_summary_when_copilot_ends_its_turn_that
     assert reply_to(events + [END], "m1") == "Opened the orb."
 
 
+def test_the_answer_is_the_closing_messages_own_text_when_it_has_text_and_a_task_complete_summary():
+    call = {"toolCallId": "t9", "name": "task_complete", "arguments": {"summary": "Findings panel shown."}}
+    ending = {"type": "assistant.message", "data": {"messageId": "a", "originatingMessageId": "m1",
+                                                    "content": "The panel is up. It lists seven findings.", "toolRequests": [call]}}
+    assert reply_to([user("m1"), START, ending, END], "m1") == "The panel is up. It lists seven findings."
+
+
+def test_the_request_tells_copilot_its_task_complete_summary_is_read_aloud_when_its_last_message_has_no_text():
+    assert "task_complete summary" in ORB_TAG and "never a description of what you did" in ORB_TAG
+
+
 def copilot_link(tmp_path, turn=None):
     """A CopilotLink attached to session abc, with a turn its hooks recorded when given."""
     from datetime import datetime, timezone
