@@ -251,10 +251,15 @@ def test_a_hook_running_past_its_timeout_is_recorded_and_stopped_with_what_it_st
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="signals a POSIX process group")
-def test_ending_a_hook_whose_group_has_already_gone_does_not_raise():
+@pytest.mark.parametrize("reaped", [True, False])
+def test_ending_a_hook_whose_group_has_already_exited_does_not_raise(reaped):
     gone = subprocess.Popen([sys.executable, "-c", "pass"], start_new_session=True)
-    gone.wait()
+    if reaped:
+        gone.wait()
+    else:
+        time.sleep(1)
     verify.end_tree(gone.pid)
+    gone.wait()
 
 
 def test_on_windows_a_timed_out_hook_is_ended_with_its_whole_tree(monkeypatch):

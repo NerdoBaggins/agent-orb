@@ -155,7 +155,7 @@ def end_tree(pid: int) -> None:
     else:
         try:
             os.killpg(pid, signal.SIGKILL)
-        except ProcessLookupError:
+        except (ProcessLookupError, PermissionError):
             pass
 
 
