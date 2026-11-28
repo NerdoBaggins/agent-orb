@@ -124,8 +124,8 @@ def answering_id(events: list[dict], message_id: str) -> str | None:
 
 
 def reply_to(events: list[dict], message_id: str) -> str | None:
-    """The answer once Copilot has finished it: a message for this request asking for no tools, or completing the
-    task with its summary, then the end of that turn. None while it is still working."""
+    """The answer once Copilot has finished it: a message for this request asking for no tools, or one completing the
+    task (its text, else its summary), then the end of that turn. None while it is still working."""
     origin = answering_id(events, message_id)
     if not origin:
         return None
