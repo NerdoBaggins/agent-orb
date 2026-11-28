@@ -230,8 +230,7 @@ def _data(event: dict) -> dict:
 
 
 def task_summary(message: dict) -> str | None:
-    """What Copilot said by ending its turn with `task_complete`, which carries the answer in its summary and is
-    followed by no plain message; None when the message makes no such call."""
+    """The summary of the message's `task_complete` call, which ends Copilot's turn; None when it makes no such call."""
     for call in message.get("toolRequests") or ():
         if call.get("name") == "task_complete":
             arguments = call.get("arguments") if isinstance(call.get("arguments"), dict) else {}
